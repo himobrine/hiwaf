@@ -19,6 +19,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import List, Optional
@@ -66,7 +67,11 @@ async def lifespan(_app: FastAPI):
     retention_scheduler.start()
     # 审计日志默认保留 90 天：系统每日自动清理；admin 也可在审计页手动预览/清理。
     audit_retention_scheduler.start()
+    # 线程内连接复用：每条新连接的第一条语句本机约 23 ms（见 db.py）。
+    # 放在 init() 之后、开始接请求之前；测试不启动 app，因此不受影响。
+    db.enable_pool()
     yield
+    db.close_thread_connection()
 
 
 app = FastAPI(title="WAF 控制台 API", version="1.0.0", lifespan=lifespan)
@@ -502,10 +507,28 @@ def change_password(body: PasswordIn, request: Request,
 
 
 # --------------------------------------------------------------------------- 总览
-@app.get("/api/overview/summary")
-def overview(window_hours: int = Query(24, ge=1, le=24 * 90),
-             user: dict = Depends(auth.current_user)):
-    since = db.now_ms() - window_hours * 3600 * 1000
+#: 事件聚合缓存：key = (DB 路径, window_hours)。15s 轮询下 5s 足够新；
+#: 多标签页同时打开时能省掉重复的 COUNT/分组扫描。
+_OVERVIEW_CACHE: dict = {}
+_OVERVIEW_LOCK = threading.Lock()
+
+
+def _overview_cache_clear() -> None:
+    """测试 / 运维用：清空总览聚合缓存。"""
+    with _OVERVIEW_LOCK:
+        _OVERVIEW_CACHE.clear()
+
+
+def _overview_event_summary(since: int, window_hours: int) -> dict:
+    ttl = max(0, int(config.OVERVIEW_CACHE_SEC))
+    key = (str(config.DB_PATH), int(window_hours))
+    now = time.monotonic()
+    if ttl:
+        with _OVERVIEW_LOCK:
+            hit = _OVERVIEW_CACHE.get(key)
+            if hit and hit[0] > now:
+                return hit[1]
+
     t = db.one(
         """SELECT COUNT(*) AS n,
                   COALESCE(SUM(action='block'),0)  AS blocks,
@@ -518,13 +541,17 @@ def overview(window_hours: int = Query(24, ge=1, le=24 * 90),
         (since,),
     ) or {}
 
+    # 直方图在 SQL 里分桶：0.0–0.1 → 0 … 0.9–1.0 → 9，超界夹到两端。
     hist = [0] * 10
-    for r in db.rows("SELECT supervised_score AS s FROM events WHERE ts>=? AND supervised_score IS NOT NULL", (since,)):
-        try:
-            b = int(float(r["s"]) * 10)
-        except (TypeError, ValueError):
-            continue
-        hist[max(0, min(9, b))] += 1
+    for r in db.rows(
+        """SELECT MIN(9, MAX(0, CAST(supervised_score * 10 AS INTEGER))) AS b,
+                  COUNT(*) AS n
+           FROM events
+           WHERE ts>=? AND supervised_score IS NOT NULL
+           GROUP BY b""",
+        (since,),
+    ):
+        hist[int(r["b"])] = int(r["n"])
 
     top = db.rows(
         """SELECT COALESCE(attack_type,'unknown') AS attack_type, COUNT(*) AS n
@@ -538,6 +565,26 @@ def overview(window_hours: int = Query(24, ge=1, le=24 * 90),
            GROUP BY path ORDER BY n DESC LIMIT 10""",
         (since,),
     )
+    payload = {
+        "totals": t,
+        "score_histogram": hist,
+        "top_attack_types": top,
+        "top_paths": top_paths,
+    }
+    if ttl:
+        with _OVERVIEW_LOCK:
+            # 窗口数有限，简单限长避免长期进程里无限增长。
+            if len(_OVERVIEW_CACHE) > 64:
+                _OVERVIEW_CACHE.clear()
+            _OVERVIEW_CACHE[key] = (now + ttl, payload)
+    return payload
+
+
+@app.get("/api/overview/summary")
+def overview(window_hours: int = Query(24, ge=1, le=24 * 90),
+             user: dict = Depends(auth.current_user)):
+    since = db.now_ms() - window_hours * 3600 * 1000
+    agg = _overview_event_summary(since, window_hours)
 
     pol = _policy()
     metrics = _collector_metrics()
@@ -547,10 +594,10 @@ def overview(window_hours: int = Query(24, ge=1, le=24 * 90),
 
     return {
         "window_hours": window_hours,
-        "totals": t,
-        "score_histogram": hist,
-        "top_attack_types": top,
-        "top_paths": top_paths,
+        "totals": agg["totals"],
+        "score_histogram": agg["score_histogram"],
+        "top_attack_types": agg["top_attack_types"],
+        "top_paths": agg["top_paths"],
         "policy": {
             "version": pol.get("version"),
             "zero_day_enabled": pol.get("zero_day_enabled"),
@@ -682,10 +729,26 @@ def list_events(
     to_ts: Optional[int] = None,
     q: Optional[str] = None,
     rule_testing: Optional[bool] = None,
+    cursor_ts: Optional[int] = None,
+    cursor_id: Optional[int] = None,
+    with_total: bool = True,
     user: dict = Depends(auth.current_user),
 ):
+    """事件列表：offset 分页或 keyset 游标分页。
+
+    keyset（`cursor_ts` + `cursor_id`）用 `(ts, id) < (cursor)` 定位下一页，
+    大 offset 时不需要扫描/丢弃前 N 行；返回 `next_cursor` / `has_more`。
+    `with_total=false` 跳过 `COUNT(*)`（翻页时总数可由第一页带过来）。
+    """
     w, p = _event_filter(action, src_ip, path, min_score, from_ts, to_ts, q, rule_testing)
-    total = db.scalar(f"SELECT COUNT(*) AS n FROM events WHERE {w}", p, 0)
+    if cursor_ts is not None and cursor_id is not None:
+        # (ts, id) 复合游标：同一毫秒内多条事件也能稳定翻页，不重不漏。
+        w += " AND (ts < ? OR (ts = ? AND id < ?))"
+        p = p + [cursor_ts, cursor_ts, cursor_id]
+        offset = 0
+
+    total = (db.scalar(f"SELECT COUNT(*) AS n FROM events WHERE {w}", p, 0)
+             if with_total else None)
     items = db.rows(
         f"""SELECT id, ts, src_ip, src_port, method, path, status, dur_ms,
                    body_len, body_truncated, action, supervised_score,
@@ -694,16 +757,23 @@ def list_events(
                    zero_day_score_crossed, zero_day_flagged, zero_day_enabled,
                    attack_label, attack_type, ua, dry_run, rule_testing,
                    rule_set_sha1_16, rule_hits_json
-            FROM events WHERE {w} ORDER BY ts DESC LIMIT ? OFFSET ?""",
-        p + [limit, offset],
+            FROM events WHERE {w} ORDER BY ts DESC, id DESC LIMIT ? OFFSET ?""",
+        p + [limit + 1, offset],
     )
+    has_more = len(items) > limit
+    items = items[:limit]
+    next_cursor = None
+    if has_more and items:
+        last = items[-1]
+        next_cursor = {"ts": last["ts"], "id": last["id"]}
     for it in items:
         try:
             it["rule_hits"] = json.loads(it.get("rule_hits_json") or "[]")
         except Exception:
             it["rule_hits"] = []
         it.pop("rule_hits_json", None)
-    return {"total": total, "limit": limit, "offset": offset, "items": items}
+    return {"total": total, "limit": limit, "offset": offset, "items": items,
+            "has_more": has_more, "next_cursor": next_cursor}
 
 
 @app.get("/api/events/{eid}")
@@ -837,10 +907,23 @@ def list_alerts(
     for r in items:
         key = f"{r['src_ip']}|{r['action']}|{r.get('method')} {r.get('path')}|{r['bucket']}"
         r["group_key"] = key
-        st = db.one("SELECT status, assignee FROM alert_state WHERE group_key=?", (key,))
+        r["severity"] = "P1" if r["action"] == "block" else "P2"
+
+    # 批量取确认状态，避免每行一次查询（最多 500 行）。
+    states = {}
+    keys = [r["group_key"] for r in items]
+    if keys:
+        ph = ",".join("?" * len(keys))
+        states = {
+            s["group_key"]: s
+            for s in db.rows(
+                f"SELECT group_key, status, assignee FROM alert_state "
+                f"WHERE group_key IN ({ph})", keys)
+        }
+    for r in items:
+        st = states.get(r["group_key"])
         r["status"] = st["status"] if st else "open"
         r["assignee"] = st["assignee"] if st else None
-        r["severity"] = "P1" if r["action"] == "block" else "P2"
     return {"window_hours": window_hours, "bucket_min": bucket_min, "items": items}
 
 
