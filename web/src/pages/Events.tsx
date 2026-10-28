@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Alert,
   Button,
@@ -19,13 +19,20 @@ import EventDetailDrawer, { ActionTag } from '../components/EventDetailDrawer'
 
 const { Title, Text } = Typography
 
+/** keyset 游标：上一页最后一条的 (ts, id)。 */
+type Cursor = { ts: number; id: number }
+
 export default function Events({ user }: { user: User }) {
   const [rows, setRows] = useState<EventRow[]>([])
-  const [total, setTotal] = useState(0)
+  const [total, setTotal] = useState<number | null>(null)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(50)
+  const [hasMore, setHasMore] = useState(false)
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState('')
+  // 每页的起点游标；cursors[0] = null（第一页用 offset=0）。
+  const cursorsRef = useRef<(Cursor | null)[]>([null])
+  const [refreshTick, setRefreshTick] = useState(0)
 
   const [action, setAction] = useState<string | undefined>(undefined)
   const [srcIp, setSrcIp] = useState('')
@@ -36,13 +43,26 @@ export default function Events({ user }: { user: User }) {
 
   const [detailId, setDetailId] = useState<number | null>(null)
 
+  const resetPaging = () => {
+    cursorsRef.current = [null]
+    setPage(1)
+  }
+
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
     setErr('')
     try {
+      const cursor = cursorsRef.current[page - 1] ?? null
       const p = new URLSearchParams()
       p.set('limit', String(pageSize))
-      p.set('offset', String((page - 1) * pageSize))
+      // keyset 翻页：只按 (ts,id) 定位，不扫描/丢弃前 N 行。
+      if (cursor) {
+        p.set('cursor_ts', String(cursor.ts))
+        p.set('cursor_id', String(cursor.id))
+      }
+      // 只有第一页统计总数；翻页沿用第一页的 total，省掉重复 COUNT(*)。
+      p.set('with_total', page === 1 ? '1' : '0')
+      if (page === 1) p.set('offset', '0')
       if (action) p.set('action', action)
       if (srcIp) p.set('src_ip', srcIp)
       if (path) p.set('path', path)
@@ -51,13 +71,15 @@ export default function Events({ user }: { user: User }) {
       if (onlyTesting) p.set('rule_testing', '1')
       const r = await api<any>(`/api/events?${p.toString()}`)
       setRows(r.items || [])
-      setTotal(r.total || 0)
+      if (typeof r.total === 'number') setTotal(r.total)
+      setHasMore(!!r.has_more)
+      if (r.next_cursor) cursorsRef.current[page] = r.next_cursor
     } catch (e: any) {
       setErr(e?.message || '加载失败')
     } finally {
       if (!silent) setLoading(false)
     }
-  }, [page, pageSize, action, srcIp, path, q, minScore, onlyTesting])
+  }, [page, pageSize, action, srcIp, path, q, minScore, onlyTesting, refreshTick])
 
   useEffect(() => {
     load()
@@ -77,7 +99,7 @@ export default function Events({ user }: { user: User }) {
           style={{ width: 120 }}
           value={action}
           onChange={(v) => {
-            setPage(1)
+            resetPaging()
             setAction(v)
           }}
           options={[
@@ -92,8 +114,8 @@ export default function Events({ user }: { user: User }) {
           value={srcIp}
           onChange={(e) => setSrcIp(e.target.value)}
           onPressEnter={() => {
-            setPage(1)
-            load()
+            resetPaging()
+            setRefreshTick((v) => v + 1)
           }}
         />
         <Input
@@ -102,8 +124,8 @@ export default function Events({ user }: { user: User }) {
           value={path}
           onChange={(e) => setPath(e.target.value)}
           onPressEnter={() => {
-            setPage(1)
-            load()
+            resetPaging()
+            setRefreshTick((v) => v + 1)
           }}
         />
         <Input
@@ -112,8 +134,8 @@ export default function Events({ user }: { user: User }) {
           value={q}
           onChange={(e) => setQ(e.target.value)}
           onPressEnter={() => {
-            setPage(1)
-            load()
+            resetPaging()
+            setRefreshTick((v) => v + 1)
           }}
         />
         <InputNumber
@@ -131,7 +153,7 @@ export default function Events({ user }: { user: User }) {
               size="small"
               checked={onlyTesting}
               onChange={(v) => {
-                setPage(1)
+                resetPaging()
                 setOnlyTesting(v)
               }}
             />
@@ -142,13 +164,16 @@ export default function Events({ user }: { user: User }) {
           icon={<SearchOutlined />}
           type="primary"
           onClick={() => {
-            setPage(1)
-            load()
+            resetPaging()
+            setRefreshTick((v) => v + 1)
           }}
         >
           查询
         </Button>
-        <Button icon={<ReloadOutlined />} onClick={() => load()}>
+        <Button
+          icon={<ReloadOutlined />}
+          onClick={() => setRefreshTick((v) => v + 1)}
+        >
           刷新
         </Button>
         <span className="muted">自动刷新 15s</span>
@@ -162,18 +187,7 @@ export default function Events({ user }: { user: User }) {
         loading={loading}
         dataSource={rows}
         onRow={(r) => ({ onClick: () => setDetailId(r.id), style: { cursor: 'pointer' } })}
-        pagination={{
-          current: page,
-          pageSize,
-          total,
-          showSizeChanger: true,
-          pageSizeOptions: ['20', '50', '100', '200'],
-          onChange: (p, ps) => {
-            setPage(p)
-            setPageSize(ps)
-          },
-          showTotal: (n) => `共 ${n} 条`,
-        }}
+        pagination={false}
         columns={[
           { title: '时间', dataIndex: 'ts', width: 165, render: (v) => fmtTs(v) },
           { title: '源 IP', dataIndex: 'src_ip', width: 130 },
@@ -243,6 +257,34 @@ export default function Events({ user }: { user: User }) {
           },
         ]}
       />
+
+      <Space style={{ marginTop: 12 }} wrap>
+        <Button size="small" disabled={page <= 1} onClick={() => setPage(page - 1)}>
+          上一页
+        </Button>
+        <span className="muted">第 {page} 页</span>
+        <Button size="small" disabled={!hasMore} onClick={() => setPage(page + 1)}>
+          下一页
+        </Button>
+        <Select
+          size="small"
+          value={pageSize}
+          style={{ width: 110 }}
+          onChange={(v) => {
+            resetPaging()
+            setPageSize(v)
+          }}
+          options={[
+            { value: 20, label: '20 条/页' },
+            { value: 50, label: '50 条/页' },
+            { value: 100, label: '100 条/页' },
+            { value: 200, label: '200 条/页' },
+          ]}
+        />
+        <span className="muted">
+          {total === null ? '按时间倒序 · 游标翻页' : `共 ${total} 条（第一页统计）`}
+        </span>
+      </Space>
 
       <EventDetailDrawer
         eventId={detailId}
