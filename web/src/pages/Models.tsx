@@ -26,7 +26,8 @@ import {
   RollbackOutlined,
   SwapOutlined,
 } from '@ant-design/icons'
-import ReactECharts from 'echarts-for-react'
+import ReactEChartsCore from 'echarts-for-react/lib/core'
+import echarts from '../echarts'
 import { api, fmtBytes, fmtInt, fmtNum, fmtTs } from '../api'
 import type { User } from '../types'
 
@@ -634,7 +635,8 @@ export default function Models({ user }: { user: User }) {
           </div>
         ) : lineage && lineage.n ? (
           <>
-            <ReactECharts
+            <ReactEChartsCore
+              echarts={echarts}
               option={lineageOption(lineage)}
               onEvents={{
                 click: (p: any) => {
@@ -737,7 +739,8 @@ export default function Models({ user }: { user: User }) {
                   key: 'registry',
                   label: curveLabel ? `模型曲线 · ${curveLabel}` : '模型曲线',
                   children: curveData ? (
-                    <ReactECharts
+                    <ReactEChartsCore
+                      echarts={echarts}
                       option={curveOption(curveData.series)}
                       style={{ height: 300 }}
                       notMerge
@@ -752,7 +755,8 @@ export default function Models({ user }: { user: User }) {
                   key: 'legacy',
                   label: '曲线库',
                   children: legacyCurveData ? (
-                    <ReactECharts
+                    <ReactEChartsCore
+                      echarts={echarts}
                       option={curveOption(legacyCurveData.series)}
                       style={{ height: 300 }}
                       notMerge

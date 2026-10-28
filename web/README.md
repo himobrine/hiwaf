@@ -24,6 +24,19 @@ npm run build                           # 产物 web/dist
 
 初始账号见 `python/service/.admin_password`。
 
+## 构建与拆包
+
+- **路由级懒加载**：`src/App.tsx` 用 `React.lazy` + `Suspense`，首屏只加载总览，其余页面按路由下载。
+- **第三方分包**：`vite.config.ts` 的 `manualChunks` 把 `react` / `antd` 拆成稳定 chunk；
+  业务改动不会让这两个大包缓存失效。
+- **ECharts 按需**：统一在 `src/echarts.ts` 注册实际用到的图表与组件
+  （bar / pie / line / tree + grid / tooltip / legend / title + canvas）。
+  新增图表类型时**只改这一处**，不要在页面里 `import 'echarts-for-react'`（会打进全量 ECharts）。
+- 当前构建产物：`antd ≈ 1.15 MB`、`echarts ≈ 578 KB`（仅图表页加载）、
+  各路由 chunk 2–56 KB、入口 `index ≈ 20 KB`。
+- 构建后自检：`npm run typecheck && npm run build`；浏览器打开 `/` 与 `/#/models`，
+  确认控制台无报错、代际树正常渲染。
+
 ## 页面
 
 | 路由 | 页面 | 说明 |

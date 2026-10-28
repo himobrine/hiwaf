@@ -19,7 +19,8 @@ import {
   Typography,
   message,
 } from 'antd'
-import ReactECharts from 'echarts-for-react'
+import ReactEChartsCore from 'echarts-for-react/lib/core'
+import echarts from '../echarts'
 import { api, download, fmtBytes, fmtInt, fmtNum, fmtTs } from '../api'
 import type { EventDetail, EventPacket, PacketMessage, RuleHit, User } from '../types'
 
@@ -562,7 +563,7 @@ export default function EventDetailDrawer({
             extra={<span className="muted">红色推高、绿色拉低；仅供解释，不参与判定</span>}
           >
             {shap.length ? (
-              <ReactECharts option={shapOption} style={{ height: 300 }} />
+              <ReactEChartsCore echarts={echarts} option={shapOption} style={{ height: 300 }} />
             ) : (
               <div className="muted">该记录没有归因数据（树件/特征名缺失时为正常现象）</div>
             )}

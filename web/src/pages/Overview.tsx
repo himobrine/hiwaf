@@ -16,7 +16,8 @@ import {
   Button,
 } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
-import ReactECharts from 'echarts-for-react'
+import ReactEChartsCore from 'echarts-for-react/lib/core'
+import echarts from '../echarts'
 import { api, fmtInt, fmtNum, fmtPct, fmtTs } from '../api'
 import type { ReloadView } from '../types'
 
@@ -432,13 +433,13 @@ export default function Overview() {
       <Row gutter={[12, 12]} style={{ marginTop: 12 }}>
         <Col xs={24} lg={12}>
           <Card size="small" title="监督通道分数分布（1 − P(normal)）">
-            <ReactECharts option={histOption} style={{ height: 260 }} />
+            <ReactEChartsCore echarts={echarts} option={histOption} style={{ height: 260 }} />
           </Card>
         </Col>
         <Col xs={24} lg={12}>
           <Card size="small" title="命中攻击类型（argmax，仅归类）">
             {pieData.length ? (
-              <ReactECharts option={pieOption} style={{ height: 260 }} />
+              <ReactEChartsCore echarts={echarts} option={pieOption} style={{ height: 260 }} />
             ) : (
               <div className="muted" style={{ padding: 40, textAlign: 'center' }}>
                 窗口内无监督命中

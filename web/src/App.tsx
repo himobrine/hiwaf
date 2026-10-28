@@ -1,20 +1,23 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
+import { Spin } from 'antd'
 import { getToken, setToken } from './api'
 import type { User } from './types'
 import AppLayout from './components/AppLayout'
 import Login from './pages/Login'
-import Overview from './pages/Overview'
-import Events from './pages/Events'
-import Alerts from './pages/Alerts'
-import Policy from './pages/Policy'
-import Feedback from './pages/Feedback'
-import Rules from './pages/Rules'
-import Models from './pages/Models'
-import Datasets from './pages/Datasets'
-import Tasks from './pages/Tasks'
-import Degradation from './pages/Degradation'
-import Audit from './pages/Audit'
+
+// 路由级懒加载：首屏只加载总览，模型页的 ECharts 等按需下载。
+const Overview = lazy(() => import('./pages/Overview'))
+const Events = lazy(() => import('./pages/Events'))
+const Alerts = lazy(() => import('./pages/Alerts'))
+const Policy = lazy(() => import('./pages/Policy'))
+const Feedback = lazy(() => import('./pages/Feedback'))
+const Rules = lazy(() => import('./pages/Rules'))
+const Models = lazy(() => import('./pages/Models'))
+const Datasets = lazy(() => import('./pages/Datasets'))
+const Tasks = lazy(() => import('./pages/Tasks'))
+const Degradation = lazy(() => import('./pages/Degradation'))
+const Audit = lazy(() => import('./pages/Audit'))
 
 function loadUser(): User | null {
   try {
@@ -56,20 +59,30 @@ export default function App() {
         setUser(null)
       }}
     >
-      <Routes>
-        <Route path="/" element={<Overview />} />
-        <Route path="/events" element={<Events user={user} />} />
-        <Route path="/alerts" element={<Alerts user={user} />} />
-        <Route path="/policy" element={<Policy user={user} />} />
-        <Route path="/feedback" element={<Feedback user={user} />} />
-        <Route path="/rules" element={<Rules user={user} />} />
-        <Route path="/models" element={<Models user={user} />} />
-        <Route path="/datasets" element={<Datasets user={user} />} />
-        <Route path="/tasks" element={<Tasks user={user} />} />
-        <Route path="/degradation" element={<Degradation />} />
-        <Route path="/audit" element={<Audit />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+      <Suspense
+        fallback={
+          <div style={{ padding: 64, textAlign: 'center' }}>
+            <Spin size="large" tip="加载页面…">
+              <div style={{ height: 80 }} />
+            </Spin>
+          </div>
+        }
+      >
+        <Routes>
+          <Route path="/" element={<Overview />} />
+          <Route path="/events" element={<Events user={user} />} />
+          <Route path="/alerts" element={<Alerts user={user} />} />
+          <Route path="/policy" element={<Policy user={user} />} />
+          <Route path="/feedback" element={<Feedback user={user} />} />
+          <Route path="/rules" element={<Rules user={user} />} />
+          <Route path="/models" element={<Models user={user} />} />
+          <Route path="/datasets" element={<Datasets user={user} />} />
+          <Route path="/tasks" element={<Tasks user={user} />} />
+          <Route path="/degradation" element={<Degradation />} />
+          <Route path="/audit" element={<Audit />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Suspense>
     </AppLayout>
   )
 }

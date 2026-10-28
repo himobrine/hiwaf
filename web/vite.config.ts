@@ -10,5 +10,18 @@ export default defineConfig({
       '/api': 'http://127.0.0.1:8090',
     },
   },
-  build: { outDir: 'dist', chunkSizeWarningLimit: 1500 },
+  build: {
+    outDir: 'dist',
+    chunkSizeWarningLimit: 1200,
+    rollupOptions: {
+      output: {
+        // 稳定的第三方分包：React / antd 不随业务代码变动而失效。
+        // ECharts 不在这里手动分，让它跟着 /models 与事件抽屉的懒加载 chunk 走。
+        manualChunks: {
+          react: ['react', 'react-dom', 'react-router-dom'],
+          antd: ['antd', '@ant-design/icons'],
+        },
+      },
+    },
+  },
 })
