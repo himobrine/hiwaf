@@ -125,6 +125,10 @@ COLLECTOR_METRICS = Path(
 )
 
 TOKEN_TTL_SEC = int(os.environ.get("WAF_CONSOLE_TOKEN_TTL", "28800"))
+#: 登录失败限流：窗口内失败达到上限后锁定一段时间（只影响该用户名）。
+LOGIN_MAX_FAILS = max(1, int(os.environ.get("WAF_LOGIN_MAX_FAILS", "10")))
+LOGIN_WINDOW_SEC = max(60, int(os.environ.get("WAF_LOGIN_WINDOW_SEC", "300")))
+LOGIN_LOCK_SEC = max(60, int(os.environ.get("WAF_LOGIN_LOCK_SEC", "300")))
 ALLOWED_ORIGINS = [
     o.strip()
     for o in os.environ.get(

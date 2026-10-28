@@ -47,6 +47,10 @@ def verify_password(pw: str, stored: str) -> bool:
         return False
 
 
+#: 用户不存在时也跑一次同等开销的 PBKDF2，避免用响应时间枚举用户名。
+DUMMY_HASH = hash_password("waf-console-dummy-password")
+
+
 # --------------------------------------------------------------------------- JWT
 def _secret() -> bytes:
     env = os.environ.get("WAF_CONSOLE_SECRET")
@@ -73,13 +77,15 @@ def _b64d(s: str) -> bytes:
     return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
 
 
-def make_token(username: str, role: str, ttl: int | None = None) -> str:
+def make_token(username: str, role: str, ttl: int | None = None,
+               token_version: int = 0) -> str:
     now = int(time.time())
     payload = {
         "sub": username,
         "role": role,
         "iat": now,
         "exp": now + (ttl if ttl is not None else config.TOKEN_TTL_SEC),
+        "ver": int(token_version),
     }
     header = {"alg": "HS256", "typ": "JWT"}
     seg = [
@@ -114,9 +120,15 @@ def current_user(authorization: str | None = Header(default=None)) -> dict:
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail="缺少 Bearer 令牌")
     payload = decode_token(authorization.split(" ", 1)[1].strip())
-    u = db.one("SELECT id, username, role, disabled FROM users WHERE username=?", (payload.get("sub"),))
+    u = db.one(
+        "SELECT id, username, role, disabled, token_version "
+        "FROM users WHERE username=?",
+        (payload.get("sub"),),
+    )
     if not u or u["disabled"]:
         raise HTTPException(status_code=401, detail="用户不存在或已禁用")
+    if int(payload.get("ver", 0)) != int(u["token_version"] or 0):
+        raise HTTPException(status_code=401, detail="令牌已失效，请重新登录")
     return {"id": u["id"], "username": u["username"], "role": u["role"]}
 
 

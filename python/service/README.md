@@ -4,12 +4,13 @@ WAF 控制台的后端。**单机 + 账号 RBAC + 审计**，FastAPI + SQLite。
 
 ```bash
 cd F:\waf\python
-py -3.10 -m pip install fastapi          # 只需一次
+py -3.10 -m pip install -r requirements-service.txt   # 只需一次
 py -3.10 -m service.run                  # http://127.0.0.1:8090/docs
 ```
 
 首次启动会创建 `admin` 账号，初始密码写入 `service/.admin_password`（同时打印到控制台）。
-登录后立刻改密码：`POST /api/auth/password`。
+登录后立刻改密码：`POST /api/auth/password`（改密后旧 token 立即失效）。
+登录失败超过阈值会返回 429；登出同样会使该用户全部旧 token 失效。
 
 开发前端时另起 `cd F:\waf\web && npm run dev`（5173，`/api` 已代理到 8090）。
 生产：`npm run build` 后 FastAPI 直接托管 `web/dist`，单端口 8090。
@@ -22,7 +23,8 @@ py -3.10 -m service.run                  # http://127.0.0.1:8090/docs
 | --- | --- |
 | `config.py` | 路径、JWT 有效期、CORS、**任务白名单**（`TASKS`）、上传目录/格式/限额 |
 | `db.py` | SQLite schema + 连接/查询工具（每调用一连接） |
-| `auth.py` | PBKDF2 口令、HS256 JWT（标准库实现）、`current_user` / `require_at_least` |
+| `auth.py` | PBKDF2 口令、HS256 JWT（标准库实现）、`current_user` / `require_at_least`、令牌版本校验 |
+| `login_guard.py` | 登录失败限流（单进程内存；多 worker 需换共享存储） |
 | `ingest.py` | `traindata/proxy/raw-*.jsonl` → `events`（**增量、幂等**，按字节偏移续读） |
 | `ingest_scheduler.py` | 控制面周期增量入库；采集器写入后无需重启服务即可看到新事件/告警 |
 | `packet.py` | 事件取证包：raw 回读、请求/响应头体、服务端解压、默认打码、原始体下载 |
@@ -80,6 +82,9 @@ py -3.10 -m service.run                  # http://127.0.0.1:8090/docs
 | `WAF_CONSOLE_SECRET_FILE` | `service/.secret` | JWT 密钥文件 |
 | `WAF_CONSOLE_LOG_DIR` | `service/logs` | 任务日志目录 |
 | `WAF_CONSOLE_TOKEN_TTL` | `28800` | JWT 有效期（秒） |
+| `WAF_LOGIN_MAX_FAILS` | `10` | 登录失败多少次后锁定该用户名 |
+| `WAF_LOGIN_WINDOW_SEC` | `300` | 失败计数滑动窗口（秒） |
+| `WAF_LOGIN_LOCK_SEC` | `300` | 触发上限后的锁定时长（秒） |
 | `WAF_CONSOLE_ORIGINS` | `http://127.0.0.1:5173,...` | CORS 白名单（逗号分隔） |
 | `WAF_INGEST_SCHEDULER` | `1` | 是否周期性增量入库 |
 | `WAF_INGEST_INTERVAL_SEC` | `5` | 增量 ingest 周期（秒，最小 2） |
@@ -100,9 +105,11 @@ py -3.10 -m service.run                  # http://127.0.0.1:8090/docs
 
 ### 认证
 - `POST /api/auth/login` → `{token, user}`
+  - 失败按**用户名**限流：窗口内达到 `WAF_LOGIN_MAX_FAILS` 后返回 `429` + `Retry-After`；
+    用户不存在与密码错误同样返回 401（内部跑等开销 PBKDF2，防时序枚举）。
 - `GET  /api/auth/me`
-- `POST /api/auth/logout`（写审计）
-- `POST /api/auth/password`
+- `POST /api/auth/logout`（写审计，并使该用户所有旧 token 立即失效）
+- `POST /api/auth/password`（写审计；改密后旧 token 失效，需重新登录）
 
 ### 总览 / 采集面
 - `GET  /api/overview/summary?window_hours=24` — 计数、分数直方图、Top 类型/路径、策略摘要、采集器指标、入库状态、**warnings**、**sites**

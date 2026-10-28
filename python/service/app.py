@@ -32,7 +32,8 @@ from pydantic import BaseModel, Field
 
 from . import (alerts as alerts_mod, audit_retention, audit_retention_scheduler,
                auth, config, db,
-               ingest as ingest_mod, ingest_scheduler, model_registry, model_switch,
+               ingest as ingest_mod, ingest_scheduler, login_guard,
+               model_registry, model_switch,
                packet as packet_mod, retention, retention_scheduler, rule_spans,
                rules as rules_mod, rules_dsl, sites as sites_mod, uploads)
 
@@ -442,11 +443,31 @@ def _pool_from_source(source: str) -> str:
 # --------------------------------------------------------------------------- 认证
 @app.post("/api/auth/login")
 def login(body: LoginIn, request: Request):
+    wait = login_guard.check(body.username)
+    if wait:
+        audit(body.username, "login_blocked", ip=_ip(request),
+              detail=f"retry_after={wait}s")
+        raise HTTPException(429, f"登录失败次数过多，请 {wait} 秒后再试",
+                            headers={"Retry-After": str(wait)})
+
     u = db.one("SELECT * FROM users WHERE username=?", (body.username,))
-    if not u or u["disabled"] or not auth.verify_password(body.password, u["pw"]):
-        audit(body.username, "login_failed", ip=_ip(request))
+    # 用户不存在时也跑一次等开销的 PBKDF2，避免用响应时间枚举用户名。
+    if u is None:
+        auth.verify_password(body.password, auth.DUMMY_HASH)
+        pw_ok = False
+    else:
+        pw_ok = auth.verify_password(body.password, u["pw"])
+    if u is None or u["disabled"] or not pw_ok:
+        wait = login_guard.fail(body.username)
+        audit(body.username, "login_failed", ip=_ip(request),
+              detail=f"locked={wait}s" if wait else None)
+        if wait:
+            raise HTTPException(429, f"登录失败次数过多，请 {wait} 秒后再试",
+                                headers={"Retry-After": str(wait)})
         raise HTTPException(401, "用户名或密码错误")
-    token = auth.make_token(u["username"], u["role"])
+    login_guard.reset(body.username)
+    token = auth.make_token(u["username"], u["role"],
+                            token_version=u["token_version"])
     audit(u["username"], "login", ip=_ip(request))
     return {"token": token, "user": {"username": u["username"], "role": u["role"]}}
 
@@ -458,6 +479,9 @@ def me(user: dict = Depends(auth.current_user)):
 
 @app.post("/api/auth/logout")
 def logout(request: Request, user: dict = Depends(auth.current_user)):
+    # 令牌版本 +1：该用户已签发的 token 全部立即失效（单操作员控制台可接受）。
+    db.execute("UPDATE users SET token_version=token_version+1 WHERE id=?",
+               (user["id"],))
     audit(user["username"], "logout", ip=_ip(request))
     return {"ok": True}
 
@@ -468,10 +492,13 @@ def change_password(body: PasswordIn, request: Request,
     u = db.one("SELECT pw FROM users WHERE username=?", (user["username"],))
     if not u or not auth.verify_password(body.old, u["pw"]):
         raise HTTPException(400, "原密码错误")
-    db.execute("UPDATE users SET pw=? WHERE username=?",
-               (auth.hash_password(body.new), user["username"]))
+    db.execute(
+        "UPDATE users SET pw=?, token_version=token_version+1 WHERE username=?",
+        (auth.hash_password(body.new), user["username"]),
+    )
     audit(user["username"], "change_password", ip=_ip(request))
-    return {"ok": True}
+    # 旧 token 立即失效；前端需重新登录。
+    return {"ok": True, "relogin": True}
 
 
 # --------------------------------------------------------------------------- 总览

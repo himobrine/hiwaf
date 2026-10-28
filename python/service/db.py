@@ -17,6 +17,8 @@ CREATE TABLE IF NOT EXISTS users (
   pw         TEXT NOT NULL,
   role       TEXT NOT NULL CHECK (role IN ('viewer','analyst','admin')),
   disabled   INTEGER NOT NULL DEFAULT 0,
+  -- 令牌版本：改密/登出时 +1，旧 token 立即失效（auth.current_user 校验）。
+  token_version INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL
 );
 
@@ -355,6 +357,8 @@ def _ensure_column(conn: sqlite3.Connection, table: str, col: str, ddl: str) -> 
 #: 老库迁移（新增列）。键 = 列名，值 = SQLite 类型 + 默认值。
 MIGRATIONS = (
     ("ingest_state", "offset", "INTEGER NOT NULL DEFAULT 0"),
+    # 令牌版本：老库补列，历史 token 的 ver 缺省为 0，与补列默认值一致。
+    ("users", "token_version", "INTEGER NOT NULL DEFAULT 0"),
     ("events", "rule_set_sha1_16", "TEXT"),
     ("events", "rule_hits_json", "TEXT"),
     ("events", "rule_testing", "INTEGER NOT NULL DEFAULT 0"),
