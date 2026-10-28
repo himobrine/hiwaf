@@ -24,6 +24,9 @@ from .packet import _canonical_under_raw
 
 MTIME_TOL = 1e-6
 MAX_ATTEMPTS = 5
+#: 删除孤儿事件时每批行数；单次 apply 的上限（防止一次请求锁库太久）。
+ORPHAN_EVENT_BATCH = 1000
+ORPHAN_EVENT_MAX = 50_000
 _orphan_ignored: set[str] = set()
 _DAY_RE = re.compile(r"raw-(\d{8})-\d+\.jsonl$")
 
@@ -401,6 +404,56 @@ def scan_orphan_trash(dry_run: bool = True) -> dict:
     return st
 
 
+def _delete_events(ids: list[int]) -> None:
+    """删除事件及其从属行。`feedback` 保留（人工结论不随证据过期丢弃）。"""
+    ph = ",".join("?" * len(ids))
+    with db.session() as conn:
+        conn.execute(f"DELETE FROM event_shap WHERE event_id IN ({ph})", ids)
+        conn.execute(f"DELETE FROM event_bodies WHERE event_id IN ({ph})", ids)
+        conn.execute(f"DELETE FROM event_rules WHERE event_id IN ({ph})", ids)
+        conn.execute(f"DELETE FROM events WHERE id IN ({ph})", ids)
+        conn.commit()
+
+
+def prune_orphan_events(cutoff: int, dry_run: bool = True) -> dict:
+    """清理「raw 文件已不在盘上」的过期事件。
+
+    `scan_candidates` 只遍历 RAW_DIR 里现存的文件；被外部删掉（换机、手工清理、
+    磁盘故障）的 raw 文件对应的 `events` 行会永远留存。这里按 `ts < cutoff`
+    再按 `src_file` 分组，文件不存在的整组删除，分批提交并设单次上限。
+
+    `src_file` 为空的旧行无法追溯到任何 raw，同样按过期处理。
+    """
+    st = {"dry_run": bool(dry_run), "sources": 0, "events": 0,
+          "deleted": 0, "truncated": False}
+    sources = db.rows("SELECT DISTINCT src_file FROM events WHERE ts < ?", (cutoff,))
+    orphan = [r["src_file"] for r in sources
+              if not r["src_file"] or not Path(r["src_file"]).exists()]
+    st["sources"] = len(orphan)
+    for sf in orphan:
+        clause = "src_file IS NULL" if sf is None else "src_file = ?"
+        params = () if sf is None else (sf,)
+        if dry_run:
+            st["events"] += int(db.scalar(
+                f"SELECT COUNT(*) AS n FROM events WHERE ts < ? AND {clause}",
+                (cutoff,) + params, 0) or 0)
+            continue
+        while st["deleted"] < ORPHAN_EVENT_MAX:
+            ids = [r["id"] for r in db.rows(
+                f"SELECT id FROM events WHERE ts < ? AND {clause} LIMIT ?",
+                (cutoff,) + params + (ORPHAN_EVENT_BATCH,))]
+            if not ids:
+                break
+            _delete_events(ids)
+            st["deleted"] += len(ids)
+        if st["deleted"] >= ORPHAN_EVENT_MAX:
+            st["truncated"] = True
+            break
+    st["events"] = st["deleted"] if not dry_run else st["events"]
+    st["action"] = "would_delete" if dry_run else "deleted"
+    return st
+
+
 def prune_aggregates(cutoff: int, dry_run: bool = True) -> dict:
     """清理规则聚合表。
 
@@ -444,11 +497,16 @@ def dry_run(days: int | None = None) -> dict:
     scan = scan_candidates(cutoff, dry_run=True)
     orphan = scan_orphan_trash(dry_run=True)
     try:
+        events = prune_orphan_events(cutoff, dry_run=True)
+    except Exception as e:
+        events = {"dry_run": True, "error": f"{type(e).__name__}: {e}"}
+    try:
         aggregates = prune_aggregates(cutoff, dry_run=True)
     except Exception as e:
         aggregates = {"dry_run": True, "error": f"{type(e).__name__}: {e}"}
     return {"dry_run": True, "cutoff_ms": cutoff, "pending": pend,
-            "scan": scan, "orphan_trash": orphan, "aggregates": aggregates}
+            "scan": scan, "orphan_trash": orphan, "orphan_events": events,
+            "aggregates": aggregates}
 
 
 def apply(days: int | None = None) -> dict:
@@ -459,13 +517,18 @@ def apply(days: int | None = None) -> dict:
     pend2 = process_pending(dry_run=False)
     orphan = scan_orphan_trash(dry_run=False)
     try:
+        # raw 文件已不在盘上的过期事件（scan 覆盖不到的部分）。
+        events = prune_orphan_events(cutoff, dry_run=False)
+    except Exception as e:
+        events = {"dry_run": False, "error": f"{type(e).__name__}: {e}"}
+    try:
         aggregates = prune_aggregates(cutoff, dry_run=False)
     except Exception as e:
         # raw/事件清理已经提交；聚合表裁剪失败不能把整个 apply 伪装成完全成功。
         aggregates = {"dry_run": False, "error": f"{type(e).__name__}: {e}"}
     return {"dry_run": False, "cutoff_ms": cutoff, "pending_before": pend1,
             "scan": scan, "pending_after": pend2, "orphan_trash": orphan,
-            "aggregates": aggregates}
+            "orphan_events": events, "aggregates": aggregates}
 
 
 def pending_rows() -> list[dict]:
