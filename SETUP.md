@@ -472,6 +472,17 @@ py -3.10 upload_parse.py --input cap.pcap --out %TEMP%\up2 --role benign --defau
 - 事件表索引：`ix_events_ts`、`ix_events_action_ts`、`ix_events_ip_ts`；老库启动时自动删旧单列索引。
 - 若要多人并发/多机，SQLite 仍是瓶颈，需要迁 Postgres（见 `python/service/README.md` §6）。
 
+**告警页的两层视图**：
+
+- **聚合告警**：按「源 IP + 动作 + 方法/路径 + 时间桶」看哪条路径被打了多少次；
+  打开「同源同类去重」后改为「源 IP + 动作 + 攻击类型 + 时间桶」，同源同桶内打不同
+  路径的同类攻击合并成一行（显示「路径数」），扫描风暴不再刷屏。
+- **攻击链**：按「源 IP + UA」聚合，间隔超过切链阈值分成新链；阶段按
+  拦截→利用 / 告警→试探 / 失败请求→探测归类，并叠加时序规则（扫描后利用等）。
+  探测多且无拦截的链标为扫描噪音、默认折叠。确认/关闭复用告警状态（`chain_key`
+  即 `alert_state.group_key`），下钻抽屉能看到每条事件的阶段标签。
+- 时序规则可用 `WAF_TEMPORAL_RULES` 指向 JSON 覆盖，格式见 `python/service/README.md` §2.3。
+
 **必须在界面上记住的四件事**：
 
 1. **阈值不能在界面手改**：策略页只能「选标定池 → 预览 → 提升」。预览走
@@ -764,7 +775,8 @@ py -3.10 import_waf_rules.py --write-db         # 写成草稿（enabled=0 / act
    1. **90 天 raw/事件清理已实现但未自动调度**：提供 dry-run / apply / pending 处置 API，
       需由计划任务按日调用；`rule_hits_daily` / `rule_incidents` 的保留清理仍未做；
    2. **用户管理页缺失**：只有引导创建的 `admin`，没有增删改用户接口；
-   3. **攻击链关联未实现**：告警只做同源 + 同类型 + 时间桶聚合；
+   3. ~~攻击链关联未实现~~：已实现同源 + UA 切链、阶段分类、扫描噪音降级与
+      时序规则；告警页「攻击链」页签 + `dedup=1` 同源同类去重（见 `service/README.md` §2.3）；
    4. 若要多人并发/多机，SQLite 需迁 Postgres。
 7. **规则启停不会自动进数据面**：`enabled=1` 只是“测试中”；接进数据面要走「提升到现役」
    （写 `artifacts\rules_authoritative.json` + 策略指纹），采集器 ≤5s 热重载。

@@ -36,7 +36,8 @@ py -3.10 -m service.run                  # http://127.0.0.1:8090/docs
 | `test_rules_bulk.py` | 按 ID 批量规则操作（候选/自撰、block 资格、部分失败、删除范围） |
 | `test_retention.py` | 聚合表裁剪与巡检快照/审计测试 |
 | `uploads.py` | 用户上传训练数据：存储/子进程解析/重叠剔除/预览/软删除（解析在 `../upload_parse.py`） |
-| `alerts.py` | 告警（聚合）下钻：同公式复算时间桶 + 精确匹配，取某聚合组的原始事件（含分页） |
+| `alerts.py` | 告警（聚合）下钻：同公式复算时间桶 + 精确匹配，取某聚合组的原始事件（含分页）；`dedup_groups` 做同源同类去重 |
+| `correlate.py` | 同源攻击链：按 `(src_ip, ua)` + 间隔切链、阶段分类（探测/试探/利用）、扫描噪音降级、时序规则（`sequence/group_by/within`） |
 | `sites.py` | 站点（Host）→ 模型：按逐条判决留证 + 策略快照反查每站点实际在跑哪套模型，并与现役对比定状态 |
 | `audit_retention.py` | 审计保留：90 天 dry-run 预览、按时间分批清理、勾选删除、每次删除写 `audit_cleanup*` |
 | `audit_retention_scheduler.py` | 审计日志每日自动清理（0 条不写审计；异常尽力写 `audit_cleanup_failed`） |
@@ -50,7 +51,8 @@ py -3.10 -m service.run                  # http://127.0.0.1:8090/docs
 | `test_uploads.py` | 上传存储：格式/大小/来源校验、转换、预览、软删除、残留清理 |
 | `test_task_plan_upload.py` | 上传训练 argv：add/only、lineage、校准集、非法数据拒绝 |
 | `test_audit_retention.py` | 审计保留：dry-run、只删旧行、清理留痕、勾选删除、回滚、自动清理开关 |
-| `test_alerts_drilldown.py` | 聚合下钻：精确匹配（子串不混入）、桶边界左闭右开、NULL 字段、分页 |
+| `test_alerts_drilldown.py` | 聚合下钻：精确匹配（子串不混入）、桶边界左闭右开、NULL 字段、分页；`dedup=1` 同源同类合并 |
+| `test_correlate.py` | 攻击链：阶段分类、gap 切链、同毫秒稳定、噪音降级、时序窗口边界、规则 JSON 覆盖/回退、链下钻 |
 | `test_db_session.py` | 连接复用：`session()` 分组/嵌套、线程内长连接、换库自动重连、关池释放句柄 |
 | `test_overview_cache.py` | 总览聚合：SQL 分桶直方图、越界夹取、TTL 缓存命中/关闭 |
 | `test_events_paging.py` | 事件 keyset 分页：(ts,id) 游标不重不漏、`with_total=false` 跳过 COUNT、复合索引命中 |
@@ -105,6 +107,7 @@ py -3.10 -m service.run                  # http://127.0.0.1:8090/docs
 | `WAF_RAW_CLEANUP_ORPHAN_AGE_SEC` | `86400` | 孤儿 `.trash` 超过多久才登记/告警 |
 | `WAF_SENSITIVE_HEADERS` | Authorization, Cookie, Set-Cookie, X-Api-Key... | 默认逐字符 `*` 打码的头名（逗号分隔，大小写不敏感） |
 | `WAF_COLLECTOR_METRICS` | `traindata/proxy/collector-metrics.json` | 采集器 `--stats-out` 指标文件 |
+| `WAF_TEMPORAL_RULES` | `artifacts/temporal_rules.json` | 时序规则 JSON；缺失/非法时回退内置 3 条规则 |
 
 ## 2.2 性能与数据层
 
@@ -131,6 +134,35 @@ py -3.10 -m service.run                  # http://127.0.0.1:8090/docs
 
 **告警状态批量查询**：`/api/alerts` 先用一条 `WHERE group_key IN (...)` 取回全部
 `alert_state`，不再每行查一次（最多 500 行 → 1 条 SQL）。
+
+## 2.3 攻击链与时序规则
+
+`correlate.py` 回答「同一源在窗口内到底做了一串什么事」，与聚合告警互补：
+
+- **切链**：按 `(src_ip, ua)` 分组，事件按 `(ts, id)` 升序；相邻间隔 > `gap_min`
+  就切新链。`chain_key = src_ip|ua|first_event_id`，随时间向后生长时保持不变，
+  只有首事件滑出窗口才换 key——所以它可以直接当 `alert_state.group_key` 用，
+  确认/关闭复用 `/api/alerts/ack`。
+- **阶段分类**（优先级 拦截 > 告警 > 探测）：`block` → 利用；`alert` 或
+  `supervised_flagged` → 试探；状态码 401/403/404 或「失败 + 敏感路径」→ 探测。
+  成功的 `/login`、`/admin` 不算探测，避免把正常流量当扫描。
+- **扫描噪音**：探测 ≥ 20 且没有任何拦截的链标 `noise=true`，级别降 P3；
+  列表默认折叠（`include_noise=0`），只返回 `noise_hidden` 计数，避免端口扫描刷屏。
+- **时序规则**：内置「扫描后利用」「试探后利用」「目录扫描风暴」；窗口从**上一阶段
+  最后一条**事件起算（`within_min`），每个规则对每个分组只报最早一次命中。
+  可用 `WAF_TEMPORAL_RULES` 指向 JSON 覆盖，非法规则逐条跳过、其余保留：
+
+  ```json
+  {"rules": [{"id": "scan_then_exploit", "name": "扫描后利用", "within_min": 10,
+              "group_by": ["src_ip"],
+              "stages": [{"stage": "recon", "min": 20}, {"stage": "exploit", "min": 1}]}]}
+  ```
+- **取数有界**：先取窗口内有 `block/alert` 的源 IP（最多 500），再取这些源的全部
+  事件（最多 50000 行）；截断时返回 `truncated=true`，前端提示缩小窗口。
+
+**同源同类去重**：`/api/alerts?dedup=1` 把 `src_ip + action + attack_type + 时间桶`
+相同的路径合并成一行，`path_count` 是不同 `method path` 数；下钻走
+`/api/alerts/events?dedup=1&attack_type=...`，条数仍与聚合行一致。
 
 ## 3. 接口
 
@@ -213,11 +245,16 @@ path/trash 同时存在、symlink、stat 不匹配都不会自动删；连续 5 
 **`feedback` 保留**（人工结论不随证据过期丢弃）。
 
 ### 告警
-- `GET  /api/alerts?window_hours&bucket_min` — 按 **源IP + 动作 + 方法/路径 + 时间桶** 聚合
+- `GET  /api/alerts?window_hours&bucket_min&dedup` — 默认按 **源IP + 动作 + 方法/路径 + 时间桶**
+  聚合；`dedup=1` 改为 **源IP + 动作 + 攻击类型 + 时间桶**，返回 `path_count`
 - `GET  /api/alerts/events` — 下钻：`src_ip/action/bucket/bucket_min/method/path/limit/offset`，
   与聚合同公式复算时间桶（左闭右开）、method/path 精确匹配（NULL 归一空串），
-  服务端分页；保证抽屉里的条数 = 聚合行的 n。
-- `POST /api/alerts/ack` body `{group_key, status, assignee}`
+  服务端分页；保证抽屉里的条数 = 聚合行的 n。`dedup=1&attack_type=...` 走下钻合并组。
+- `GET  /api/alerts/chains?window_hours&gap_min&min_events&only_suspicious&include_noise&limit`
+  — 同源攻击链（见 §2.3），附带 `status/assignee`（同 `alert_state`）与 `sequences`
+- `GET  /api/alerts/chains/events?src_ip&ua&from_ts&to_ts&limit&offset`
+  — 链下钻：同源 + 同 UA + 时间范围，返回 `stage` 阶段分类
+- `POST /api/alerts/ack` body `{group_key, status, assignee}`（链的 `chain_key` 同样走这里）
 
 ### 策略（**唯一事实来源仍是 `artifacts/decision_policy.json`**）
 - `GET  /api/policy` — 现役策略 + 版本历史 + warnings
@@ -435,7 +472,8 @@ py -3.10 -X utf8 -m service.test_upload_parse -v      # 上传数据 CSV/JSON/JS
 py -3.10 -X utf8 -m service.test_uploads -v           # 上传存储/转换/软删除测试
 py -3.10 -X utf8 -m service.test_task_plan_upload -v  # 上传训练任务 argv 组装测试
 py -3.10 -X utf8 -m service.test_audit_retention -v   # 审计保留/勾选删除/自动清理测试
-py -3.10 -X utf8 -m service.test_alerts_drilldown -v  # 告警聚合下钻：桶边界/精确匹配/分页
+py -3.10 -X utf8 -m service.test_alerts_drilldown -v  # 告警聚合下钻：桶边界/精确匹配/分页/去重
+py -3.10 -X utf8 -m service.test_correlate -v         # 攻击链：阶段/gap 切链/噪音降级/时序规则
 py -3.10 -X utf8 -m service.test_sites -v             # 站点→模型：归组/状态/快照反查
 py -3.10 -X utf8 -m service.test_db_session -v        # 连接复用：session/线程内长连接/换库
 py -3.10 -X utf8 -m service.test_overview_cache -v    # 总览：SQL 分桶直方图 + TTL 缓存
@@ -463,6 +501,7 @@ curl -s -X POST -H "Authorization: Bearer <admin-token>" -H "Content-Type: appli
       只删 cutoff 前日桶与已 resolved 的旧 incident，open/acked 保留。
 - [x] **数据层性能**：线程内连接复用、总览 SQL 分桶 + 5s 缓存、事件复合索引 + keyset 分页、
       告警状态批量查询（见 §2.2）。
+- [x] **攻击链关联**：`correlate.py` 做同源 + UA 切链、阶段分类、扫描噪音降级与
+      时序规则（`sequence/group_by/within`）；`/api/alerts?dedup=1` 做同源同类去重。
 - [ ] **用户管理页**：目前只有引导创建的 `admin`，没有增删改用户的接口。
-- [ ] **攻击链关联**：告警只做同源 + 同类型 + 时间桶聚合，未做跨阶段链路还原。
 - [ ] **SQLite 迁移到 Postgres**（若要多人并发/多机）。
