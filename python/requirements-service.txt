@@ -1,0 +1,10 @@
+# 控制面 API 依赖（Python 3.10+，Windows x86_64）
+#
+# 与训练/评估依赖分开安装：训练机不需要 Web 框架，控制面也不需要 xgboost/onnx。
+#   py -3.10 -m pip install -r python\requirements-service.txt
+#
+# 版本与本机验证通过的运行环境一致；升级前先跑 service 测试与 smoke。
+fastapi==0.146.0
+uvicorn[standard]==0.52.2
+pydantic==2.13.4
+python-multipart==0.0.32

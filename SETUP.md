@@ -45,7 +45,7 @@ F:\waf\
 | Ninja | 1.13.1（同上目录，已在 PATH） | Pingora 的 zlib-ng 编译需要它 |
 | Rust | rustc/cargo **1.99.0** | `C:\Users\lenovo\.cargo\bin`（**不在 PATH**，靠 `build.bat` 注入） |
 | Python | **3.10.10**（`py -3.10`） | 见坑 #1 |
-| Git | 2.47.0 | 当前 `F:\waf` **不是 git 仓库**，全部为本地文件 |
+| Git | 2.47.0 | 已接入 GitHub 私有仓库 `himobrine/hiwaf`；秘密与大数据/模型产物已忽略 |
 | Perl | **无** | 因此 Pingora 必须用 rustls，不能用 openssl |
 
 > 若 Rust 未装：`curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`（`prd.md` §451）。
@@ -113,6 +113,13 @@ py -3.10 traindata_catalog.py --skip-cic   :: 秒级（不数 CIC 行）
 ```bat
 cd F:\waf\python
 py -3.10 -m pip install -r requirements.txt
+```
+
+控制面 API 的依赖单独放在 `python\requirements-service.txt`（训练机不需要；
+控制面也不需要 xgboost/onnx）：
+
+```bat
+py -3.10 -m pip install -r requirements-service.txt
 ```
 
 `requirements.txt` 关键版本：numpy 2.1.3 / pandas 2.3.3 / scipy 1.15.3 /
@@ -389,8 +396,8 @@ py -3.10 export_testvec.py && cd ..\rust && call build.bat run --release
 CPU/内存/QPS/延迟这类**基础设施运维指标仍归 Grafana + Prometheus**（PRD §4.9.2），不重复建设。
 
 ```bat
-:: 1) 装控制面依赖（只需一次；python-multipart 用于上传，scapy 用于 pcap 解析）
-py -3.10 -m pip install fastapi uvicorn python-multipart scapy
+:: 1) 装控制面依赖（只需一次；版本与 requirements-service.txt 一致）
+py -3.10 -m pip install -r requirements-service.txt
 
 :: 2) 构建前端（产物 web\dist，由 FastAPI 单端口托管）
 cd F:\waf\web
@@ -415,7 +422,7 @@ cd F:\waf\web && npm run dev      :: 5173，/api 已代理到 8090；改代码�
 
 ```bat
 cd F:\waf\python
-py -3.10 -m service.smoke         :: 18 项 API 自检（需要服务已启动；含聚合下钻）
+py -3.10 -m service.smoke         :: 20 项 API 自检（需要服务已启动；含聚合下钻与代际树）
 py -3.10 -m service.demo_seed     :: 起假上游 + 采集器 + 判定，灌一批真实采集数据
 ```
 
@@ -532,7 +539,9 @@ py -3.10 smoke_test.py
 14. **`collect_http_log.py` 默认清空 body**：训练要 body 必须 `--keep-body`。
 15. **Windows 是 Pingora 的社区尽力而为平台**（Linux 才 tier 1）：锁 `>=0.9` 并放进回归门禁。
 16. **Linux 侧逐位一致未验证**（libm `log2`）：CI 用数值容差。
-17. **`F:\waf` 不是 git 仓库**：所有改动都是本地未提交文件。
+17. **仓库已托管到 GitHub（私有）**：`https://github.com/himobrine/hiwaf`。
+    根 `.gitignore` 已排除 `.secret`、`.admin_password`、`console.db`、日志、
+    `traindata/`、模型二进制与构建缓存；改代码走独立分支 + PR，不再直接堆在工作区。
 18. **datacon2025 只有 100 条样本**：只用于“能不能检出”，**绝不报比率**；
     `labeled=0` ≠ 良性，要报被标记率 + 强制人工复核。
 19. **规则必须先 URL 解码再匹配**（`unquote_plus` 两次，多 3,793 命中）。
