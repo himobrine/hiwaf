@@ -1,0 +1,726 @@
+{
+  "meta": {
+    "name": "通用 Web WAF 过滤规则集",
+    "version": "1.0.0",
+    "date": "2026-10-20",
+    "assumptions": [
+      "所有输入在匹配前先做一次 URL 解码（%XX），再统一按大小写不敏感方式匹配",
+      "正则采用通用方言：无环视(lookahead/lookbehind)、无反向引用、无占有量词，PCRE / Go RE2 / Python re / JS RegExp 均可直接编译",
+      "建议对解码后的输入再做一次双重编码检测（EN-001/EN-002），命中即告警",
+      "匹配字段定义：uri=请求路径，query=查询串，body=请求体，header=请求头，cookie=Cookie，filename=上传文件名参数值，response=响应内容（需框架支持响应检测）",
+      "action=block 的规则可直接拦截；action=log 的规则先记录后观察，误报收敛后再升级为 block"
+    ],
+    "matching_pipeline": [
+      "1. 原始输入 → 2. URL 解码 → 3. 大小写归一 → 4. 按 target 字段逐条匹配 → 5. 命中 critical/high 直接阻断，medium 记日志",
+      "上传文件名、JSON 字段值等结构化内容建议单独提取后再匹配，避免整包正则误伤"
+    ],
+    "tuning_notes": [
+      "SQLI-008 / SQLI-009 / XSS-007 / RCE-003 等规则在业务含 '1=1'、'alert(' 等正常文本时可能误报，先按 log 观察",
+      "CC / 频率限制、IP 黑名单不属于正则规则，应在框架层用滑动窗口限流实现",
+      "header 值中出现字面 CR/LF（\\r\\n）在任何合法请求中都不该出现，建议框架在解析时直接拒绝，无需依赖正则",
+      "建议为每个业务路径维护白名单/排除清单（如 API 文档、富文本编辑器接口），降低高规则误伤"
+    ]
+  },
+  "rules": [
+    {
+      "id": "SQLI-001",
+      "category": "sql-injection",
+      "name": "Union Select 注入",
+      "target": ["query", "body", "cookie", "uri"],
+      "regex": "union\\s+(?:all\\s+)?select",
+      "severity": "critical",
+      "action": "block",
+      "note": "最常见的联合查询注入特征，命中基本可判定恶意"
+    },
+    {
+      "id": "SQLI-002",
+      "category": "sql-injection",
+      "name": "DML/DDL 高危语句",
+      "target": ["query", "body", "cookie"],
+      "regex": "\\b(?:insert\\s+into|delete\\s+from|drop\\s+(?:table|database|index)|truncate\\s+table|alter\\s+table|create\\s+(?:table|database|index)|rename\\s+table)\\b",
+      "severity": "critical",
+      "action": "block",
+      "note": "写操作/删库语句出现在用户输入中基本非正常业务"
+    },
+    {
+      "id": "SQLI-003",
+      "category": "sql-injection",
+      "name": "注释符拼接 SQL",
+      "target": ["query", "body", "cookie"],
+      "regex": "(?:--|#|/\\*).{0,40}\\b(?:select|insert|update|delete|drop|alter|union|exec|xp_cmdshell)\\b",
+      "severity": "critical",
+      "action": "block",
+      "note": "注释符后紧跟 SQL 关键字，典型注入闭合手法"
+    },
+    {
+      "id": "SQLI-004",
+      "category": "sql-injection",
+      "name": "报错注入函数",
+      "target": ["query", "body", "cookie"],
+      "regex": "\\b(?:updatexml|extractvalue|exp|floor|polygon|multipoint|gtid_subtract|name_const|geometrycollection)\\s*\\(",
+      "severity": "critical",
+      "action": "block",
+      "note": "MySQL 报错注入专用函数，正常业务几乎不出现"
+    },
+    {
+      "id": "SQLI-005",
+      "category": "sql-injection",
+      "name": "数据库信息函数/变量",
+      "target": ["query", "body", "cookie"],
+      "regex": "@@(?:version|datadir|hostname|basedir|user|global|session)\\b|\\b(?:user|database|version|current_user|session_user|system_user)\\s*\\(",
+      "severity": "high",
+      "action": "block",
+      "note": "如业务合法使用 user()/database() 请加排除清单"
+    },
+    {
+      "id": "SQLI-006",
+      "category": "sql-injection",
+      "name": "字符串/编码函数探测",
+      "target": ["query", "body", "cookie"],
+      "regex": "\\b(?:concat|concat_ws|group_concat|substring|substr|mid|char|ascii|hex|ord|length)\\s*\\(",
+      "severity": "medium",
+      "action": "log",
+      "note": "盲注常用函数组合，单独出现可先记录"
+    },
+    {
+      "id": "SQLI-007",
+      "category": "sql-injection",
+      "name": "时间盲注",
+      "target": ["query", "body", "cookie"],
+      "regex": "\\b(?:sleep|pg_sleep|benchmark)\\s*\\(\\s*\\d+\\s*\\)|waitfor\\s+delay\\s*['\"][0-9:]+['\"]",
+      "severity": "critical",
+      "action": "block",
+      "note": "sleep(5)、WAITFOR DELAY 等延时注入特征"
+    },
+    {
+      "id": "SQLI-008",
+      "category": "sql-injection",
+      "name": "布尔盲注恒真/恒假",
+      "target": ["query", "body", "cookie"],
+      "regex": "\\b(?:and|or)\\s+['\"]?\\d{1,3}\\s*[=!<>]{1,2}\\s*['\"]?\\d{1,3}\\b",
+      "severity": "high",
+      "action": "log",
+      "note": "or 1=1 / and 1=2 类特征；若业务含正常数学表达式请转 log 观察"
+    },
+    {
+      "id": "SQLI-009",
+      "category": "sql-injection",
+      "name": "引号闭合注入",
+      "target": ["query", "body", "cookie"],
+      "regex": "['\"]\\s*(?:or|and|union|--|#|;)\\b",
+      "severity": "high",
+      "action": "block",
+      "note": "单/双引号后紧跟 SQL 关键字"
+    },
+    {
+      "id": "SQLI-010",
+      "category": "sql-injection",
+      "name": "information_schema 探测",
+      "target": ["query", "body", "cookie"],
+      "regex": "\\binformation_schema\\b",
+      "severity": "high",
+      "action": "block",
+      "note": "元数据库枚举，注入中后期行为"
+    },
+    {
+      "id": "SQLI-011",
+      "category": "sql-injection",
+      "name": "写文件/读文件函数",
+      "target": ["query", "body", "cookie"],
+      "regex": "\\b(?:into\\s+(?:outfile|dumpfile)|load_file)\\s*\\(",
+      "severity": "critical",
+      "action": "block",
+      "note": "INTO OUTFILE / LOAD_FILE 写马读文件"
+    },
+    {
+      "id": "SQLI-012",
+      "category": "sql-injection",
+      "name": "十六进制编码值",
+      "target": ["query", "body", "cookie"],
+      "regex": "0x[0-9a-f]{6,}\\b",
+      "severity": "medium",
+      "action": "log",
+      "note": "0x 长十六进制常用于绕过引号过滤；排除颜色/哈希类正常业务后转 block"
+    },
+    {
+      "id": "XSS-001",
+      "category": "xss",
+      "name": "危险 HTML 标签",
+      "target": ["query", "body", "uri", "header"],
+      "regex": "<\\s*(?:script|iframe|object|embed|svg|math|meta|link|style|form|textarea|base|frame|frameset|audio|video|applet)[\\s/>]",
+      "severity": "critical",
+      "action": "block",
+      "note": "反射/存储型 XSS 载体标签；富文本业务需单独白名单化"
+    },
+    {
+      "id": "XSS-002",
+      "category": "xss",
+      "name": "闭合 Script 标签",
+      "target": ["query", "body", "uri", "header"],
+      "regex": "<\\s*/\\s*script\\s*>",
+      "severity": "critical",
+      "action": "block",
+      "note": "先闭合再重开是绕过转义的常用手法"
+    },
+    {
+      "id": "XSS-003",
+      "category": "xss",
+      "name": "事件属性注入",
+      "target": ["query", "body", "uri", "header"],
+      "regex": "\\bon(?:load|error|click|mouseover|mouseout|mousedown|mouseup|focus|blur|change|submit|keydown|keyup|keypress|input|select|dblclick|contextmenu|pointerdown|pointerup|pointerover|pointerout|toggle|animationstart|transitionend|beforeunload|hashchange|popstate|drag|drop|wheel|touchstart|touchmove|touchend)\\s*=\\s*",
+      "severity": "high",
+      "action": "block",
+      "note": "on* 事件处理器，覆盖主流浏览器事件"
+    },
+    {
+      "id": "XSS-004",
+      "category": "xss",
+      "name": "伪协议",
+      "target": ["query", "body", "uri", "header"],
+      "regex": "(?:javascript|vbscript|livescript|mocha)\\s*:",
+      "severity": "critical",
+      "action": "block",
+      "note": "javascript: 等协议注入"
+    },
+    {
+      "id": "XSS-005",
+      "category": "xss",
+      "name": "data 协议 HTML",
+      "target": ["query", "body", "uri"],
+      "regex": "data\\s*:\\s*(?:text/html|text/javascript|application/xhtml)[^,]*",
+      "severity": "high",
+      "action": "block",
+      "note": "data:text/html 载荷；data:image 正常业务不拦截"
+    },
+    {
+      "id": "XSS-006",
+      "category": "xss",
+      "name": "DOM 敏感对象",
+      "target": ["query", "body", "cookie", "header"],
+      "regex": "\\b(?:document\\.(?:cookie|location|write|writeln|innerhtml|createelement|body|head)|window\\.(?:location|name|opener|parent|top))\\b",
+      "severity": "high",
+      "action": "block",
+      "note": "DOM XSS 关键对象引用"
+    },
+    {
+      "id": "XSS-007",
+      "category": "xss",
+      "name": "JS 危险函数",
+      "target": ["query", "body", "cookie"],
+      "regex": "\\b(?:eval|alert|prompt|confirm|fromcharcode|atob|btoa|settimeout|setinterval)\\s*\\(",
+      "severity": "medium",
+      "action": "log",
+      "note": "alert(1) 等 PoC；业务含合法 alert 文案请转 log 观察"
+    },
+    {
+      "id": "XSS-008",
+      "category": "xss",
+      "name": "编码混淆的 Script",
+      "target": ["query", "body", "uri"],
+      "regex": "%3c\\s*script|%3c%2fscript|\\\\u003c|\\\\x3c|%253c",
+      "severity": "critical",
+      "action": "block",
+      "note": "URL/Unicode/双重编码的 script 标签"
+    },
+    {
+      "id": "XSS-009",
+      "category": "xss",
+      "name": "属性内伪协议",
+      "target": ["query", "body", "uri"],
+      "regex": "<[^>]*\\b(?:href|src)\\s*=\\s*['\"]?\\s*(?:javascript|vbscript)",
+      "severity": "high",
+      "action": "block",
+      "note": "href/src 属性中的伪协议"
+    },
+    {
+      "id": "XSS-010",
+      "category": "xss",
+      "name": "srcdoc/样式注入",
+      "target": ["query", "body", "uri"],
+      "regex": "\\bsrcdoc\\s*=|style\\s*=\\s*['\"][^'\"]*(?:expression|behavior|-moz-binding)",
+      "severity": "high",
+      "action": "block",
+      "note": "iframe srcdoc 与 IE 样式表达式注入"
+    },
+    {
+      "id": "RCE-001",
+      "category": "rce",
+      "name": "Shell 元字符后接命令",
+      "target": ["query", "body", "cookie", "header"],
+      "regex": "(?:;|\\|\\||&&|\\||`)\\s*(?:cat|id|whoami|uname|pwd|ls|dir|type|net\\s+user|wget|curl|nc|ncat|bash|sh|/bin/sh|powershell|cmd\\.exe|perl|python|python3|php|ruby|node|java|scp|ssh|telnet|ftp|chmod|chown|mkfifo|base64|echo|env|export|find|grep|sed|awk)\\b",
+      "severity": "critical",
+      "action": "block",
+      "note": "; cat /etc/passwd、| whoami 等拼接；搜索场景含 | 时需排除清单"
+    },
+    {
+      "id": "RCE-002",
+      "category": "rce",
+      "name": "命令替换/变量展开",
+      "target": ["query", "body", "cookie", "header"],
+      "regex": "\\$\\s*\\(|\\$\\{[^}]{1,80}\\}|`[^`]{1,100}`",
+      "severity": "critical",
+      "action": "block",
+      "note": "$()、${}、反引号命令替换；模板业务若合法使用 ${} 需白名单"
+    },
+    {
+      "id": "RCE-003",
+      "category": "rce",
+      "name": "执行类函数",
+      "target": ["query", "body", "cookie"],
+      "regex": "\\b(?:system|passthru|shell_exec|popen|proc_open|pcntl_exec|exec|eval|assert|create_function|call_user_func|call_user_func_array)\\s*\\(",
+      "severity": "high",
+      "action": "log",
+      "note": "PHP/通用执行函数；与 RCE-004 组合出现时升级为 block"
+    },
+    {
+      "id": "RCE-004",
+      "category": "rce",
+      "name": "编码+执行组合",
+      "target": ["query", "body", "cookie"],
+      "regex": "\\b(?:base64_decode|gzinflate|gzuncompress|str_rot13|hex2bin|pack)\\s*\\(\\s*['\"][^'\"]{20,}",
+      "severity": "high",
+      "action": "block",
+      "note": "base64_decode(长串) 等混淆载荷，webshell 常见"
+    },
+    {
+      "id": "RCE-005",
+      "category": "rce",
+      "name": "Java 执行类",
+      "target": ["query", "body", "cookie"],
+      "regex": "\\bRuntime\\.getRuntime|ProcessBuilder|javax\\.script|ScriptEngineManager|com\\.sun\\.rowset|java\\.lang\\.Process",
+      "severity": "critical",
+      "action": "block",
+      "note": "Java 反序列化/表达式执行常用类"
+    },
+    {
+      "id": "RCE-006",
+      "category": "rce",
+      "name": "OGNL/SpEL 表达式",
+      "target": ["query", "body", "cookie", "header"],
+      "regex": "T\\(java\\.lang\\.Runtime\\)|Runtime\\.getRuntime\\(\\)\\.exec|%\\{|#_memberAccess|#context\\[|class\\.module|classLoader",
+      "severity": "critical",
+      "action": "block",
+      "note": "Struts2 OGNL、Spring SpEL 注入特征；%{ 若业务为格式化语法请排除"
+    },
+    {
+      "id": "RCE-007",
+      "category": "rce",
+      "name": "JNDI/Log4j 注入",
+      "target": ["query", "body", "cookie", "header", "uri"],
+      "regex": "\\$\\{jndi:|\\bjndi:(?:ldap|rmi|dns|ldaps|iiop)://|\\$\\{(?:env|sys|java|lower|upper|::-)",
+      "severity": "critical",
+      "action": "block",
+      "note": "Log4j2 JNDI 注入核心特征，全字段匹配"
+    },
+    {
+      "id": "RCE-008",
+      "category": "rce",
+      "name": "模板注入 SSTI",
+      "target": ["query", "body", "cookie"],
+      "regex": "\\{\\{.*(?:\\d+\\s*\\*\\s*\\d+)|(?:\\.[a-z_]+\\.__class__|__globals__|__init__|__import__|_subclasses__|__mro__|__base__)|os\\.system|os\\.popen|subprocess|get_flashed_messages|config\\.__class__",
+      "severity": "high",
+      "action": "block",
+      "note": "Jinja2/Twig 等 SSTI；{{7*7}} 测试与 Python 魔术属性"
+    },
+    {
+      "id": "RCE-009",
+      "category": "rce",
+      "name": "Windows 命令特征",
+      "target": ["query", "body", "cookie"],
+      "regex": "\\bcmd(?:\\.exe)?\\s*/\\s*c\\s+|powershell\\s*-\\s*\\w|%comspec%|net\\s+user\\s+\\S+\\s+\\S+\\s*/add|systeminfo|whoami\\s*/all|tasklist|reg\\s+add",
+      "severity": "high",
+      "action": "block",
+      "note": "cmd /c、PowerShell 参数、加账户等 Windows 利用特征"
+    },
+    {
+      "id": "RCE-010",
+      "category": "rce",
+      "name": "IFS 空格绕过",
+      "target": ["query", "body", "cookie"],
+      "regex": "\\$\\{IFS\\}",
+      "severity": "high",
+      "action": "block",
+      "note": "${IFS} 用于绕过空格过滤的 bash 命令"
+    },
+    {
+      "id": "PT-001",
+      "category": "path-traversal",
+      "name": "目录穿越序列",
+      "target": ["uri", "query"],
+      "regex": "(?:\\.\\./|\\.\\.\\\\|\\.\\.%2f|\\.\\.%5c|%2e%2e%2f|%2e%2e%5c|%252e%252e|%252f)",
+      "severity": "critical",
+      "action": "block",
+      "note": "../、..\\ 及编码变体；若静态资源路径合法包含 .. 请加排除"
+    },
+    {
+      "id": "PT-002",
+      "category": "path-traversal",
+      "name": "异常编码穿越",
+      "target": ["uri", "query"],
+      "regex": "%c0%ae|%e0%80%ae|%c0%af|%c1%9c|%c1%1c",
+      "severity": "critical",
+      "action": "block",
+      "note": "overlong UTF-8 / 非标准编码绕过"
+    },
+    {
+      "id": "PT-003",
+      "category": "path-traversal",
+      "name": "敏感系统文件",
+      "target": ["uri", "query"],
+      "regex": "(?:/etc/passwd|/etc/shadow|/etc/hosts|/etc/crontab|/etc/group|/proc/self/(?:environ|cmdline)|win\\.ini|boot\\.ini)",
+      "severity": "critical",
+      "action": "block",
+      "note": "穿越目标文件特征"
+    },
+    {
+      "id": "PT-004",
+      "category": "path-traversal",
+      "name": "深层穿越",
+      "target": ["uri", "query"],
+      "regex": "\\.\\./\\s*\\.\\./|\\.\\.\\\\\\s*\\.\\.\\\\",
+      "severity": "critical",
+      "action": "block",
+      "note": "多级回退"
+    },
+    {
+      "id": "LFI-001",
+      "category": "file-inclusion",
+      "name": "危险流包装器",
+      "target": ["query", "body", "uri"],
+      "regex": "(?:php://|file://|data://|expect://|zip://|phar://|gopher://|dict://|ftp://|ldap://|jar://|compress\\.(?:zlib|bzip2)://)",
+      "severity": "critical",
+      "action": "block",
+      "note": "PHP 流包装器与协议利用；file:// 在正常业务中几乎不出现"
+    },
+    {
+      "id": "LFI-002",
+      "category": "file-inclusion",
+      "name": "文件操作函数+路径",
+      "target": ["query", "body"],
+      "regex": "\\b(?:include|include_once|require|require_once|import|load|open|readfile|fopen|file_get_contents|copy|rename|unlink)\\s*\\(?\\s*['\"]?\\s*(?:/|\\.\\.|https?://|file://)",
+      "severity": "high",
+      "action": "block",
+      "note": "函数后直接跟绝对/穿越/远程路径"
+    },
+    {
+      "id": "LFI-003",
+      "category": "file-inclusion",
+      "name": "data:// 编码载荷",
+      "target": ["query", "body"],
+      "regex": "data:\\s*text/plain[^,]*,\\s*(?:base64,)?[a-z0-9+/=]{20,}",
+      "severity": "high",
+      "action": "block",
+      "note": "data:text/plain;base64,... 直接执行"
+    },
+    {
+      "id": "LFI-004",
+      "category": "file-inclusion",
+      "name": "空字节截断",
+      "target": ["uri", "query", "body"],
+      "regex": "%00|\\x00",
+      "severity": "high",
+      "action": "block",
+      "note": "%00 截断文件扩展名校验"
+    },
+    {
+      "id": "SSRF-001",
+      "category": "ssrf",
+      "name": "云元数据地址",
+      "target": ["query", "body", "uri", "header"],
+      "regex": "169\\.254\\.169\\.254|metadata\\.google\\.internal|100\\.100\\.100\\.200|instance-data|169\\.254\\.170\\.\\d+",
+      "severity": "critical",
+      "action": "block",
+      "note": "AWS/阿里云/GCP 元数据服务端点探测"
+    },
+    {
+      "id": "SSRF-002",
+      "category": "ssrf",
+      "name": "内网/回环地址",
+      "target": ["query", "body", "uri"],
+      "regex": "(?:https?|gopher|ftp|dict|file)://(?:127\\.0\\.0\\.1|localhost|0\\.0\\.0\\.0|\\[::1\\]|10\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}|172\\.(?:1[6-9]|2[0-9]|3[01])\\.\\d{1,3}\\.\\d{1,3}|192\\.168\\.\\d{1,3}\\.\\d{1,3}|169\\.254\\.\\d{1,3}\\.\\d{1,3})",
+      "severity": "critical",
+      "action": "block",
+      "note": "URL 参数指向内网 IP；业务合法内网调用需白名单"
+    },
+    {
+      "id": "SSRF-003",
+      "category": "ssrf",
+      "name": "跳转/下载参数 URL",
+      "target": ["query", "body"],
+      "regex": "(?:url|uri|path|dest|target|redirect|return|goto|next|proxy|callback|image|img|file|src|location|load|fetch|link|site|addr|host|endpoint)\\s*[=:]\\s*['\"]?\\s*(?:https?|file|gopher|ftp|dict)://",
+      "severity": "medium",
+      "action": "log",
+      "note": "url=http:// 类参数；先记录观察合法外链跳转频率"
+    },
+    {
+      "id": "SF-001",
+      "category": "sensitive-file",
+      "name": "版本控制目录",
+      "target": ["uri"],
+      "regex": "(?:^|[/?.&=])\\.(?:git|svn|hg)(?:/|$|[\\s?&#])",
+      "severity": "critical",
+      "action": "block",
+      "note": ".git/.svn 源码泄露探测"
+    },
+    {
+      "id": "SF-002",
+      "category": "sensitive-file",
+      "name": "敏感配置文件",
+      "target": ["uri"],
+      "regex": "(?:^|[/?.&=])\\.env(?:$|[\\s?&#])|\\.htaccess|\\.htpasswd|web\\.config|php\\.ini|my\\.cnf|\\.bash_history|\\.ssh[/\\\\]|id_rsa|id_dsa|\\.DS_Store|\\.git-credentials",
+      "severity": "critical",
+      "action": "block",
+      "note": ".env、私钥、认证文件等"
+    },
+    {
+      "id": "SF-003",
+      "category": "sensitive-file",
+      "name": "备份/临时文件",
+      "target": ["uri"],
+      "regex": "\\.(?:bak|old|orig|swp|save|sql|tar\\.gz|zip)\\s*$",
+      "severity": "medium",
+      "action": "log",
+      "note": "备份文件下载探测；站点提供 .zip/.sql 下载时排除"
+    },
+    {
+      "id": "SF-004",
+      "category": "sensitive-file",
+      "name": "管理/调试入口",
+      "target": ["uri"],
+      "regex": "(?:^|[/?])(?:phpmyadmin|adminer|server-status|server-info|phpinfo|actuator|druid|swagger-ui|api-docs|console)(?:/|$|[\\s?&#])",
+      "severity": "high",
+      "action": "block",
+      "note": "管理面板、Spring Actuator、Druid 监控等未授权入口"
+    },
+    {
+      "id": "UP-001",
+      "category": "upload",
+      "name": "可执行文件扩展名",
+      "target": ["filename", "body", "query"],
+      "regex": "filename\\s*=\\s*['\"]?[^'\"\\s]{0,200}\\.(?:php\\d?|phtml|pht|shtml|jsp|jspx|jspf|asp|aspx|asa|cer|asax|asmx|ashx|ascx|cgi|pl|py|pyc|sh|rb|war|exe|msi|bat|cmd|ps1|vbs|com|scr|dll|so)\\s*['\"]?",
+      "severity": "critical",
+      "action": "block",
+      "note": "filename= 参数中的脚本/可执行扩展名，覆盖双扩展与常见变体"
+    },
+    {
+      "id": "UP-002",
+      "category": "upload",
+      "name": "双扩展/空字节绕过",
+      "target": ["filename", "body", "query"],
+      "regex": "\\.(?:php|asp|jsp)\\.[a-z0-9]{1,5}\\s*$|(?:\\.php|\\.asp|\\.jsp)%00|%00\\.(?:php|asp|jsp)",
+      "severity": "critical",
+      "action": "block",
+      "note": "shell.php.jpg 双扩展与 %00 截断"
+    },
+    {
+      "id": "UP-003",
+      "category": "upload",
+      "name": "上传路径穿越",
+      "target": ["filename", "body", "query"],
+      "regex": "(?:filename|file|name)\\s*=\\s*['\"]?[^'\"\\s]*(?:\\.\\./|\\.\\.\\\\)",
+      "severity": "high",
+      "action": "block",
+      "note": "上传文件名携带 ../ 试图跳出目录"
+    },
+    {
+      "id": "DS-001",
+      "category": "deserialization",
+      "name": "Java 序列化特征",
+      "target": ["body", "query", "cookie"],
+      "regex": "rO0AB|aced0005|H4sIAAAAAAAA",
+      "severity": "critical",
+      "action": "block",
+      "note": "Java 序列化流头（base64/hex/gzip）"
+    },
+    {
+      "id": "DS-002",
+      "category": "deserialization",
+      "name": "反序列化利用类",
+      "target": ["body", "query", "cookie"],
+      "regex": "(?:javax\\.objectstream|jdk\\.serializable|com\\.sun\\.synth|org\\.apache\\.commons\\.collections|ysoserial|commons-collections[0-9.]*)",
+      "severity": "critical",
+      "action": "block",
+      "note": "ysoserial 与 gadget 链常用类"
+    },
+    {
+      "id": "DS-003",
+      "category": "deserialization",
+      "name": "PHP 序列化对象",
+      "target": ["body", "query", "cookie"],
+      "regex": "O:\\d+:\"|a:\\d+:\\{|s:\\d+:\"|i:\\d+;",
+      "severity": "high",
+      "action": "block",
+      "note": "PHP serialize 格式；业务存储序列化数据时需排除"
+    },
+    {
+      "id": "DS-004",
+      "category": "deserialization",
+      "name": "fastjson 自动类型",
+      "target": ["body", "query", "cookie"],
+      "regex": "@type\\s*[:=]\\s*['\"]?(?:com\\.|java\\.|org\\.|net\\.|io\\.)|\\\"\\$ref\\\"\\s*[:=]",
+      "severity": "critical",
+      "action": "block",
+      "note": "fastjson @type 与 $ref 利用"
+    },
+    {
+      "id": "DS-005",
+      "category": "deserialization",
+      "name": "Shiro 反序列化",
+      "target": ["cookie", "body", "header"],
+      "regex": "\\brememberme\\s*=",
+      "severity": "medium",
+      "action": "log",
+      "note": "Shiro rememberMe Cookie 探测（结合 base64 长串判断）"
+    },
+    {
+      "id": "DS-006",
+      "category": "deserialization",
+      "name": "Jackson 多态类型",
+      "target": ["body", "query"],
+      "regex": "['\"]@class['\"]?\\s*[:=]|@class\\s*[:=]",
+      "severity": "critical",
+      "action": "block",
+      "note": "Jackson enableDefaultTyping 利用"
+    },
+    {
+      "id": "DS-007",
+      "category": "deserialization",
+      "name": "Python 反序列化函数",
+      "target": ["body", "query", "cookie"],
+      "regex": "\\b__reduce__\\b|\\b__import__\\b",
+      "severity": "high",
+      "action": "block",
+      "note": "pickle/yaml 反序列化 RCE 魔术方法"
+    },
+    {
+      "id": "WS-001",
+      "category": "webshell",
+      "name": "常见木马文件名",
+      "target": ["uri", "query"],
+      "regex": "\\b(?:c99|r57|b374k|alfashell|wso|phpspy|upfile|shell|webshell)[^a-z0-9]*\\.php\\b",
+      "severity": "medium",
+      "action": "log",
+      "note": "公开马名与通用 shell 名；正常业务含 shell.php 时排除"
+    },
+    {
+      "id": "WS-002",
+      "category": "webshell",
+      "name": "混淆执行组合",
+      "target": ["query", "body", "cookie"],
+      "regex": "\\b(?:eval|assert|system|passthru|shell_exec)\\s*\\(\\s*(?:base64_decode|gzinflate|gzuncompress|str_rot13|pack)\\s*\\(",
+      "severity": "critical",
+      "action": "block",
+      "note": "执行函数嵌套解码函数，一句话木马核心特征"
+    },
+    {
+      "id": "WS-003",
+      "category": "webshell",
+      "name": "超级全局变量调用",
+      "target": ["query", "body", "cookie"],
+      "regex": "\\$_(?:GET|POST|REQUEST|COOKIE|FILES|SERVER)\\s*\\[",
+      "severity": "high",
+      "action": "block",
+      "note": "$_GET[cmd] 等参数直调，PHP 木马特征"
+    },
+    {
+      "id": "WS-004",
+      "category": "webshell",
+      "name": "管理工具特征",
+      "target": ["header", "query", "body"],
+      "regex": "antSword|Behinder|Godzilla|菜刀|蚁剑|冰蝎|哥斯拉",
+      "severity": "high",
+      "action": "block",
+      "note": "蚁剑/冰蝎/哥斯拉 UA 与请求特征"
+    },
+    {
+      "id": "SC-001",
+      "category": "scanner",
+      "name": "扫描器 User-Agent",
+      "target": ["header"],
+      "regex": "(?:sqlmap|nikto|nmap|masscan|dirbuster|dirb|gobuster|wpscan|joomscan|acunetix|nessus|openvas|qualys|netsparker|burpsuite|wfuzz|libwww-perl|zgrab|httpx|ffuf|feroxbuster|hydra|medusa|patator|whatweb|arachni|w3af|vega|nuclei|mobsf|appscan|webinspect|jbrofuzz|paros)",
+      "severity": "high",
+      "action": "block",
+      "note": "主流扫描器/模糊测试工具 UA"
+    },
+    {
+      "id": "SC-002",
+      "category": "scanner",
+      "name": "扫描器特征请求头",
+      "target": ["header"],
+      "regex": "(?:x-attack|x-scanner|x-pentest|x-crawl|x-hacker|x-proxy|acunetix-product|nessus-host|nikto-scan)",
+      "severity": "high",
+      "action": "block",
+      "note": "扫描器自带标记头"
+    },
+    {
+      "id": "EN-001",
+      "category": "encoding",
+      "name": "双重 URL 编码",
+      "target": ["uri", "query", "body"],
+      "regex": "%(?:25){1,}[0-9a-fA-F]{2}",
+      "severity": "high",
+      "action": "block",
+      "note": "%2527 等二次编码绕过；解码后仍含 %XX 异常"
+    },
+    {
+      "id": "EN-002",
+      "category": "encoding",
+      "name": "异常 Unicode/超长编码",
+      "target": ["uri", "query", "body"],
+      "regex": "%u[0-9a-fA-F]{4}|%c0%|%e0%80%|%f0%80%80%|%c1%",
+      "severity": "high",
+      "action": "block",
+      "note": "%u 编码与 overlong UTF-8，解码失败类输入"
+    },
+    {
+      "id": "EN-003",
+      "category": "encoding",
+      "name": "CRLF 注入编码",
+      "target": ["uri", "query", "body", "header"],
+      "regex": "%0d%0a|%0a%0d|%250d%250a|%u000d|%u000a",
+      "severity": "critical",
+      "action": "block",
+      "note": "响应拆分/Header 注入；字面 \\r\\n 建议在解析层直接拒绝"
+    },
+    {
+      "id": "XXE-001",
+      "category": "xxe",
+      "name": "DOCTYPE 外部实体",
+      "target": ["body"],
+      "regex": "<!doctype\\s+[a-zA-Z][a-zA-Z0-9]*\\s+[^>]{0,80}?(?:system|public)\\s+['\"](?:file|http|https|ftp)://",
+      "severity": "critical",
+      "action": "block",
+      "note": "XML 外部实体声明指向外部资源"
+    },
+    {
+      "id": "XXE-002",
+      "category": "xxe",
+      "name": "ENTITY 外部引用",
+      "target": ["body"],
+      "regex": "<!entity\\s+[a-zA-Z_][a-zA-Z0-9_.-]{0,30}\\s+(?:system|public)\\s+['\"](?:file|http|https|ftp)://",
+      "severity": "critical",
+      "action": "block",
+      "note": "实体定义引用 file/http 协议"
+    },
+    {
+      "id": "INF-001",
+      "category": "info-disclosure",
+      "name": "报错信息泄露",
+      "target": ["body", "query"],
+      "regex": "(?:fatal error:|stack trace:|traceback|exception in |debug_backtrace|mysql_fetch_|syntax error, unexpected|undefined variable|SQLSTATE\\[|Warning:\\s+\\w+_)",
+      "severity": "medium",
+      "action": "log",
+      "note": "错误探测；正常业务含错误文案时排除后转 block"
+    },
+    {
+      "id": "INF-002",
+      "category": "info-disclosure",
+      "name": "系统文件内容外泄",
+      "target": ["response"],
+      "severity": "critical",
+      "action": "block",
+      "regex": "root:x:0:0:|daemon:x:1:1:",
+      "note": "响应体出现 /etc/passwd 内容（需框架支持响应检测）"
+    }
+  ]
+}

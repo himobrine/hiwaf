@@ -1,0 +1,142 @@
+{
+  "policy": {
+    "version": 1,
+    "target_fpr": "0.01",
+    "supervised_threshold": 0.6997649669647217,
+    "zero_day_threshold": -7.262677192687988,
+    "zero_day_enabled": false,
+    "calibration_pool": {
+      "name": "CSIC 2010 正常流量留出 6,000 条（seed=7 切分，与零日通道训练集互斥）",
+      "source": "csic-holdout",
+      "n": 6000,
+      "n_overlap": 0,
+      "overlap_rate": 0.0,
+      "training_set": "hard_neg=lexical seed=11 lexical_split=random dict=off extra_benign=0 valid_frac=0.0",
+      "n_training": 21212
+    }
+  },
+  "datasets": {
+    "local_benign": {
+      "n": 190,
+      "note": "真实本地良性（干净池）→ 这两个比率才是**真实误报率**",
+      "zero_day_enabled": false,
+      "supervised_flag": 8,
+      "supervised_rate": 0.042105263157894736,
+      "zero_day_flag": 6,
+      "zero_day_rate": 0.031578947368421054,
+      "zero_day_crossing_rate": 0.031578947368421054,
+      "action": {
+        "block": 8,
+        "alert": 0,
+        "allow": 182
+      },
+      "action_rate": {
+        "block": 0.042105263157894736,
+        "alert": 0.0,
+        "allow": 0.9578947368421052
+      },
+      "supervised_score": {
+        "min": 3.075599670410156e-05,
+        "p50": 0.011951178312301636,
+        "p90": 0.33110669255256653,
+        "max": 0.9671322703361511
+      },
+      "zero_day_score": {
+        "min": -12.371856689453125,
+        "p50": -8.69244384765625,
+        "max": -6.082504749298096
+      }
+    },
+    "inwild_attack": {
+      "n": 12,
+      "note": "真实在野攻击 → 这两个比率是**真实攻击检出率**（n 极小）",
+      "zero_day_enabled": false,
+      "supervised_flag": 7,
+      "supervised_rate": 0.5833333333333334,
+      "zero_day_flag": 1,
+      "zero_day_rate": 0.08333333333333333,
+      "zero_day_crossing_rate": 0.08333333333333333,
+      "action": {
+        "block": 7,
+        "alert": 0,
+        "allow": 5
+      },
+      "action_rate": {
+        "block": 0.5833333333333334,
+        "alert": 0.0,
+        "allow": 0.4166666666666667
+      },
+      "supervised_score": {
+        "min": 0.010855257511138916,
+        "p50": 0.7756640911102295,
+        "p90": 0.8312513828277588,
+        "max": 0.9984164834022522
+      },
+      "zero_day_score": {
+        "min": -10.781929969787598,
+        "p50": -9.64668083190918,
+        "max": -5.705502986907959
+      }
+    },
+    "inwild_all": {
+      "n": 105730,
+      "note": "公网服务器在野流量（混有扫描器探测）→ 只能叫**命中率**，不是 FPR",
+      "zero_day_enabled": false,
+      "supervised_flag": 6917,
+      "supervised_rate": 0.06542135628487657,
+      "zero_day_flag": 14,
+      "zero_day_rate": 0.00013241274945616192,
+      "zero_day_crossing_rate": 0.00013241274945616192,
+      "action": {
+        "block": 6917,
+        "alert": 0,
+        "allow": 98813
+      },
+      "action_rate": {
+        "block": 0.06542135628487657,
+        "alert": 0.0,
+        "allow": 0.9345786437151234
+      },
+      "supervised_score": {
+        "min": 1.811981201171875e-05,
+        "p50": 0.027069568634033203,
+        "p90": 0.47519057989120483,
+        "max": 0.9999864101409912
+      },
+      "zero_day_score": {
+        "min": -13.231683731079102,
+        "p50": -9.693602561950684,
+        "max": -6.367341995239258
+      }
+    }
+  },
+  "q2_recalibration_on_local": {
+    "n_pool": 190,
+    "target_fpr": "0.01",
+    "supervised": {
+      "policy_threshold": 0.6997649669647217,
+      "local_pool_threshold": 0.9468593597412109,
+      "policy_threshold_implied_fpr": 0.042105263157894736,
+      "delta": 0.24709439277648926,
+      "n_above_policy_threshold": 8
+    },
+    "zero_day": {
+      "policy_threshold": -7.262677192687988,
+      "local_pool_threshold": -7.042184829711914,
+      "policy_threshold_implied_fpr": 0.031578947368421054,
+      "delta": 0.22049236297607422,
+      "n_above_policy_threshold": 6
+    }
+  },
+  "q3_local_iforest": {
+    "onnx": "artifacts\\iforest_lean_local_001.onnx",
+    "local_pool_threshold_at_target_fpr": -4.8396196365356445,
+    "local_benign_hit_rate": 0.010526315789473684,
+    "inwild_attack_detect": 0.08333333333333333,
+    "inwild_all_hit_rate": 9.458053532582994e-06,
+    "csic_trained_on_same_sets": {
+      "local_benign_hit_rate_at_its_own_thr": 0.031578947368421054,
+      "inwild_attack_detect": 0.08333333333333333
+    }
+  }
+}

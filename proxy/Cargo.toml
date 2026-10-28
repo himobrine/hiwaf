@@ -1,0 +1,25 @@
+[package]
+name = "waf-collector"
+version = "0.1.0"
+edition = "2021"
+description = "S4/工作项 F 采集数据面：Pingora 反向代理 + HTTP/流级采集（只采原始记录，标签留给出处规则）"
+
+[[bin]]
+name = "waf-collector"
+path = "src/main.rs"
+
+[dependencies]
+# 版本必须 ≥0.9：0.4.0 在 pingora-core 里就编译不过（Windows 专有 UniqueIDType usize/i32 不匹配 + sfv 漂移）。
+# rustls 而不是 openssl/boringssl：本机没有 perl，openssl 工具链缺失。
+pingora = { version = "0.9", features = ["proxy", "rustls"] }
+async-trait = "0.1"
+bytes = "1"
+base64 = "0.22"
+http = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+waf-ai-proto = { path = "../rust" }
+
+[profile.release]
+opt-level = 2
+debug = false

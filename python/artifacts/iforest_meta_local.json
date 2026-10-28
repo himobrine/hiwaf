@@ -1,0 +1,37 @@
+{
+  "n_features": 80,
+  "trees": 100,
+  "max_samples": 95,
+  "seed": 42,
+  "include_ngram": false,
+  "output_name": "avg_path_len",
+  "score_def": "zero_day_score = -avg_path_len（越大越异常）",
+  "zero_day_threshold": {
+    "thresholds": {
+      "0.001": -4.473962045669548,
+      "0.01": -5.472814331054685,
+      "0.03": -5.9198611164093045,
+      "0.05": -6.740256118774414,
+      "0.1": -6.978273963928222
+    },
+    "detect": {
+      "0.001": 0.08333333333333333,
+      "0.01": 0.08333333333333333,
+      "0.03": 0.08333333333333333,
+      "0.05": 0.08333333333333333,
+      "0.1": 0.08333333333333333
+    },
+    "n_normal_pool": 95,
+    "n_anomaly": 12
+  },
+  "spearman_vs_sklearn": 1.0,
+  "onnx": "iforest_lean_local_001.onnx",
+  "dataset": "真实本地良性流量（本机 phpStudy 访问日志，collect_http_log.py 产出）",
+  "train_normal": 95,
+  "holdout_normal": 95,
+  "anomaly": 12,
+  "benign_source": "..\\traindata\\local\\local_lab_benign.jsonl",
+  "attack_source": "..\\traindata\\local\\inwild_attack.jsonl",
+  "split_protocol": "textsim.group_split 近重复分簇不跨界（{'n_clusters': 115}）",
+  "caveat": "本地良性样本量极小，阈值/检出率的置信区间很宽；此产物是**验证 S9 处方可行**，不是可上线的零日通道。"
+}

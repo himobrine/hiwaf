@@ -1,0 +1,1724 @@
+{
+  "generated_at": "2026-10-20 15:18:42",
+  "source_name": "通用 Web WAF 过滤规则集",
+  "source_version": "1.0.0",
+  "source_date": "2026-10-20",
+  "source_license": "<未声明>",
+  "totals": {
+    "declared": 70,
+    "imported": 66,
+    "skipped": 4,
+    "parse_errors": 0,
+    "importable": 66
+  },
+  "skip_reasons": {
+    "decode_incompatible": 1,
+    "unsupported_target:header": 2,
+    "unsupported_target:response": 1
+  },
+  "by_category": {
+    "sql-injection": 12,
+    "xss": 10,
+    "rce": 10,
+    "path-traversal": 3,
+    "file-inclusion": 4,
+    "ssrf": 3,
+    "sensitive-file": 4,
+    "upload": 3,
+    "deserialization": 7,
+    "webshell": 4,
+    "encoding": 3,
+    "xxe": 2,
+    "info-disclosure": 1
+  },
+  "by_src_action": {
+    "block": 56,
+    "log": 10
+  },
+  "dropped_target_counts": {
+    "cookie": 32,
+    "header": 13,
+    "filename": 3
+  },
+  "with_dropped_targets": 42,
+  "with_dead_branches": 6,
+  "rules": [
+    {
+      "id": "waf_sqli_001",
+      "name": "[SQLI-001] Union Select 注入",
+      "regex": "(?i)union\\s+(?:all\\s+)?select",
+      "scopes": [
+        "path",
+        "query",
+        "body"
+      ],
+      "severity": "critical",
+      "weight": 5.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=SQLI-001；cat=sql-injection；sev=critical；src_action=block（意图=block；入库恒 alert）；targets=query,body,cookie,uri；scopes=path,query,body；dropped=cookie（数据面无对应字段）；最常见的联合查询注入特征，命中基本可判定恶意",
+      "src_id": "SQLI-001",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "critical",
+      "category": "sql-injection",
+      "dropped_targets": [
+        "cookie"
+      ],
+      "dead_branches": 0,
+      "branches": 1,
+      "warnings": [],
+      "db_id": "custom_waf_sqli_001"
+    },
+    {
+      "id": "waf_sqli_002",
+      "name": "[SQLI-002] DML/DDL 高危语句",
+      "regex": "(?i)\\b(?:insert\\s+into|delete\\s+from|drop\\s+(?:table|database|index)|truncate\\s+table|alter\\s+table|create\\s+(?:table|database|index)|rename\\s+table)\\b",
+      "scopes": [
+        "query",
+        "body"
+      ],
+      "severity": "critical",
+      "weight": 5.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=SQLI-002；cat=sql-injection；sev=critical；src_action=block（意图=block；入库恒 alert）；targets=query,body,cookie；scopes=query,body；dropped=cookie（数据面无对应字段）；写操作/删库语句出现在用户输入中基本非正常业务",
+      "src_id": "SQLI-002",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "critical",
+      "category": "sql-injection",
+      "dropped_targets": [
+        "cookie"
+      ],
+      "dead_branches": 0,
+      "branches": 1,
+      "warnings": [],
+      "db_id": "custom_waf_sqli_002"
+    },
+    {
+      "id": "waf_sqli_003",
+      "name": "[SQLI-003] 注释符拼接 SQL",
+      "regex": "(?i)(?:--|#|/\\*).{0,40}\\b(?:select|insert|update|delete|drop|alter|union|exec|xp_cmdshell)\\b",
+      "scopes": [
+        "query",
+        "body"
+      ],
+      "severity": "critical",
+      "weight": 5.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=SQLI-003；cat=sql-injection；sev=critical；src_action=block（意图=block；入库恒 alert）；targets=query,body,cookie；scopes=query,body；dropped=cookie（数据面无对应字段）；注释符后紧跟 SQL 关键字，典型注入闭合手法",
+      "src_id": "SQLI-003",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "critical",
+      "category": "sql-injection",
+      "dropped_targets": [
+        "cookie"
+      ],
+      "dead_branches": 0,
+      "branches": 1,
+      "warnings": [],
+      "db_id": "custom_waf_sqli_003"
+    },
+    {
+      "id": "waf_sqli_004",
+      "name": "[SQLI-004] 报错注入函数",
+      "regex": "(?i)\\b(?:updatexml|extractvalue|exp|floor|polygon|multipoint|gtid_subtract|name_const|geometrycollection)\\s*\\(",
+      "scopes": [
+        "query",
+        "body"
+      ],
+      "severity": "critical",
+      "weight": 5.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=SQLI-004；cat=sql-injection；sev=critical；src_action=block（意图=block；入库恒 alert）；targets=query,body,cookie；scopes=query,body；dropped=cookie（数据面无对应字段）；MySQL 报错注入专用函数，正常业务几乎不出现",
+      "src_id": "SQLI-004",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "critical",
+      "category": "sql-injection",
+      "dropped_targets": [
+        "cookie"
+      ],
+      "dead_branches": 0,
+      "branches": 1,
+      "warnings": [],
+      "db_id": "custom_waf_sqli_004"
+    },
+    {
+      "id": "waf_sqli_005",
+      "name": "[SQLI-005] 数据库信息函数/变量",
+      "regex": "(?i)@@(?:version|datadir|hostname|basedir|user|global|session)\\b|\\b(?:user|database|version|current_user|session_user|system_user)\\s*\\(",
+      "scopes": [
+        "query",
+        "body"
+      ],
+      "severity": "high",
+      "weight": 4.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=SQLI-005；cat=sql-injection；sev=high；src_action=block（意图=block；入库恒 alert）；targets=query,body,cookie；scopes=query,body；dropped=cookie（数据面无对应字段）；如业务合法使用 user()/database() 请加排除清单",
+      "src_id": "SQLI-005",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "high",
+      "category": "sql-injection",
+      "dropped_targets": [
+        "cookie"
+      ],
+      "dead_branches": 0,
+      "branches": 2,
+      "warnings": [],
+      "db_id": "custom_waf_sqli_005"
+    },
+    {
+      "id": "waf_sqli_006",
+      "name": "[SQLI-006] 字符串/编码函数探测",
+      "regex": "(?i)\\b(?:concat|concat_ws|group_concat|substring|substr|mid|char|ascii|hex|ord|length)\\s*\\(",
+      "scopes": [
+        "query",
+        "body"
+      ],
+      "severity": "medium",
+      "weight": 3.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=SQLI-006；cat=sql-injection；sev=medium；src_action=log（意图=alert；入库恒 alert）；targets=query,body,cookie；scopes=query,body；dropped=cookie（数据面无对应字段）；盲注常用函数组合，单独出现可先记录",
+      "src_id": "SQLI-006",
+      "src_action": "log",
+      "src_intent": "alert",
+      "src_severity": "medium",
+      "category": "sql-injection",
+      "dropped_targets": [
+        "cookie"
+      ],
+      "dead_branches": 0,
+      "branches": 1,
+      "warnings": [],
+      "db_id": "custom_waf_sqli_006"
+    },
+    {
+      "id": "waf_sqli_007",
+      "name": "[SQLI-007] 时间盲注",
+      "regex": "(?i)\\b(?:sleep|pg_sleep|benchmark)\\s*\\(\\s*\\d+\\s*\\)|waitfor\\s+delay\\s*['\"][0-9:]+['\"]",
+      "scopes": [
+        "query",
+        "body"
+      ],
+      "severity": "critical",
+      "weight": 5.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=SQLI-007；cat=sql-injection；sev=critical；src_action=block（意图=block；入库恒 alert）；targets=query,body,cookie；scopes=query,body；dropped=cookie（数据面无对应字段）；sleep(5)、WAITFOR DELAY 等延时注入特征",
+      "src_id": "SQLI-007",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "critical",
+      "category": "sql-injection",
+      "dropped_targets": [
+        "cookie"
+      ],
+      "dead_branches": 0,
+      "branches": 2,
+      "warnings": [],
+      "db_id": "custom_waf_sqli_007"
+    },
+    {
+      "id": "waf_sqli_008",
+      "name": "[SQLI-008] 布尔盲注恒真/恒假",
+      "regex": "(?i)\\b(?:and|or)\\s+['\"]?\\d{1,3}\\s*[=!<>]{1,2}\\s*['\"]?\\d{1,3}\\b",
+      "scopes": [
+        "query",
+        "body"
+      ],
+      "severity": "high",
+      "weight": 4.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=SQLI-008；cat=sql-injection；sev=high；src_action=log（意图=alert；入库恒 alert）；targets=query,body,cookie；scopes=query,body；dropped=cookie（数据面无对应字段）；or 1=1 / and 1=2 类特征；若业务含正常数学表达式请转 log 观察",
+      "src_id": "SQLI-008",
+      "src_action": "log",
+      "src_intent": "alert",
+      "src_severity": "high",
+      "category": "sql-injection",
+      "dropped_targets": [
+        "cookie"
+      ],
+      "dead_branches": 0,
+      "branches": 1,
+      "warnings": [],
+      "db_id": "custom_waf_sqli_008"
+    },
+    {
+      "id": "waf_sqli_009",
+      "name": "[SQLI-009] 引号闭合注入",
+      "regex": "(?i)['\"]\\s*(?:or|and|union|--|#|;)\\b",
+      "scopes": [
+        "query",
+        "body"
+      ],
+      "severity": "high",
+      "weight": 4.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=SQLI-009；cat=sql-injection；sev=high；src_action=block（意图=block；入库恒 alert）；targets=query,body,cookie；scopes=query,body；dropped=cookie（数据面无对应字段）；单/双引号后紧跟 SQL 关键字",
+      "src_id": "SQLI-009",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "high",
+      "category": "sql-injection",
+      "dropped_targets": [
+        "cookie"
+      ],
+      "dead_branches": 0,
+      "branches": 1,
+      "warnings": [],
+      "db_id": "custom_waf_sqli_009"
+    },
+    {
+      "id": "waf_sqli_010",
+      "name": "[SQLI-010] information_schema 探测",
+      "regex": "(?i)\\binformation_schema\\b",
+      "scopes": [
+        "query",
+        "body"
+      ],
+      "severity": "high",
+      "weight": 4.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=SQLI-010；cat=sql-injection；sev=high；src_action=block（意图=block；入库恒 alert）；targets=query,body,cookie；scopes=query,body；dropped=cookie（数据面无对应字段）；元数据库枚举，注入中后期行为",
+      "src_id": "SQLI-010",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "high",
+      "category": "sql-injection",
+      "dropped_targets": [
+        "cookie"
+      ],
+      "dead_branches": 0,
+      "branches": 1,
+      "warnings": [],
+      "db_id": "custom_waf_sqli_010"
+    },
+    {
+      "id": "waf_sqli_011",
+      "name": "[SQLI-011] 写文件/读文件函数",
+      "regex": "(?i)\\b(?:into\\s+(?:outfile|dumpfile)|load_file)\\s*\\(",
+      "scopes": [
+        "query",
+        "body"
+      ],
+      "severity": "critical",
+      "weight": 5.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=SQLI-011；cat=sql-injection；sev=critical；src_action=block（意图=block；入库恒 alert）；targets=query,body,cookie；scopes=query,body；dropped=cookie（数据面无对应字段）；INTO OUTFILE / LOAD_FILE 写马读文件",
+      "src_id": "SQLI-011",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "critical",
+      "category": "sql-injection",
+      "dropped_targets": [
+        "cookie"
+      ],
+      "dead_branches": 0,
+      "branches": 1,
+      "warnings": [],
+      "db_id": "custom_waf_sqli_011"
+    },
+    {
+      "id": "waf_sqli_012",
+      "name": "[SQLI-012] 十六进制编码值",
+      "regex": "(?i)0x[0-9a-f]{6,}\\b",
+      "scopes": [
+        "query",
+        "body"
+      ],
+      "severity": "medium",
+      "weight": 3.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=SQLI-012；cat=sql-injection；sev=medium；src_action=log（意图=alert；入库恒 alert）；targets=query,body,cookie；scopes=query,body；dropped=cookie（数据面无对应字段）；0x 长十六进制常用于绕过引号过滤；排除颜色/哈希类正常业务后转 block",
+      "src_id": "SQLI-012",
+      "src_action": "log",
+      "src_intent": "alert",
+      "src_severity": "medium",
+      "category": "sql-injection",
+      "dropped_targets": [
+        "cookie"
+      ],
+      "dead_branches": 0,
+      "branches": 1,
+      "warnings": [],
+      "db_id": "custom_waf_sqli_012"
+    },
+    {
+      "id": "waf_xss_001",
+      "name": "[XSS-001] 危险 HTML 标签",
+      "regex": "(?i)<\\s*(?:script|iframe|object|embed|svg|math|meta|link|style|form|textarea|base|frame|frameset|audio|video|applet)[\\s/>]",
+      "scopes": [
+        "path",
+        "query",
+        "body"
+      ],
+      "severity": "critical",
+      "weight": 5.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=XSS-001；cat=xss；sev=critical；src_action=block（意图=block；入库恒 alert）；targets=query,body,uri,header；scopes=path,query,body；dropped=header（数据面无对应字段）；反射/存储型 XSS 载体标签；富文本业务需单独白名单化",
+      "src_id": "XSS-001",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "critical",
+      "category": "xss",
+      "dropped_targets": [
+        "header"
+      ],
+      "dead_branches": 0,
+      "branches": 1,
+      "warnings": [],
+      "db_id": "custom_waf_xss_001"
+    },
+    {
+      "id": "waf_xss_002",
+      "name": "[XSS-002] 闭合 Script 标签",
+      "regex": "(?i)<\\s*/\\s*script\\s*>",
+      "scopes": [
+        "path",
+        "query",
+        "body"
+      ],
+      "severity": "critical",
+      "weight": 5.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=XSS-002；cat=xss；sev=critical；src_action=block（意图=block；入库恒 alert）；targets=query,body,uri,header；scopes=path,query,body；dropped=header（数据面无对应字段）；先闭合再重开是绕过转义的常用手法",
+      "src_id": "XSS-002",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "critical",
+      "category": "xss",
+      "dropped_targets": [
+        "header"
+      ],
+      "dead_branches": 0,
+      "branches": 1,
+      "warnings": [],
+      "db_id": "custom_waf_xss_002"
+    },
+    {
+      "id": "waf_xss_003",
+      "name": "[XSS-003] 事件属性注入",
+      "regex": "(?i)\\bon(?:load|error|click|mouseover|mouseout|mousedown|mouseup|focus|blur|change|submit|keydown|keyup|keypress|input|select|dblclick|contextmenu|pointerdown|pointerup|pointerover|pointerout|toggle|animationstart|transitionend|beforeunload|hashchange|popstate|drag|drop|wheel|touchstart|touchmove|touchend)\\s*=\\s*",
+      "scopes": [
+        "path",
+        "query",
+        "body"
+      ],
+      "severity": "high",
+      "weight": 4.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=XSS-003；cat=xss；sev=high；src_action=block（意图=block；入库恒 alert）；targets=query,body,uri,header；scopes=path,query,body；dropped=header（数据面无对应字段）；on* 事件处理器，覆盖主流浏览器事件",
+      "src_id": "XSS-003",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "high",
+      "category": "xss",
+      "dropped_targets": [
+        "header"
+      ],
+      "dead_branches": 0,
+      "branches": 1,
+      "warnings": [],
+      "db_id": "custom_waf_xss_003"
+    },
+    {
+      "id": "waf_xss_004",
+      "name": "[XSS-004] 伪协议",
+      "regex": "(?i)(?:javascript|vbscript|livescript|mocha)\\s*:",
+      "scopes": [
+        "path",
+        "query",
+        "body"
+      ],
+      "severity": "critical",
+      "weight": 5.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=XSS-004；cat=xss；sev=critical；src_action=block（意图=block；入库恒 alert）；targets=query,body,uri,header；scopes=path,query,body；dropped=header（数据面无对应字段）；javascript: 等协议注入",
+      "src_id": "XSS-004",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "critical",
+      "category": "xss",
+      "dropped_targets": [
+        "header"
+      ],
+      "dead_branches": 0,
+      "branches": 1,
+      "warnings": [],
+      "db_id": "custom_waf_xss_004"
+    },
+    {
+      "id": "waf_xss_005",
+      "name": "[XSS-005] data 协议 HTML",
+      "regex": "(?i)data\\s*:\\s*(?:text/html|text/javascript|application/xhtml)[^,]*",
+      "scopes": [
+        "path",
+        "query",
+        "body"
+      ],
+      "severity": "high",
+      "weight": 4.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=XSS-005；cat=xss；sev=high；src_action=block（意图=block；入库恒 alert）；targets=query,body,uri；scopes=path,query,body；data:text/html 载荷；data:image 正常业务不拦截",
+      "src_id": "XSS-005",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "high",
+      "category": "xss",
+      "dropped_targets": [],
+      "dead_branches": 0,
+      "branches": 1,
+      "warnings": [],
+      "db_id": "custom_waf_xss_005"
+    },
+    {
+      "id": "waf_xss_006",
+      "name": "[XSS-006] DOM 敏感对象",
+      "regex": "(?i)\\b(?:document\\.(?:cookie|location|write|writeln|innerhtml|createelement|body|head)|window\\.(?:location|name|opener|parent|top))\\b",
+      "scopes": [
+        "query",
+        "body"
+      ],
+      "severity": "high",
+      "weight": 4.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=XSS-006；cat=xss；sev=high；src_action=block（意图=block；入库恒 alert）；targets=query,body,cookie,header；scopes=query,body；dropped=cookie,header（数据面无对应字段）；DOM XSS 关键对象引用",
+      "src_id": "XSS-006",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "high",
+      "category": "xss",
+      "dropped_targets": [
+        "cookie",
+        "header"
+      ],
+      "dead_branches": 0,
+      "branches": 1,
+      "warnings": [],
+      "db_id": "custom_waf_xss_006"
+    },
+    {
+      "id": "waf_xss_007",
+      "name": "[XSS-007] JS 危险函数",
+      "regex": "(?i)\\b(?:eval|alert|prompt|confirm|fromcharcode|atob|btoa|settimeout|setinterval)\\s*\\(",
+      "scopes": [
+        "query",
+        "body"
+      ],
+      "severity": "medium",
+      "weight": 3.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=XSS-007；cat=xss；sev=medium；src_action=log（意图=alert；入库恒 alert）；targets=query,body,cookie；scopes=query,body；dropped=cookie（数据面无对应字段）；alert(1) 等 PoC；业务含合法 alert 文案请转 log 观察",
+      "src_id": "XSS-007",
+      "src_action": "log",
+      "src_intent": "alert",
+      "src_severity": "medium",
+      "category": "xss",
+      "dropped_targets": [
+        "cookie"
+      ],
+      "dead_branches": 0,
+      "branches": 1,
+      "warnings": [],
+      "db_id": "custom_waf_xss_007"
+    },
+    {
+      "id": "waf_xss_008",
+      "name": "[XSS-008] 编码混淆的 Script",
+      "regex": "(?i)%3c\\s*script|%3c%2fscript|\\\\u003c|\\\\x3c|%253c",
+      "scopes": [
+        "path",
+        "query",
+        "body"
+      ],
+      "severity": "critical",
+      "weight": 5.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=XSS-008；cat=xss；sev=critical；src_action=block（意图=block；入库恒 alert）；targets=query,body,uri；scopes=path,query,body；dead_branches=4/5（编码形态分支在解码后不可达）；URL/Unicode/双重编码的 script 标签",
+      "src_id": "XSS-008",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "critical",
+      "category": "xss",
+      "dropped_targets": [],
+      "dead_branches": 4,
+      "branches": 5,
+      "warnings": [],
+      "db_id": "custom_waf_xss_008"
+    },
+    {
+      "id": "waf_xss_009",
+      "name": "[XSS-009] 属性内伪协议",
+      "regex": "(?i)<[^>]*\\b(?:href|src)\\s*=\\s*['\"]?\\s*(?:javascript|vbscript)",
+      "scopes": [
+        "path",
+        "query",
+        "body"
+      ],
+      "severity": "high",
+      "weight": 4.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=XSS-009；cat=xss；sev=high；src_action=block（意图=block；入库恒 alert）；targets=query,body,uri；scopes=path,query,body；href/src 属性中的伪协议",
+      "src_id": "XSS-009",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "high",
+      "category": "xss",
+      "dropped_targets": [],
+      "dead_branches": 0,
+      "branches": 1,
+      "warnings": [],
+      "db_id": "custom_waf_xss_009"
+    },
+    {
+      "id": "waf_xss_010",
+      "name": "[XSS-010] srcdoc/样式注入",
+      "regex": "(?i)\\bsrcdoc\\s*=|style\\s*=\\s*['\"][^'\"]*(?:expression|behavior|-moz-binding)",
+      "scopes": [
+        "path",
+        "query",
+        "body"
+      ],
+      "severity": "high",
+      "weight": 4.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=XSS-010；cat=xss；sev=high；src_action=block（意图=block；入库恒 alert）；targets=query,body,uri；scopes=path,query,body；iframe srcdoc 与 IE 样式表达式注入",
+      "src_id": "XSS-010",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "high",
+      "category": "xss",
+      "dropped_targets": [],
+      "dead_branches": 0,
+      "branches": 2,
+      "warnings": [],
+      "db_id": "custom_waf_xss_010"
+    },
+    {
+      "id": "waf_rce_001",
+      "name": "[RCE-001] Shell 元字符后接命令",
+      "regex": "(?i)(?:;|\\|\\||&&|\\||`)\\s*(?:cat|id|whoami|uname|pwd|ls|dir|type|net\\s+user|wget|curl|nc|ncat|bash|sh|/bin/sh|powershell|cmd\\.exe|perl|python|python3|php|ruby|node|java|scp|ssh|telnet|ftp|chmod|chown|mkfifo|base64|echo|env|export|find|grep|sed|awk)\\b",
+      "scopes": [
+        "query",
+        "body"
+      ],
+      "severity": "critical",
+      "weight": 5.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=RCE-001；cat=rce；sev=critical；src_action=block（意图=block；入库恒 alert）；targets=query,body,cookie,header；scopes=query,body；dropped=cookie,header（数据面无对应字段）；; cat /etc/passwd、| whoami 等拼接；搜索场景含 | 时需排除清单",
+      "src_id": "RCE-001",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "critical",
+      "category": "rce",
+      "dropped_targets": [
+        "cookie",
+        "header"
+      ],
+      "dead_branches": 0,
+      "branches": 1,
+      "warnings": [],
+      "db_id": "custom_waf_rce_001"
+    },
+    {
+      "id": "waf_rce_002",
+      "name": "[RCE-002] 命令替换/变量展开",
+      "regex": "(?i)\\$\\s*\\(|\\$\\{[^}]{1,80}\\}|`[^`]{1,100}`",
+      "scopes": [
+        "query",
+        "body"
+      ],
+      "severity": "critical",
+      "weight": 5.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=RCE-002；cat=rce；sev=critical；src_action=block（意图=block；入库恒 alert）；targets=query,body,cookie,header；scopes=query,body；dropped=cookie,header（数据面无对应字段）；$()、${}、反引号命令替换；模板业务若合法使用 ${} 需白名单",
+      "src_id": "RCE-002",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "critical",
+      "category": "rce",
+      "dropped_targets": [
+        "cookie",
+        "header"
+      ],
+      "dead_branches": 0,
+      "branches": 3,
+      "warnings": [
+        "`$` 在 Python 可匹配『末尾换行之前』，Rust 只在串尾匹配；要严格请写 `\\z`"
+      ],
+      "db_id": "custom_waf_rce_002"
+    },
+    {
+      "id": "waf_rce_003",
+      "name": "[RCE-003] 执行类函数",
+      "regex": "(?i)\\b(?:system|passthru|shell_exec|popen|proc_open|pcntl_exec|exec|eval|assert|create_function|call_user_func|call_user_func_array)\\s*\\(",
+      "scopes": [
+        "query",
+        "body"
+      ],
+      "severity": "high",
+      "weight": 4.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=RCE-003；cat=rce；sev=high；src_action=log（意图=alert；入库恒 alert）；targets=query,body,cookie；scopes=query,body；dropped=cookie（数据面无对应字段）；PHP/通用执行函数；与 RCE-004 组合出现时升级为 block",
+      "src_id": "RCE-003",
+      "src_action": "log",
+      "src_intent": "alert",
+      "src_severity": "high",
+      "category": "rce",
+      "dropped_targets": [
+        "cookie"
+      ],
+      "dead_branches": 0,
+      "branches": 1,
+      "warnings": [],
+      "db_id": "custom_waf_rce_003"
+    },
+    {
+      "id": "waf_rce_004",
+      "name": "[RCE-004] 编码+执行组合",
+      "regex": "(?i)\\b(?:base64_decode|gzinflate|gzuncompress|str_rot13|hex2bin|pack)\\s*\\(\\s*['\"][^'\"]{20,}",
+      "scopes": [
+        "query",
+        "body"
+      ],
+      "severity": "high",
+      "weight": 4.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=RCE-004；cat=rce；sev=high；src_action=block（意图=block；入库恒 alert）；targets=query,body,cookie；scopes=query,body；dropped=cookie（数据面无对应字段）；base64_decode(长串) 等混淆载荷，webshell 常见",
+      "src_id": "RCE-004",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "high",
+      "category": "rce",
+      "dropped_targets": [
+        "cookie"
+      ],
+      "dead_branches": 0,
+      "branches": 1,
+      "warnings": [],
+      "db_id": "custom_waf_rce_004"
+    },
+    {
+      "id": "waf_rce_005",
+      "name": "[RCE-005] Java 执行类",
+      "regex": "(?i)\\bRuntime\\.getRuntime|ProcessBuilder|javax\\.script|ScriptEngineManager|com\\.sun\\.rowset|java\\.lang\\.Process",
+      "scopes": [
+        "query",
+        "body"
+      ],
+      "severity": "critical",
+      "weight": 5.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=RCE-005；cat=rce；sev=critical；src_action=block（意图=block；入库恒 alert）；targets=query,body,cookie；scopes=query,body；dropped=cookie（数据面无对应字段）；Java 反序列化/表达式执行常用类",
+      "src_id": "RCE-005",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "critical",
+      "category": "rce",
+      "dropped_targets": [
+        "cookie"
+      ],
+      "dead_branches": 0,
+      "branches": 6,
+      "warnings": [],
+      "db_id": "custom_waf_rce_005"
+    },
+    {
+      "id": "waf_rce_006",
+      "name": "[RCE-006] OGNL/SpEL 表达式",
+      "regex": "(?i)T\\(java\\.lang\\.Runtime\\)|Runtime\\.getRuntime\\(\\)\\.exec|%\\{|#_memberAccess|#context\\[|class\\.module|classLoader",
+      "scopes": [
+        "query",
+        "body"
+      ],
+      "severity": "critical",
+      "weight": 5.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=RCE-006；cat=rce；sev=critical；src_action=block（意图=block；入库恒 alert）；targets=query,body,cookie,header；scopes=query,body；dropped=cookie,header（数据面无对应字段）；Struts2 OGNL、Spring SpEL 注入特征；%{ 若业务为格式化语法请排除",
+      "src_id": "RCE-006",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "critical",
+      "category": "rce",
+      "dropped_targets": [
+        "cookie",
+        "header"
+      ],
+      "dead_branches": 0,
+      "branches": 7,
+      "warnings": [],
+      "db_id": "custom_waf_rce_006"
+    },
+    {
+      "id": "waf_rce_007",
+      "name": "[RCE-007] JNDI/Log4j 注入",
+      "regex": "(?i)\\$\\{jndi:|\\bjndi:(?:ldap|rmi|dns|ldaps|iiop)://|\\$\\{(?:env|sys|java|lower|upper|::-)",
+      "scopes": [
+        "path",
+        "query",
+        "body"
+      ],
+      "severity": "critical",
+      "weight": 5.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=RCE-007；cat=rce；sev=critical；src_action=block（意图=block；入库恒 alert）；targets=query,body,cookie,header,uri；scopes=path,query,body；dropped=cookie,header（数据面无对应字段）；Log4j2 JNDI 注入核心特征，全字段匹配",
+      "src_id": "RCE-007",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "critical",
+      "category": "rce",
+      "dropped_targets": [
+        "cookie",
+        "header"
+      ],
+      "dead_branches": 0,
+      "branches": 3,
+      "warnings": [
+        "`$` 在 Python 可匹配『末尾换行之前』，Rust 只在串尾匹配；要严格请写 `\\z`"
+      ],
+      "db_id": "custom_waf_rce_007"
+    },
+    {
+      "id": "waf_rce_008",
+      "name": "[RCE-008] 模板注入 SSTI",
+      "regex": "(?i)\\{\\{.*(?:\\d+\\s*\\*\\s*\\d+)|(?:\\.[a-z_]+\\.__class__|__globals__|__init__|__import__|_subclasses__|__mro__|__base__)|os\\.system|os\\.popen|subprocess|get_flashed_messages|config\\.__class__",
+      "scopes": [
+        "query",
+        "body"
+      ],
+      "severity": "high",
+      "weight": 4.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=RCE-008；cat=rce；sev=high；src_action=block（意图=block；入库恒 alert）；targets=query,body,cookie；scopes=query,body；dropped=cookie（数据面无对应字段）；Jinja2/Twig 等 SSTI；{{7*7}} 测试与 Python 魔术属性",
+      "src_id": "RCE-008",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "high",
+      "category": "rce",
+      "dropped_targets": [
+        "cookie"
+      ],
+      "dead_branches": 0,
+      "branches": 7,
+      "warnings": [],
+      "db_id": "custom_waf_rce_008"
+    },
+    {
+      "id": "waf_rce_009",
+      "name": "[RCE-009] Windows 命令特征",
+      "regex": "(?i)\\bcmd(?:\\.exe)?\\s*/\\s*c\\s+|powershell\\s*-\\s*\\w|%comspec%|net\\s+user\\s+\\S+\\s+\\S+\\s*/add|systeminfo|whoami\\s*/all|tasklist|reg\\s+add",
+      "scopes": [
+        "query",
+        "body"
+      ],
+      "severity": "high",
+      "weight": 4.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=RCE-009；cat=rce；sev=high；src_action=block（意图=block；入库恒 alert）；targets=query,body,cookie；scopes=query,body；dropped=cookie（数据面无对应字段）；cmd /c、PowerShell 参数、加账户等 Windows 利用特征",
+      "src_id": "RCE-009",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "high",
+      "category": "rce",
+      "dropped_targets": [
+        "cookie"
+      ],
+      "dead_branches": 0,
+      "branches": 8,
+      "warnings": [],
+      "db_id": "custom_waf_rce_009"
+    },
+    {
+      "id": "waf_rce_010",
+      "name": "[RCE-010] IFS 空格绕过",
+      "regex": "(?i)\\$\\{IFS\\}",
+      "scopes": [
+        "query",
+        "body"
+      ],
+      "severity": "high",
+      "weight": 4.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=RCE-010；cat=rce；sev=high；src_action=block（意图=block；入库恒 alert）；targets=query,body,cookie；scopes=query,body；dropped=cookie（数据面无对应字段）；${IFS} 用于绕过空格过滤的 bash 命令",
+      "src_id": "RCE-010",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "high",
+      "category": "rce",
+      "dropped_targets": [
+        "cookie"
+      ],
+      "dead_branches": 0,
+      "branches": 1,
+      "warnings": [
+        "`$` 在 Python 可匹配『末尾换行之前』，Rust 只在串尾匹配；要严格请写 `\\z`"
+      ],
+      "db_id": "custom_waf_rce_010"
+    },
+    {
+      "id": "waf_pt_001",
+      "name": "[PT-001] 目录穿越序列",
+      "regex": "(?i)(?:\\.\\./|\\.\\.\\\\|\\.\\.%2f|\\.\\.%5c|%2e%2e%2f|%2e%2e%5c|%252e%252e|%252f)",
+      "scopes": [
+        "path",
+        "query"
+      ],
+      "severity": "critical",
+      "weight": 5.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=PT-001；cat=path-traversal；sev=critical；src_action=block（意图=block；入库恒 alert）；targets=uri,query；scopes=path,query；dead_branches=6/8（编码形态分支在解码后不可达）；../、..\\ 及编码变体；若静态资源路径合法包含 .. 请加排除",
+      "src_id": "PT-001",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "critical",
+      "category": "path-traversal",
+      "dropped_targets": [],
+      "dead_branches": 6,
+      "branches": 8,
+      "warnings": [],
+      "db_id": "custom_waf_pt_001"
+    },
+    {
+      "id": "waf_pt_003",
+      "name": "[PT-003] 敏感系统文件",
+      "regex": "(?i)(?:/etc/passwd|/etc/shadow|/etc/hosts|/etc/crontab|/etc/group|/proc/self/(?:environ|cmdline)|win\\.ini|boot\\.ini)",
+      "scopes": [
+        "path",
+        "query"
+      ],
+      "severity": "critical",
+      "weight": 5.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=PT-003；cat=path-traversal；sev=critical；src_action=block（意图=block；入库恒 alert）；targets=uri,query；scopes=path,query；穿越目标文件特征",
+      "src_id": "PT-003",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "critical",
+      "category": "path-traversal",
+      "dropped_targets": [],
+      "dead_branches": 0,
+      "branches": 8,
+      "warnings": [],
+      "db_id": "custom_waf_pt_003"
+    },
+    {
+      "id": "waf_pt_004",
+      "name": "[PT-004] 深层穿越",
+      "regex": "(?i)\\.\\./\\s*\\.\\./|\\.\\.\\\\\\s*\\.\\.\\\\",
+      "scopes": [
+        "path",
+        "query"
+      ],
+      "severity": "critical",
+      "weight": 5.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=PT-004；cat=path-traversal；sev=critical；src_action=block（意图=block；入库恒 alert）；targets=uri,query；scopes=path,query；多级回退",
+      "src_id": "PT-004",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "critical",
+      "category": "path-traversal",
+      "dropped_targets": [],
+      "dead_branches": 0,
+      "branches": 2,
+      "warnings": [],
+      "db_id": "custom_waf_pt_004"
+    },
+    {
+      "id": "waf_lfi_001",
+      "name": "[LFI-001] 危险流包装器",
+      "regex": "(?i)(?:php://|file://|data://|expect://|zip://|phar://|gopher://|dict://|ftp://|ldap://|jar://|compress\\.(?:zlib|bzip2)://)",
+      "scopes": [
+        "path",
+        "query",
+        "body"
+      ],
+      "severity": "critical",
+      "weight": 5.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=LFI-001；cat=file-inclusion；sev=critical；src_action=block（意图=block；入库恒 alert）；targets=query,body,uri；scopes=path,query,body；PHP 流包装器与协议利用；file:// 在正常业务中几乎不出现",
+      "src_id": "LFI-001",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "critical",
+      "category": "file-inclusion",
+      "dropped_targets": [],
+      "dead_branches": 0,
+      "branches": 12,
+      "warnings": [],
+      "db_id": "custom_waf_lfi_001"
+    },
+    {
+      "id": "waf_lfi_002",
+      "name": "[LFI-002] 文件操作函数+路径",
+      "regex": "(?i)\\b(?:include|include_once|require|require_once|import|load|open|readfile|fopen|file_get_contents|copy|rename|unlink)\\s*\\(?\\s*['\"]?\\s*(?:/|\\.\\.|https?://|file://)",
+      "scopes": [
+        "query",
+        "body"
+      ],
+      "severity": "high",
+      "weight": 4.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=LFI-002；cat=file-inclusion；sev=high；src_action=block（意图=block；入库恒 alert）；targets=query,body；scopes=query,body；函数后直接跟绝对/穿越/远程路径",
+      "src_id": "LFI-002",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "high",
+      "category": "file-inclusion",
+      "dropped_targets": [],
+      "dead_branches": 0,
+      "branches": 1,
+      "warnings": [],
+      "db_id": "custom_waf_lfi_002"
+    },
+    {
+      "id": "waf_lfi_003",
+      "name": "[LFI-003] data:// 编码载荷",
+      "regex": "(?i)data:\\s*text/plain[^,]*,\\s*(?:base64,)?[a-z0-9+/=]{20,}",
+      "scopes": [
+        "query",
+        "body"
+      ],
+      "severity": "high",
+      "weight": 4.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=LFI-003；cat=file-inclusion；sev=high；src_action=block（意图=block；入库恒 alert）；targets=query,body；scopes=query,body；data:text/plain;base64,... 直接执行",
+      "src_id": "LFI-003",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "high",
+      "category": "file-inclusion",
+      "dropped_targets": [],
+      "dead_branches": 0,
+      "branches": 1,
+      "warnings": [],
+      "db_id": "custom_waf_lfi_003"
+    },
+    {
+      "id": "waf_lfi_004",
+      "name": "[LFI-004] 空字节截断",
+      "regex": "(?i)%00|\\x00",
+      "scopes": [
+        "path",
+        "query",
+        "body"
+      ],
+      "severity": "high",
+      "weight": 4.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=LFI-004；cat=file-inclusion；sev=high；src_action=block（意图=block；入库恒 alert）；targets=uri,query,body；scopes=path,query,body；dead_branches=1/2（编码形态分支在解码后不可达）；%00 截断文件扩展名校验",
+      "src_id": "LFI-004",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "high",
+      "category": "file-inclusion",
+      "dropped_targets": [],
+      "dead_branches": 1,
+      "branches": 2,
+      "warnings": [],
+      "db_id": "custom_waf_lfi_004"
+    },
+    {
+      "id": "waf_ssrf_001",
+      "name": "[SSRF-001] 云元数据地址",
+      "regex": "(?i)169\\.254\\.169\\.254|metadata\\.google\\.internal|100\\.100\\.100\\.200|instance-data|169\\.254\\.170\\.\\d+",
+      "scopes": [
+        "path",
+        "query",
+        "body"
+      ],
+      "severity": "critical",
+      "weight": 5.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=SSRF-001；cat=ssrf；sev=critical；src_action=block（意图=block；入库恒 alert）；targets=query,body,uri,header；scopes=path,query,body；dropped=header（数据面无对应字段）；AWS/阿里云/GCP 元数据服务端点探测",
+      "src_id": "SSRF-001",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "critical",
+      "category": "ssrf",
+      "dropped_targets": [
+        "header"
+      ],
+      "dead_branches": 0,
+      "branches": 5,
+      "warnings": [],
+      "db_id": "custom_waf_ssrf_001"
+    },
+    {
+      "id": "waf_ssrf_002",
+      "name": "[SSRF-002] 内网/回环地址",
+      "regex": "(?i)(?:https?|gopher|ftp|dict|file)://(?:127\\.0\\.0\\.1|localhost|0\\.0\\.0\\.0|\\[::1\\]|10\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}|172\\.(?:1[6-9]|2[0-9]|3[01])\\.\\d{1,3}\\.\\d{1,3}|192\\.168\\.\\d{1,3}\\.\\d{1,3}|169\\.254\\.\\d{1,3}\\.\\d{1,3})",
+      "scopes": [
+        "path",
+        "query",
+        "body"
+      ],
+      "severity": "critical",
+      "weight": 5.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=SSRF-002；cat=ssrf；sev=critical；src_action=block（意图=block；入库恒 alert）；targets=query,body,uri；scopes=path,query,body；URL 参数指向内网 IP；业务合法内网调用需白名单",
+      "src_id": "SSRF-002",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "critical",
+      "category": "ssrf",
+      "dropped_targets": [],
+      "dead_branches": 0,
+      "branches": 1,
+      "warnings": [],
+      "db_id": "custom_waf_ssrf_002"
+    },
+    {
+      "id": "waf_ssrf_003",
+      "name": "[SSRF-003] 跳转/下载参数 URL",
+      "regex": "(?i)(?:url|uri|path|dest|target|redirect|return|goto|next|proxy|callback|image|img|file|src|location|load|fetch|link|site|addr|host|endpoint)\\s*[=:]\\s*['\"]?\\s*(?:https?|file|gopher|ftp|dict)://",
+      "scopes": [
+        "query",
+        "body"
+      ],
+      "severity": "medium",
+      "weight": 3.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=SSRF-003；cat=ssrf；sev=medium；src_action=log（意图=alert；入库恒 alert）；targets=query,body；scopes=query,body；url=http:// 类参数；先记录观察合法外链跳转频率",
+      "src_id": "SSRF-003",
+      "src_action": "log",
+      "src_intent": "alert",
+      "src_severity": "medium",
+      "category": "ssrf",
+      "dropped_targets": [],
+      "dead_branches": 0,
+      "branches": 1,
+      "warnings": [],
+      "db_id": "custom_waf_ssrf_003"
+    },
+    {
+      "id": "waf_sf_001",
+      "name": "[SF-001] 版本控制目录",
+      "regex": "(?i)(?:^|[/?.&=])\\.(?:git|svn|hg)(?:/|\\z|[\\s?&#])",
+      "scopes": [
+        "path"
+      ],
+      "severity": "critical",
+      "weight": 5.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=SF-001；cat=sensitive-file；sev=critical；src_action=block（意图=block；入库恒 alert）；targets=uri；scopes=path；.git/.svn 源码泄露探测",
+      "src_id": "SF-001",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "critical",
+      "category": "sensitive-file",
+      "dropped_targets": [],
+      "dead_branches": 0,
+      "branches": 1,
+      "warnings": [],
+      "db_id": "custom_waf_sf_001"
+    },
+    {
+      "id": "waf_sf_002",
+      "name": "[SF-002] 敏感配置文件",
+      "regex": "(?i)(?:^|[/?.&=])\\.env(?:\\z|[\\s?&#])|\\.htaccess|\\.htpasswd|web\\.config|php\\.ini|my\\.cnf|\\.bash_history|\\.ssh[/\\\\]|id_rsa|id_dsa|\\.DS_Store|\\.git-credentials",
+      "scopes": [
+        "path"
+      ],
+      "severity": "critical",
+      "weight": 5.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=SF-002；cat=sensitive-file；sev=critical；src_action=block（意图=block；入库恒 alert）；targets=uri；scopes=path；.env、私钥、认证文件等",
+      "src_id": "SF-002",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "critical",
+      "category": "sensitive-file",
+      "dropped_targets": [],
+      "dead_branches": 0,
+      "branches": 12,
+      "warnings": [],
+      "db_id": "custom_waf_sf_002"
+    },
+    {
+      "id": "waf_sf_003",
+      "name": "[SF-003] 备份/临时文件",
+      "regex": "(?i)\\.(?:bak|old|orig|swp|save|sql|tar\\.gz|zip)\\s*\\z",
+      "scopes": [
+        "path"
+      ],
+      "severity": "medium",
+      "weight": 3.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=SF-003；cat=sensitive-file；sev=medium；src_action=log（意图=alert；入库恒 alert）；targets=uri；scopes=path；备份文件下载探测；站点提供 .zip/.sql 下载时排除",
+      "src_id": "SF-003",
+      "src_action": "log",
+      "src_intent": "alert",
+      "src_severity": "medium",
+      "category": "sensitive-file",
+      "dropped_targets": [],
+      "dead_branches": 0,
+      "branches": 1,
+      "warnings": [],
+      "db_id": "custom_waf_sf_003"
+    },
+    {
+      "id": "waf_sf_004",
+      "name": "[SF-004] 管理/调试入口",
+      "regex": "(?i)(?:^|[/?])(?:phpmyadmin|adminer|server-status|server-info|phpinfo|actuator|druid|swagger-ui|api-docs|console)(?:/|\\z|[\\s?&#])",
+      "scopes": [
+        "path"
+      ],
+      "severity": "high",
+      "weight": 4.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=SF-004；cat=sensitive-file；sev=high；src_action=block（意图=block；入库恒 alert）；targets=uri；scopes=path；管理面板、Spring Actuator、Druid 监控等未授权入口",
+      "src_id": "SF-004",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "high",
+      "category": "sensitive-file",
+      "dropped_targets": [],
+      "dead_branches": 0,
+      "branches": 1,
+      "warnings": [],
+      "db_id": "custom_waf_sf_004"
+    },
+    {
+      "id": "waf_up_001",
+      "name": "[UP-001] 可执行文件扩展名",
+      "regex": "(?i)filename\\s*=\\s*['\"]?[^'\"\\s]{0,200}\\.(?:php\\d?|phtml|pht|shtml|jsp|jspx|jspf|asp|aspx|asa|cer|asax|asmx|ashx|ascx|cgi|pl|py|pyc|sh|rb|war|exe|msi|bat|cmd|ps1|vbs|com|scr|dll|so)\\s*['\"]?",
+      "scopes": [
+        "query",
+        "body"
+      ],
+      "severity": "critical",
+      "weight": 5.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=UP-001；cat=upload；sev=critical；src_action=block（意图=block；入库恒 alert）；targets=filename,body,query；scopes=query,body；dropped=filename（数据面无对应字段）；filename= 参数中的脚本/可执行扩展名，覆盖双扩展与常见变体",
+      "src_id": "UP-001",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "critical",
+      "category": "upload",
+      "dropped_targets": [
+        "filename"
+      ],
+      "dead_branches": 0,
+      "branches": 1,
+      "warnings": [],
+      "db_id": "custom_waf_up_001"
+    },
+    {
+      "id": "waf_up_002",
+      "name": "[UP-002] 双扩展/空字节绕过",
+      "regex": "(?i)\\.(?:php|asp|jsp)\\.[a-z0-9]{1,5}\\s*\\z|(?:\\.php|\\.asp|\\.jsp)%00|%00\\.(?:php|asp|jsp)",
+      "scopes": [
+        "query",
+        "body"
+      ],
+      "severity": "critical",
+      "weight": 5.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=UP-002；cat=upload；sev=critical；src_action=block（意图=block；入库恒 alert）；targets=filename,body,query；scopes=query,body；dropped=filename（数据面无对应字段）；dead_branches=2/3（编码形态分支在解码后不可达）；shell.php.jpg 双扩展与 %00 截断",
+      "src_id": "UP-002",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "critical",
+      "category": "upload",
+      "dropped_targets": [
+        "filename"
+      ],
+      "dead_branches": 2,
+      "branches": 3,
+      "warnings": [],
+      "db_id": "custom_waf_up_002"
+    },
+    {
+      "id": "waf_up_003",
+      "name": "[UP-003] 上传路径穿越",
+      "regex": "(?i)(?:filename|file|name)\\s*=\\s*['\"]?[^'\"\\s]*(?:\\.\\./|\\.\\.\\\\)",
+      "scopes": [
+        "query",
+        "body"
+      ],
+      "severity": "high",
+      "weight": 4.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=UP-003；cat=upload；sev=high；src_action=block（意图=block；入库恒 alert）；targets=filename,body,query；scopes=query,body；dropped=filename（数据面无对应字段）；上传文件名携带 ../ 试图跳出目录",
+      "src_id": "UP-003",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "high",
+      "category": "upload",
+      "dropped_targets": [
+        "filename"
+      ],
+      "dead_branches": 0,
+      "branches": 1,
+      "warnings": [],
+      "db_id": "custom_waf_up_003"
+    },
+    {
+      "id": "waf_ds_001",
+      "name": "[DS-001] Java 序列化特征",
+      "regex": "(?i)rO0AB|aced0005|H4sIAAAAAAAA",
+      "scopes": [
+        "query",
+        "body"
+      ],
+      "severity": "critical",
+      "weight": 5.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=DS-001；cat=deserialization；sev=critical；src_action=block（意图=block；入库恒 alert）；targets=body,query,cookie；scopes=query,body；dropped=cookie（数据面无对应字段）；Java 序列化流头（base64/hex/gzip）",
+      "src_id": "DS-001",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "critical",
+      "category": "deserialization",
+      "dropped_targets": [
+        "cookie"
+      ],
+      "dead_branches": 0,
+      "branches": 3,
+      "warnings": [],
+      "db_id": "custom_waf_ds_001"
+    },
+    {
+      "id": "waf_ds_002",
+      "name": "[DS-002] 反序列化利用类",
+      "regex": "(?i)(?:javax\\.objectstream|jdk\\.serializable|com\\.sun\\.synth|org\\.apache\\.commons\\.collections|ysoserial|commons-collections[0-9.]*)",
+      "scopes": [
+        "query",
+        "body"
+      ],
+      "severity": "critical",
+      "weight": 5.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=DS-002；cat=deserialization；sev=critical；src_action=block（意图=block；入库恒 alert）；targets=body,query,cookie；scopes=query,body；dropped=cookie（数据面无对应字段）；ysoserial 与 gadget 链常用类",
+      "src_id": "DS-002",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "critical",
+      "category": "deserialization",
+      "dropped_targets": [
+        "cookie"
+      ],
+      "dead_branches": 0,
+      "branches": 6,
+      "warnings": [],
+      "db_id": "custom_waf_ds_002"
+    },
+    {
+      "id": "waf_ds_003",
+      "name": "[DS-003] PHP 序列化对象",
+      "regex": "(?i)O:\\d+:\"|a:\\d+:\\{|s:\\d+:\"|i:\\d+;",
+      "scopes": [
+        "query",
+        "body"
+      ],
+      "severity": "high",
+      "weight": 4.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=DS-003；cat=deserialization；sev=high；src_action=block（意图=block；入库恒 alert）；targets=body,query,cookie；scopes=query,body；dropped=cookie（数据面无对应字段）；PHP serialize 格式；业务存储序列化数据时需排除",
+      "src_id": "DS-003",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "high",
+      "category": "deserialization",
+      "dropped_targets": [
+        "cookie"
+      ],
+      "dead_branches": 0,
+      "branches": 4,
+      "warnings": [],
+      "db_id": "custom_waf_ds_003"
+    },
+    {
+      "id": "waf_ds_004",
+      "name": "[DS-004] fastjson 自动类型",
+      "regex": "(?i)@type\\s*[:=]\\s*['\"]?(?:com\\.|java\\.|org\\.|net\\.|io\\.)|\\\"\\$ref\\\"\\s*[:=]",
+      "scopes": [
+        "query",
+        "body"
+      ],
+      "severity": "critical",
+      "weight": 5.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=DS-004；cat=deserialization；sev=critical；src_action=block（意图=block；入库恒 alert）；targets=body,query,cookie；scopes=query,body；dropped=cookie（数据面无对应字段）；fastjson @type 与 $ref 利用",
+      "src_id": "DS-004",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "critical",
+      "category": "deserialization",
+      "dropped_targets": [
+        "cookie"
+      ],
+      "dead_branches": 0,
+      "branches": 2,
+      "warnings": [
+        "`$` 在 Python 可匹配『末尾换行之前』，Rust 只在串尾匹配；要严格请写 `\\z`"
+      ],
+      "db_id": "custom_waf_ds_004"
+    },
+    {
+      "id": "waf_ds_005",
+      "name": "[DS-005] Shiro 反序列化",
+      "regex": "(?i)\\brememberme\\s*=",
+      "scopes": [
+        "body"
+      ],
+      "severity": "medium",
+      "weight": 3.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=DS-005；cat=deserialization；sev=medium；src_action=log（意图=alert；入库恒 alert）；targets=cookie,body,header；scopes=body；dropped=cookie,header（数据面无对应字段）；Shiro rememberMe Cookie 探测（结合 base64 长串判断）",
+      "src_id": "DS-005",
+      "src_action": "log",
+      "src_intent": "alert",
+      "src_severity": "medium",
+      "category": "deserialization",
+      "dropped_targets": [
+        "cookie",
+        "header"
+      ],
+      "dead_branches": 0,
+      "branches": 1,
+      "warnings": [],
+      "db_id": "custom_waf_ds_005"
+    },
+    {
+      "id": "waf_ds_006",
+      "name": "[DS-006] Jackson 多态类型",
+      "regex": "(?i)['\"]@class['\"]?\\s*[:=]|@class\\s*[:=]",
+      "scopes": [
+        "query",
+        "body"
+      ],
+      "severity": "critical",
+      "weight": 5.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=DS-006；cat=deserialization；sev=critical；src_action=block（意图=block；入库恒 alert）；targets=body,query；scopes=query,body；Jackson enableDefaultTyping 利用",
+      "src_id": "DS-006",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "critical",
+      "category": "deserialization",
+      "dropped_targets": [],
+      "dead_branches": 0,
+      "branches": 2,
+      "warnings": [],
+      "db_id": "custom_waf_ds_006"
+    },
+    {
+      "id": "waf_ds_007",
+      "name": "[DS-007] Python 反序列化函数",
+      "regex": "(?i)\\b__reduce__\\b|\\b__import__\\b",
+      "scopes": [
+        "query",
+        "body"
+      ],
+      "severity": "high",
+      "weight": 4.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=DS-007；cat=deserialization；sev=high；src_action=block（意图=block；入库恒 alert）；targets=body,query,cookie；scopes=query,body；dropped=cookie（数据面无对应字段）；pickle/yaml 反序列化 RCE 魔术方法",
+      "src_id": "DS-007",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "high",
+      "category": "deserialization",
+      "dropped_targets": [
+        "cookie"
+      ],
+      "dead_branches": 0,
+      "branches": 2,
+      "warnings": [],
+      "db_id": "custom_waf_ds_007"
+    },
+    {
+      "id": "waf_ws_001",
+      "name": "[WS-001] 常见木马文件名",
+      "regex": "(?i)\\b(?:c99|r57|b374k|alfashell|wso|phpspy|upfile|shell|webshell)[^a-z0-9]*\\.php\\b",
+      "scopes": [
+        "path",
+        "query"
+      ],
+      "severity": "medium",
+      "weight": 3.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=WS-001；cat=webshell；sev=medium；src_action=log（意图=alert；入库恒 alert）；targets=uri,query；scopes=path,query；公开马名与通用 shell 名；正常业务含 shell.php 时排除",
+      "src_id": "WS-001",
+      "src_action": "log",
+      "src_intent": "alert",
+      "src_severity": "medium",
+      "category": "webshell",
+      "dropped_targets": [],
+      "dead_branches": 0,
+      "branches": 1,
+      "warnings": [],
+      "db_id": "custom_waf_ws_001"
+    },
+    {
+      "id": "waf_ws_002",
+      "name": "[WS-002] 混淆执行组合",
+      "regex": "(?i)\\b(?:eval|assert|system|passthru|shell_exec)\\s*\\(\\s*(?:base64_decode|gzinflate|gzuncompress|str_rot13|pack)\\s*\\(",
+      "scopes": [
+        "query",
+        "body"
+      ],
+      "severity": "critical",
+      "weight": 5.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=WS-002；cat=webshell；sev=critical；src_action=block（意图=block；入库恒 alert）；targets=query,body,cookie；scopes=query,body；dropped=cookie（数据面无对应字段）；执行函数嵌套解码函数，一句话木马核心特征",
+      "src_id": "WS-002",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "critical",
+      "category": "webshell",
+      "dropped_targets": [
+        "cookie"
+      ],
+      "dead_branches": 0,
+      "branches": 1,
+      "warnings": [],
+      "db_id": "custom_waf_ws_002"
+    },
+    {
+      "id": "waf_ws_003",
+      "name": "[WS-003] 超级全局变量调用",
+      "regex": "(?i)\\$_(?:GET|POST|REQUEST|COOKIE|FILES|SERVER)\\s*\\[",
+      "scopes": [
+        "query",
+        "body"
+      ],
+      "severity": "high",
+      "weight": 4.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=WS-003；cat=webshell；sev=high；src_action=block（意图=block；入库恒 alert）；targets=query,body,cookie；scopes=query,body；dropped=cookie（数据面无对应字段）；$_GET[cmd] 等参数直调，PHP 木马特征",
+      "src_id": "WS-003",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "high",
+      "category": "webshell",
+      "dropped_targets": [
+        "cookie"
+      ],
+      "dead_branches": 0,
+      "branches": 1,
+      "warnings": [
+        "`$` 在 Python 可匹配『末尾换行之前』，Rust 只在串尾匹配；要严格请写 `\\z`"
+      ],
+      "db_id": "custom_waf_ws_003"
+    },
+    {
+      "id": "waf_ws_004",
+      "name": "[WS-004] 管理工具特征",
+      "regex": "(?i)antSword|Behinder|Godzilla|菜刀|蚁剑|冰蝎|哥斯拉",
+      "scopes": [
+        "query",
+        "body"
+      ],
+      "severity": "high",
+      "weight": 4.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=WS-004；cat=webshell；sev=high；src_action=block（意图=block；入库恒 alert）；targets=header,query,body；scopes=query,body；dropped=header（数据面无对应字段）；蚁剑/冰蝎/哥斯拉 UA 与请求特征",
+      "src_id": "WS-004",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "high",
+      "category": "webshell",
+      "dropped_targets": [
+        "header"
+      ],
+      "dead_branches": 0,
+      "branches": 7,
+      "warnings": [],
+      "db_id": "custom_waf_ws_004"
+    },
+    {
+      "id": "waf_en_001",
+      "name": "[EN-001] 双重 URL 编码",
+      "regex": "(?i)%(?:25){1,}[0-9a-fA-F]{2}",
+      "scopes": [
+        "path",
+        "query",
+        "body"
+      ],
+      "severity": "high",
+      "weight": 4.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=EN-001；cat=encoding；sev=high；src_action=block（意图=block；入库恒 alert）；targets=uri,query,body；scopes=path,query,body；%2527 等二次编码绕过；解码后仍含 %XX 异常",
+      "src_id": "EN-001",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "high",
+      "category": "encoding",
+      "dropped_targets": [],
+      "dead_branches": 0,
+      "branches": 1,
+      "warnings": [],
+      "db_id": "custom_waf_en_001"
+    },
+    {
+      "id": "waf_en_002",
+      "name": "[EN-002] 异常 Unicode/超长编码",
+      "regex": "(?i)%u[0-9a-fA-F]{4}|%c0%|%e0%80%|%f0%80%80%|%c1%",
+      "scopes": [
+        "path",
+        "query",
+        "body"
+      ],
+      "severity": "high",
+      "weight": 4.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=EN-002；cat=encoding；sev=high；src_action=block（意图=block；入库恒 alert）；targets=uri,query,body；scopes=path,query,body；dead_branches=4/5（编码形态分支在解码后不可达）；%u 编码与 overlong UTF-8，解码失败类输入",
+      "src_id": "EN-002",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "high",
+      "category": "encoding",
+      "dropped_targets": [],
+      "dead_branches": 4,
+      "branches": 5,
+      "warnings": [],
+      "db_id": "custom_waf_en_002"
+    },
+    {
+      "id": "waf_en_003",
+      "name": "[EN-003] CRLF 注入编码",
+      "regex": "(?i)%0d%0a|%0a%0d|%250d%250a|%u000d|%u000a",
+      "scopes": [
+        "path",
+        "query",
+        "body"
+      ],
+      "severity": "critical",
+      "weight": 5.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=EN-003；cat=encoding；sev=critical；src_action=block（意图=block；入库恒 alert）；targets=uri,query,body,header；scopes=path,query,body；dropped=header（数据面无对应字段）；dead_branches=3/5（编码形态分支在解码后不可达）；响应拆分/Header 注入；字面 \\r\\n 建议在解析层直接拒绝",
+      "src_id": "EN-003",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "critical",
+      "category": "encoding",
+      "dropped_targets": [
+        "header"
+      ],
+      "dead_branches": 3,
+      "branches": 5,
+      "warnings": [],
+      "db_id": "custom_waf_en_003"
+    },
+    {
+      "id": "waf_xxe_001",
+      "name": "[XXE-001] DOCTYPE 外部实体",
+      "regex": "(?i)<!doctype\\s+[a-zA-Z][a-zA-Z0-9]*\\s+[^>]{0,80}?(?:system|public)\\s+['\"](?:file|http|https|ftp)://",
+      "scopes": [
+        "body"
+      ],
+      "severity": "critical",
+      "weight": 5.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=XXE-001；cat=xxe；sev=critical；src_action=block（意图=block；入库恒 alert）；targets=body；scopes=body；XML 外部实体声明指向外部资源",
+      "src_id": "XXE-001",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "critical",
+      "category": "xxe",
+      "dropped_targets": [],
+      "dead_branches": 0,
+      "branches": 1,
+      "warnings": [],
+      "db_id": "custom_waf_xxe_001"
+    },
+    {
+      "id": "waf_xxe_002",
+      "name": "[XXE-002] ENTITY 外部引用",
+      "regex": "(?i)<!entity\\s+[a-zA-Z_][a-zA-Z0-9_.-]{0,30}\\s+(?:system|public)\\s+['\"](?:file|http|https|ftp)://",
+      "scopes": [
+        "body"
+      ],
+      "severity": "critical",
+      "weight": 5.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=XXE-002；cat=xxe；sev=critical；src_action=block（意图=block；入库恒 alert）；targets=body；scopes=body；实体定义引用 file/http 协议",
+      "src_id": "XXE-002",
+      "src_action": "block",
+      "src_intent": "block",
+      "src_severity": "critical",
+      "category": "xxe",
+      "dropped_targets": [],
+      "dead_branches": 0,
+      "branches": 1,
+      "warnings": [],
+      "db_id": "custom_waf_xxe_002"
+    },
+    {
+      "id": "waf_inf_001",
+      "name": "[INF-001] 报错信息泄露",
+      "regex": "(?i)(?:fatal error:|stack trace:|traceback|exception in |debug_backtrace|mysql_fetch_|syntax error, unexpected|undefined variable|SQLSTATE\\[|Warning:\\s+\\w+_)",
+      "scopes": [
+        "query",
+        "body"
+      ],
+      "severity": "medium",
+      "weight": 3.0,
+      "action": "alert",
+      "notes": "waf_rules.json v1.0.0；id=INF-001；cat=info-disclosure；sev=medium；src_action=log（意图=alert；入库恒 alert）；targets=body,query；scopes=query,body；错误探测；正常业务含错误文案时排除后转 block",
+      "src_id": "INF-001",
+      "src_action": "log",
+      "src_intent": "alert",
+      "src_severity": "medium",
+      "category": "info-disclosure",
+      "dropped_targets": [],
+      "dead_branches": 0,
+      "branches": 10,
+      "warnings": [],
+      "db_id": "custom_waf_inf_001"
+    }
+  ],
+  "skipped_rules": [
+    {
+      "id": "PT-002",
+      "reason": "decode_incompatible",
+      "target": [
+        "uri",
+        "query"
+      ]
+    },
+    {
+      "id": "SC-001",
+      "reason": "unsupported_target:header",
+      "target": [
+        "header"
+      ]
+    },
+    {
+      "id": "SC-002",
+      "reason": "unsupported_target:header",
+      "target": [
+        "header"
+      ]
+    },
+    {
+      "id": "INF-002",
+      "reason": "unsupported_target:response",
+      "target": [
+        "response"
+      ]
+    }
+  ],
+  "notes": [
+    "只导入 target 与我们的 scope 有交集的规则；cookie/header/filename/response 无对应，丢弃情况逐条记在 notes 与 dropped_targets。",
+    "所有导入规则恒为 action=alert、enabled=0、validated_at=NULL：必须逐条过三关（Rust 编译 / 真实良性 0 误报 / 攻击回放 > 0）后由人打开开关。",
+    "源文件声明大小写不敏感 -> 每条补 (?i)；字符类外的 $ -> \\z。这是语义对齐，不是调参。",
+    "含 %XX / 字面 \\uXXXX 的分支在解码后不可达；全部分支都不可达的规则整条跳过（decode_incompatible），部分不可达的照常导入并记账（dead_branches）。",
+    "源文件的 action=block 只作为意图记录在 notes（src_action），不当作证据 —— 能否拦截只能由本项目自己的实测决定。",
+    "已写入 DB 的规则全部是**草稿**（enabled=0/action=alert/validated_at=NULL）。下一步：逐条 POST /api/rules/custom/{id}/validate，过了三关再打开开关。"
+  ],
+  "source": "F:\\waf\\rules\\waf_rules.json",
+  "db": {
+    "inserted": 1,
+    "skipped_existing": 65,
+    "failed": 0,
+    "errors": [],
+    "ids": [
+      "custom_waf_pt_001"
+    ]
+  }
+}

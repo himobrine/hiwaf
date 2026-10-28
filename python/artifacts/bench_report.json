@@ -1,0 +1,197 @@
+{
+  "n_samples": 3000,
+  "features": 80,
+  "xgboost_threads1": {
+    "single": {
+      "p50_ms": 0.055,
+      "p95_ms": 0.0852,
+      "p99_ms": 0.1248,
+      "mean_ms": 0.0594,
+      "n": 2000,
+      "session_load_ms": 18.2
+    },
+    "batch": {
+      "1": {
+        "per_batch_ms": 0.0593,
+        "per_sample_us": 59.29,
+        "qps": 16867.6
+      },
+      "8": {
+        "per_batch_ms": 0.3881,
+        "per_sample_us": 48.51,
+        "qps": 20615.2
+      },
+      "32": {
+        "per_batch_ms": 1.3977,
+        "per_sample_us": 43.68,
+        "qps": 22894.1
+      },
+      "128": {
+        "per_batch_ms": 5.6023,
+        "per_sample_us": 43.77,
+        "qps": 22847.9
+      }
+    }
+  },
+  "xgboost_threads4": {
+    "single": {
+      "p50_ms": 0.0261,
+      "p95_ms": 0.0451,
+      "p99_ms": 0.0746,
+      "mean_ms": 0.028,
+      "n": 2000,
+      "session_load_ms": 32.5
+    },
+    "batch": {
+      "1": {
+        "per_batch_ms": 0.0285,
+        "per_sample_us": 28.49,
+        "qps": 35097.9
+      },
+      "8": {
+        "per_batch_ms": 0.4109,
+        "per_sample_us": 51.37,
+        "qps": 19467.5
+      },
+      "32": {
+        "per_batch_ms": 1.4166,
+        "per_sample_us": 44.27,
+        "qps": 22589.7
+      },
+      "128": {
+        "per_batch_ms": 2.1088,
+        "per_sample_us": 16.48,
+        "qps": 60697.7
+      }
+    }
+  },
+  "xgboost_threads12": {
+    "single": {
+      "p50_ms": 0.0239,
+      "p95_ms": 0.0296,
+      "p99_ms": 0.0424,
+      "mean_ms": 0.0247,
+      "n": 2000,
+      "session_load_ms": 22.3
+    },
+    "batch": {
+      "1": {
+        "per_batch_ms": 0.024,
+        "per_sample_us": 24.0,
+        "qps": 41668.2
+      },
+      "8": {
+        "per_batch_ms": 0.4462,
+        "per_sample_us": 55.78,
+        "qps": 17928.7
+      },
+      "32": {
+        "per_batch_ms": 1.405,
+        "per_sample_us": 43.91,
+        "qps": 22776.0
+      },
+      "128": {
+        "per_batch_ms": 1.1296,
+        "per_sample_us": 8.83,
+        "qps": 113309.9
+      }
+    }
+  },
+  "iforest_threads1": {
+    "single": {
+      "p50_ms": 1.2914,
+      "p95_ms": 1.7886,
+      "p99_ms": 2.084,
+      "mean_ms": 1.372,
+      "n": 2000,
+      "session_load_ms": 1258.9
+    },
+    "batch": {
+      "1": {
+        "per_batch_ms": 1.3827,
+        "per_sample_us": 1382.72,
+        "qps": 723.2
+      },
+      "8": {
+        "per_batch_ms": 1.674,
+        "per_sample_us": 209.25,
+        "qps": 4779.0
+      },
+      "32": {
+        "per_batch_ms": 2.2799,
+        "per_sample_us": 71.25,
+        "qps": 14035.5
+      },
+      "128": {
+        "per_batch_ms": 4.5847,
+        "per_sample_us": 35.82,
+        "qps": 27919.0
+      }
+    }
+  },
+  "iforest_threads4": {
+    "single": {
+      "p50_ms": 1.3565,
+      "p95_ms": 1.8782,
+      "p99_ms": 2.2375,
+      "mean_ms": 1.4349,
+      "n": 2000,
+      "session_load_ms": 1245.3
+    },
+    "batch": {
+      "1": {
+        "per_batch_ms": 1.434,
+        "per_sample_us": 1433.97,
+        "qps": 697.4
+      },
+      "8": {
+        "per_batch_ms": 1.725,
+        "per_sample_us": 215.63,
+        "qps": 4637.6
+      },
+      "32": {
+        "per_batch_ms": 2.3639,
+        "per_sample_us": 73.87,
+        "qps": 13537.0
+      },
+      "128": {
+        "per_batch_ms": 5.1651,
+        "per_sample_us": 40.35,
+        "qps": 24781.8
+      }
+    }
+  },
+  "iforest_threads12": {
+    "single": {
+      "p50_ms": 1.3644,
+      "p95_ms": 1.7787,
+      "p99_ms": 2.0715,
+      "mean_ms": 1.4088,
+      "n": 2000,
+      "session_load_ms": 1272.0
+    },
+    "batch": {
+      "1": {
+        "per_batch_ms": 1.4298,
+        "per_sample_us": 1429.78,
+        "qps": 699.4
+      },
+      "8": {
+        "per_batch_ms": 1.7909,
+        "per_sample_us": 223.86,
+        "qps": 4467.1
+      },
+      "32": {
+        "per_batch_ms": 2.366,
+        "per_sample_us": 73.94,
+        "qps": 13525.1
+      },
+      "128": {
+        "per_batch_ms": 7.1489,
+        "per_sample_us": 55.85,
+        "qps": 17904.8
+      }
+    }
+  },
+  "rss_end_mb": 52.5
+}

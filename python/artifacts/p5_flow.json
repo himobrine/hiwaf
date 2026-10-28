@@ -1,0 +1,474 @@
+{
+  "dataset": "CIC-IDS2017",
+  "stride": 20,
+  "n_sampled": 141534,
+  "label_counts": {
+    "BENIGN": 113646,
+    "DDoS": 6402,
+    "PortScan": 7952,
+    "Bot": 113,
+    "Infiltration": 2,
+    "WebAttack": 112,
+    "BruteForce": 670,
+    "DoS": 12637
+  },
+  "per_file": {
+    "Friday-WorkingHours-Afternoon-DDos.pcap_ISCX.csv": {
+      "rows_sampled": 11287,
+      "label_counts": {
+        "BENIGN": 4885,
+        "DDoS": 6402
+      }
+    },
+    "Friday-WorkingHours-Afternoon-PortScan.pcap_ISCX.csv": {
+      "rows_sampled": 14323,
+      "label_counts": {
+        "BENIGN": 6371,
+        "PortScan": 7952
+      }
+    },
+    "Friday-WorkingHours-Morning.pcap_ISCX.csv": {
+      "rows_sampled": 9551,
+      "label_counts": {
+        "BENIGN": 9438,
+        "Bot": 113
+      }
+    },
+    "Monday-WorkingHours.pcap_ISCX.csv": {
+      "rows_sampled": 26495,
+      "label_counts": {
+        "BENIGN": 26495
+      }
+    },
+    "Thursday-WorkingHours-Afternoon-Infilteration.pcap_ISCX.csv": {
+      "rows_sampled": 14430,
+      "label_counts": {
+        "BENIGN": 14428,
+        "Infiltration": 2
+      }
+    },
+    "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv": {
+      "rows_sampled": 8518,
+      "label_counts": {
+        "BENIGN": 8406,
+        "WebAttack": 112
+      }
+    },
+    "Tuesday-WorkingHours.pcap_ISCX.csv": {
+      "rows_sampled": 22295,
+      "label_counts": {
+        "BENIGN": 21625,
+        "BruteForce": 670
+      }
+    },
+    "Wednesday-workingHours.pcap_ISCX.csv": {
+      "rows_sampled": 34635,
+      "label_counts": {
+        "BENIGN": 21998,
+        "DoS": 12637
+      }
+    }
+  },
+  "protocols": {
+    "random/with_port": {
+      "auc": 0.9999567025186412,
+      "threshold": 0.0027526607736945152,
+      "actual_fpr": 0.010006180287824833,
+      "attack_tpr_at_thr": 0.9997630050953904,
+      "n_train": 98973,
+      "n_test": 42418,
+      "per_class": {
+        "Bot": {
+          "n": 36,
+          "det@1%FPR": 0.9722222222222222
+        },
+        "BruteForce": {
+          "n": 185,
+          "det@1%FPR": 1.0
+        },
+        "DDoS": {
+          "n": 1989,
+          "det@1%FPR": 1.0
+        },
+        "DoS": {
+          "n": 3788,
+          "det@1%FPR": 1.0
+        },
+        "Infiltration": {
+          "n": 1,
+          "det@1%FPR": 0.0
+        },
+        "PortScan": {
+          "n": 2411,
+          "det@1%FPR": 1.0
+        },
+        "WebAttack": {
+          "n": 29,
+          "det@1%FPR": 1.0
+        }
+      },
+      "top_features": [
+        [
+          "Bwd Packet Length Std",
+          0.2155722975730896
+        ],
+        [
+          "Average Packet Size",
+          0.1461753100156784
+        ],
+        [
+          "Avg Bwd Segment Size",
+          0.12321680039167404
+        ],
+        [
+          "Bwd Header Length",
+          0.11695132404565811
+        ],
+        [
+          "Max Packet Length",
+          0.059389371424913406
+        ],
+        [
+          "Bwd Packet Length Min",
+          0.044198643416166306
+        ],
+        [
+          "Fwd Packet Length Max",
+          0.04140802100300789
+        ],
+        [
+          "Total Length of Fwd Packets",
+          0.02794695273041725
+        ],
+        [
+          "Bwd Packet Length Mean",
+          0.0218846183270216
+        ],
+        [
+          "Subflow Fwd Bytes",
+          0.021340196952223778
+        ],
+        [
+          "Fwd Packet Length Std",
+          0.018739106133580208
+        ],
+        [
+          "Total Backward Packets",
+          0.014156618155539036
+        ],
+        [
+          "min_seg_size_forward",
+          0.01035472471266985
+        ],
+        [
+          "Packet Length Std",
+          0.009735981933772564
+        ],
+        [
+          "Bwd Packet Length Max",
+          0.008672398515045643
+        ]
+      ]
+    },
+    "cross-file/with_port": {
+      "auc": 0.7682278179945733,
+      "threshold": 0.0010648331372067332,
+      "actual_fpr": 0.01000045979125477,
+      "attack_tpr_at_thr": 0.4511943986820428,
+      "n_train": 83325,
+      "n_test": 58066,
+      "per_class": {
+        "Bot": {
+          "n": 112,
+          "det@1%FPR": 0.0
+        },
+        "DDoS": {
+          "n": 6402,
+          "det@1%FPR": 0.9720399875039051
+        },
+        "Infiltration": {
+          "n": 2,
+          "det@1%FPR": 0.0
+        },
+        "PortScan": {
+          "n": 7940,
+          "det@1%FPR": 0.029974811083123425
+        },
+        "WebAttack": {
+          "n": 112,
+          "det@1%FPR": 1.0
+        }
+      },
+      "top_features": [
+        [
+          "Bwd Packet Length Std",
+          0.3545379340648651
+        ],
+        [
+          "Packet Length Mean",
+          0.11766325682401657
+        ],
+        [
+          "Packet Length Std",
+          0.09675930440425873
+        ],
+        [
+          "Avg Bwd Segment Size",
+          0.07168250530958176
+        ],
+        [
+          "Destination Port",
+          0.05635274946689606
+        ],
+        [
+          "Average Packet Size",
+          0.05366719141602516
+        ],
+        [
+          "Active Std",
+          0.0313204787671566
+        ],
+        [
+          "Bwd Packet Length Mean",
+          0.018383052200078964
+        ],
+        [
+          "Bwd Packets/s",
+          0.01615673117339611
+        ],
+        [
+          "Packet Length Variance",
+          0.014297849498689175
+        ],
+        [
+          "Flow Packets/s",
+          0.01284807175397873
+        ],
+        [
+          "Bwd IAT Std",
+          0.01134013757109642
+        ],
+        [
+          "Fwd Header Length",
+          0.010379960760474205
+        ],
+        [
+          "Init_Win_bytes_backward",
+          0.010121585801243782
+        ],
+        [
+          "FIN Flag Count",
+          0.00966574251651764
+        ]
+      ],
+      "held_out_files": [
+        "Thursday",
+        "Friday"
+      ]
+    },
+    "random/drop_port": {
+      "auc": 0.9999160275418921,
+      "threshold": 0.005906732752919197,
+      "actual_fpr": 0.010006180287824833,
+      "attack_tpr_at_thr": 0.9994075127384762,
+      "n_train": 98973,
+      "n_test": 42418,
+      "per_class": {
+        "Bot": {
+          "n": 36,
+          "det@1%FPR": 0.9444444444444444
+        },
+        "BruteForce": {
+          "n": 185,
+          "det@1%FPR": 1.0
+        },
+        "DDoS": {
+          "n": 1989,
+          "det@1%FPR": 0.9994972347913524
+        },
+        "DoS": {
+          "n": 3788,
+          "det@1%FPR": 1.0
+        },
+        "Infiltration": {
+          "n": 1,
+          "det@1%FPR": 0.0
+        },
+        "PortScan": {
+          "n": 2411,
+          "det@1%FPR": 1.0
+        },
+        "WebAttack": {
+          "n": 29,
+          "det@1%FPR": 0.9655172413793104
+        }
+      },
+      "top_features": [
+        [
+          "Bwd Packet Length Std",
+          0.2541147768497467
+        ],
+        [
+          "Average Packet Size",
+          0.14999555051326752
+        ],
+        [
+          "Bwd Header Length",
+          0.1094793751835823
+        ],
+        [
+          "Max Packet Length",
+          0.06704307347536087
+        ],
+        [
+          "Subflow Bwd Bytes",
+          0.05453825742006302
+        ],
+        [
+          "Bwd Packet Length Min",
+          0.04161594435572624
+        ],
+        [
+          "Subflow Bwd Packets",
+          0.035520948469638824
+        ],
+        [
+          "Total Length of Fwd Packets",
+          0.03531813994050026
+        ],
+        [
+          "Fwd Packet Length Max",
+          0.032529495656490326
+        ],
+        [
+          "Packet Length Mean",
+          0.016647879034280777
+        ],
+        [
+          "min_seg_size_forward",
+          0.014787733554840088
+        ],
+        [
+          "Fwd Packet Length Std",
+          0.012762131169438362
+        ],
+        [
+          "Fwd Header Length",
+          0.012332658283412457
+        ],
+        [
+          "Packet Length Std",
+          0.011303958483040333
+        ],
+        [
+          "PSH Flag Count",
+          0.01123395748436451
+        ]
+      ]
+    },
+    "cross-file/drop_port": {
+      "auc": 0.9020705502022236,
+      "threshold": 0.0026019765064120293,
+      "actual_fpr": 0.01000045979125477,
+      "attack_tpr_at_thr": 0.289881933003844,
+      "n_train": 83325,
+      "n_test": 58066,
+      "per_class": {
+        "Bot": {
+          "n": 112,
+          "det@1%FPR": 0.0
+        },
+        "DDoS": {
+          "n": 6402,
+          "det@1%FPR": 0.6362074351765074
+        },
+        "Infiltration": {
+          "n": 2,
+          "det@1%FPR": 0.0
+        },
+        "PortScan": {
+          "n": 7940,
+          "det@1%FPR": 0.005793450881612091
+        },
+        "WebAttack": {
+          "n": 112,
+          "det@1%FPR": 0.9285714285714286
+        }
+      },
+      "top_features": [
+        [
+          "Bwd Packet Length Std",
+          0.42033371329307556
+        ],
+        [
+          "Packet Length Mean",
+          0.12640483677387238
+        ],
+        [
+          "Bwd Packets/s",
+          0.05259893834590912
+        ],
+        [
+          "Active Std",
+          0.04298098757863045
+        ],
+        [
+          "Bwd Packet Length Mean",
+          0.03812340274453163
+        ],
+        [
+          "Average Packet Size",
+          0.03507568687200546
+        ],
+        [
+          "Max Packet Length",
+          0.023471947759389877
+        ],
+        [
+          "Fwd Header Length",
+          0.021133819594979286
+        ],
+        [
+          "Avg Bwd Segment Size",
+          0.020840363577008247
+        ],
+        [
+          "Bwd IAT Total",
+          0.01598598249256611
+        ],
+        [
+          "Total Length of Bwd Packets",
+          0.012631930410861969
+        ],
+        [
+          "Init_Win_bytes_backward",
+          0.0120852030813694
+        ],
+        [
+          "min_seg_size_forward",
+          0.012056076899170876
+        ],
+        [
+          "Fwd Packet Length Mean",
+          0.011728874407708645
+        ],
+        [
+          "Fwd Packet Length Min",
+          0.01006343774497509
+        ]
+      ],
+      "held_out_files": [
+        "Thursday",
+        "Friday"
+      ]
+    }
+  },
+  "note": "spike 用；只回答'流级特征有没有可分性'，不产出上线工件。random 切分乐观，cross-file 才是诚实口径。",
+  "verdict": {
+    "separable_in_distribution": true,
+    "auc_random": 0.9999160275418921,
+    "auc_cross_file": 0.9020705502022236,
+    "cross_file_gap": 0.09784547733966853,
+    "conclusion": "同分布可分（AUC 高）并不等于能用：跨文件 AUC 掉多少才决定流级通道值不值得做；掉得越多，越说明瓶颈是分布漂移而非特征不够。"
+  }
+}

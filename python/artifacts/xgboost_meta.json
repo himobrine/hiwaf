@@ -1,0 +1,252 @@
+{
+  "feature_names": [
+    "method_id",
+    "path_depth",
+    "ext_len",
+    "num_params",
+    "has_query",
+    "has_body",
+    "is_form_body",
+    "is_json_body",
+    "log_url_len",
+    "log_query_len",
+    "log_body_len",
+    "entropy",
+    "digit_ratio",
+    "alpha_ratio",
+    "upper_ratio",
+    "nonalnum_ratio",
+    "urlencode_ratio",
+    "max_repeat",
+    "num_tokens",
+    "log_num_tokens",
+    "avg_token_len",
+    "max_token_len",
+    "sql_strong_present",
+    "sql_strong_log",
+    "sql_strong_r",
+    "sql_weak_r",
+    "xss_strong_present",
+    "xss_strong_log",
+    "xss_strong_r",
+    "xss_weak_r",
+    "cmd_strong_present",
+    "cmd_strong_log",
+    "cmd_strong_r",
+    "cmd_weak_r",
+    "trav_strong_present",
+    "trav_strong_log",
+    "trav_strong_r",
+    "trav_weak_r",
+    "has_or_1eq1",
+    "has_comment",
+    "has_union_select",
+    "random_case_sql",
+    "quote_imbalance",
+    "paren_imbalance",
+    "max_delim_run",
+    "double_encode",
+    "hex_escape",
+    "val_len_avg",
+    "val_len_max",
+    "val_special_r",
+    "quote_r",
+    "dquote_r",
+    "backtick_r",
+    "lt_r",
+    "gt_r",
+    "lparen_r",
+    "rparen_r",
+    "lbrace_r",
+    "rbrace_r",
+    "lbracket_r",
+    "rbracket_r",
+    "semicolon_r",
+    "comma_r",
+    "eq_r",
+    "percent_r",
+    "amp_r",
+    "slash_r",
+    "backslash_r",
+    "dot_r",
+    "colon_r",
+    "hyphen_r",
+    "plus_r",
+    "star_r",
+    "bang_r",
+    "hash_r",
+    "dollar_r",
+    "pipe_r",
+    "at_r",
+    "tilde_r",
+    "caret_r"
+  ],
+  "labels": {
+    "0": "normal",
+    "1": "sqli",
+    "2": "xss",
+    "3": "cmdi",
+    "4": "traversal"
+  },
+  "features_version": "v2",
+  "training_recipe": {
+    "n_estimators": 400,
+    "max_depth": 8,
+    "lr": 0.1,
+    "early_stopping_rounds": 0,
+    "best_iteration": -1,
+    "class_weight": "balanced (inverse frequency)",
+    "hard_neg": "lexical",
+    "hard_neg_added": 500,
+    "hard_neg_note": "同分布自适应：lexical 正常一半进训练，评估用留出一半",
+    "lexical_split": "random(seed=11)",
+    "seed": 11,
+    "dict_augmentation": null,
+    "extra_benign": 0,
+    "local_benign_added": 0,
+    "local_benign_source": null,
+    "local_eval_n": 0,
+    "local_eval_n_attack": 0,
+    "balance": "weight",
+    "es_monitored": null,
+    "es_metric": null,
+    "valid_frac": 0.0,
+    "n_valid": 0,
+    "n_train": 21212,
+    "dataset": "HTTP Params 2015 (payload_train/test) + lexical 正常一半"
+  },
+  "decision_threshold": {
+    "score_def": "1 - P(normal)",
+    "calibration_pool": "CSIC 2010 正常流量留出一半（seed=7 随机切分，6000 条，与零日通道训练集互斥）",
+    "n_pool": 6000,
+    "thresholds": {
+      "0.001": 0.8144990801811218,
+      "0.01": 0.6997649669647217,
+      "0.03": 0.13753646612167358
+    },
+    "actual_fpr": {
+      "0.001": 0.0065,
+      "0.01": 0.010166666666666666,
+      "0.03": 0.03
+    },
+    "recommended": "0.01",
+    "authoritative_source": "artifacts/decision_policy.json（由 thresholds.py 生成；本字段仅为训练记录）",
+    "warning": "阈值必须在**独立留出**流量上重标定；绝不能把训练用良性样本放进校准池（否则估计偏乐观，实测可差 8 倍，见 §8.3）"
+  },
+  "metrics": {
+    "test": {
+      "n": 10355,
+      "accuracy": 0.9992274263640754,
+      "auc_binary": 0.999993063184401,
+      "per_class": {
+        "normal": {
+          "n": 6434,
+          "precision": 0.9995337270749145,
+          "recall": 0.9995337270749145,
+          "f1": 0.9995337270749145
+        },
+        "sqli": {
+          "n": 3617,
+          "precision": 0.9994472084024323,
+          "recall": 0.9997235277854576,
+          "f1": 0.9995853489979267
+        },
+        "xss": {
+          "n": 177,
+          "precision": 1.0,
+          "recall": 0.9887005649717514,
+          "f1": 0.9943181818181819
+        },
+        "cmdi": {
+          "n": 30,
+          "precision": 0.9375,
+          "recall": 1.0,
+          "f1": 0.967741935483871
+        },
+        "traversal": {
+          "n": 97,
+          "precision": 0.9895833333333334,
+          "recall": 0.979381443298969,
+          "f1": 0.9844559585492227
+        }
+      },
+      "budgets": {
+        "0.001": {
+          "detect": 0.9997449630196379,
+          "fpr": 0.0010879701585327945
+        },
+        "0.01": {
+          "detect": 0.9997449630196379,
+          "fpr": 0.010102580043518807
+        },
+        "0.03": {
+          "detect": 1.0,
+          "fpr": 0.029996891513832762
+        },
+        "0.05": {
+          "detect": 1.0,
+          "fpr": 0.05439850792663973
+        }
+      }
+    },
+    "lexical": {
+      "n": 606,
+      "accuracy": 0.8663366336633663,
+      "auc_binary": 0.9423679245283019,
+      "per_class": {
+        "normal": {
+          "n": 500,
+          "precision": 0.8872987477638641,
+          "recall": 0.992,
+          "f1": 0.9367327667610954
+        },
+        "sqli": {
+          "n": 87,
+          "precision": 0.7941176470588235,
+          "recall": 0.3103448275862069,
+          "f1": 0.44628099173553715
+        },
+        "xss": {
+          "n": 19,
+          "precision": 1.0,
+          "recall": 0.10526315789473684,
+          "f1": 0.1904761904761905
+        },
+        "cmdi": {
+          "n": 0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0
+        },
+        "traversal": {
+          "n": 0,
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0
+        }
+      },
+      "budgets": {
+        "0.001": {
+          "detect": 0.08490566037735849,
+          "fpr": 0.002
+        },
+        "0.01": {
+          "detect": 0.4339622641509434,
+          "fpr": 0.01
+        },
+        "0.03": {
+          "detect": 0.660377358490566,
+          "fpr": 0.03
+        },
+        "0.05": {
+          "detect": 0.7452830188679245,
+          "fpr": 0.05
+        }
+      }
+    },
+    "n_trees": 2000,
+    "n_nodes": 18464,
+    "train_seconds": 3.62
+  },
+  "model": "xgboost_v20261015_001.onnx"
+}

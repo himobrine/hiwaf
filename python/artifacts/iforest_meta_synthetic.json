@@ -1,0 +1,28 @@
+{
+  "n_features": 80,
+  "trees": 100,
+  "max_samples": 256,
+  "include_ngram": false,
+  "dataset": "合成数据（仅链路自检，勿用于指标）",
+  "detect_at_fpr_budget": {
+    "1%": 0.0,
+    "3%": 0.1274,
+    "5%": 0.475,
+    "10%": 0.7398
+  },
+  "onnx_decision_maxdiff": 2.3341875798887912e-07,
+  "onnx_outputs": [
+    [
+      "label",
+      "[None, 1]"
+    ],
+    [
+      "scores",
+      "[None, 1]"
+    ],
+    [
+      "score_samples",
+      "[None, 1]"
+    ]
+  ]
+}

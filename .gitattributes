@@ -1,0 +1,10 @@
+# 统一换行：文本自动识别；脚本按平台固定，避免 Windows 上产生整文件 diff。
+* text=auto
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+*.sh  text eol=lf
+*.py  text eol=lf
+*.rs  text eol=lf
+*.ts  text eol=lf
+*.tsx text eol=lf

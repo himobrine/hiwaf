@@ -1,0 +1,339 @@
+{
+  "what": "S4/工作项 F 采集数据面端到端验证（Pingora collector -> 原始 jsonl -> 出处标注 [+ dry-run 判定]）",
+  "collector": "proxy/target/release/waf-collector.exe (pingora 0.9 + rustls)",
+  "checks": [
+    {
+      "name": "采集器监听就绪",
+      "ok": true,
+      "detail": "up+collector 已起"
+    },
+    {
+      "name": "请求条数一致",
+      "ok": true,
+      "detail": "7/7"
+    },
+    {
+      "name": "全部 200（采集不改变客户端行为）",
+      "ok": true,
+      "detail": "['HTTP/1.1 200 OK']"
+    },
+    {
+      "name": "原始记录**不含 label 字段**",
+      "ok": true,
+      "detail": "采集端不许自己打标签"
+    },
+    {
+      "name": "不启用 --score 时不写 pred",
+      "ok": true,
+      "detail": "默认纯采集，不加载模型"
+    },
+    {
+      "name": "SQLi body 逐字节一致",
+      "ok": true,
+      "detail": "\"id=1' OR '1'='1&Submit=Submit\""
+    },
+    {
+      "name": "XSS body 保留",
+      "ok": true,
+      "detail": "'msg=<script>alert(1)</script>'"
+    },
+    {
+      "name": "UA 采集",
+      "ok": true,
+      "detail": "ua='sqlmap/1.7'"
+    },
+    {
+      "name": "请求版本/有序头落盘",
+      "ok": true,
+      "detail": "versions=['HTTP/1.1'] header_counts=[3, 5, 7, 5, 5, 5, 5]"
+    },
+    {
+      "name": "Authorization 头落盘（前端默认打码）",
+      "ok": true,
+      "detail": "auth=['authorization', 'Bearer p8-secret']"
+    },
+    {
+      "name": "请求 body_b64 精确字节 == 原 body",
+      "ok": true,
+      "detail": "b64_len=40"
+    },
+    {
+      "name": "响应状态/版本/头落盘",
+      "ok": true,
+      "detail": "status=200 version=HTTP/1.1 headers=['server', 'date', 'content-type', 'content-length']"
+    },
+    {
+      "name": "响应体采样（--resp-body all，wire bytes 可逆）",
+      "ok": true,
+      "detail": "sampled=True b64='b2shIQ==' wire=4"
+    },
+    {
+      "name": "二进制请求体：body 为空 + body_b64 精确 + body_is_binary",
+      "ok": true,
+      "detail": "body='' binary=True len=2048"
+    },
+    {
+      "name": "超大 body 标记截断",
+      "ok": true,
+      "detail": "body_truncated=True"
+    },
+    {
+      "name": "截断后 body_len 仍为真实总长",
+      "ok": true,
+      "detail": "body_len=200005 expect=200005"
+    },
+    {
+      "name": "落盘 body 长度 = body_keep",
+      "ok": true,
+      "detail": "len=65536 expect=65536"
+    },
+    {
+      "name": "流级字段(dur_ms/bytes_in/bytes_out/src_ip)",
+      "ok": true,
+      "detail": "dur_ms=0.5041 bytes_in=29 bytes_out=4 src=127.0.0.1"
+    },
+    {
+      "name": "中文/引号/反斜杠/制表 转义往返一致",
+      "ok": true,
+      "detail": "'msg=中文\"quote\\\\back\\ttab&x=1'"
+    },
+    {
+      "name": "B: 请求条数一致",
+      "ok": true,
+      "detail": "7/7"
+    },
+    {
+      "name": "B: 判定不阻断（全部 200）",
+      "ok": true,
+      "detail": "['HTTP/1.1 200 OK']"
+    },
+    {
+      "name": "B: 原始记录仍**不含 label**",
+      "ok": true,
+      "detail": "ok"
+    },
+    {
+      "name": "B: 每条都有 pred（dry_run=true）",
+      "ok": true,
+      "detail": "7/7"
+    },
+    {
+      "name": "B: action ∈ {allow,block,alert}",
+      "ok": true,
+      "detail": "actions=['allow', 'block']"
+    },
+    {
+      "name": "B: **安全降级已传播**：zero_day_enabled=false ⇒ zero_day_flagged 恒 false",
+      "ok": true,
+      "detail": "enabled=[False] flagged=[False]"
+    },
+    {
+      "name": "B: 零日**原始穿阈**证据仍保留（有 crossed 也不告警）",
+      "ok": true,
+      "detail": "crossed=2/7"
+    },
+    {
+      "name": "B: 阈值与 policy 同源（监督 0.699765 / 零日 -7.262677）",
+      "ok": true,
+      "detail": "sup=[0.699765] zd=[-7.262677]"
+    },
+    {
+      "name": "B: **SHAP Top-K 归因**已写入记录（控制台详情页的「为什么」）",
+      "ok": true,
+      "detail": "K=[8] top1=['val_special_r', 'val_special_r', 'sql_weak_r', 'xss_strong_r', 'val_special_r', 'max_repeat', 'val_special_r']"
+    },
+    {
+      "name": "C: 请求条数一致",
+      "ok": true,
+      "detail": "7/7"
+    },
+    {
+      "name": "C: 每条都有 pred",
+      "ok": true,
+      "detail": "7/7"
+    },
+    {
+      "name": "C: pred 带规则通道字段(rule_weight/block_weight/rules_flagged)",
+      "ok": true,
+      "detail": "keys=['rule_block_weight', 'rule_weight', 'rules_flagged']"
+    },
+    {
+      "name": "C: 至少 1 条命中规则并落盘证据",
+      "ok": true,
+      "detail": "2/7 条带 rules，命中规则=['custom_waf_sqli_009', 'custom_waf_xss_001', 'custom_waf_xss_002', 'custom_waf_xss_007', 'sqli_tautology', 'xss_script_tag']"
+    },
+    {
+      "name": "C: 命中记录的规则集指纹与策略**同源**",
+      "ok": true,
+      "detail": "disk=['1313bccdc0d80b8e'] policy=1313bccdc0d80b8e"
+    },
+    {
+      "name": "C: 规则证据被策略采纳（pred.rule_weight == rules.weight）",
+      "ok": true,
+      "detail": "weights=[0.0, 0.0, 5.0, 14.0, 0.0, 0.0, 0.0]"
+    },
+    {
+      "name": "C: rules_flagged 与规则集阻断线逐条一致（现役 block 规则 33 条 / 阻断线 1.0）",
+      "ok": true,
+      "detail": "flagged=2/7"
+    },
+    {
+      "name": "C: 融合动作只会因规则证据变严（绝不更松、绝不凭空开火）",
+      "ok": true,
+      "detail": "B=['allow', 'allow', 'allow', 'allow', 'allow', 'block', 'block'] C=['allow', 'block']"
+    },
+    {
+      "name": "C: 判定不阻断（dry-run 全部 200）",
+      "ok": true,
+      "detail": "['HTTP/1.1 200 OK']"
+    },
+    {
+      "name": "canary 路径 -> label=1（2 条）",
+      "ok": true,
+      "detail": "attack=2"
+    },
+    {
+      "name": "其余 -> label=0（5 条）",
+      "ok": true,
+      "detail": "benign=5"
+    },
+    {
+      "name": "攻击标签来源 = 出处（canary 路径）",
+      "ok": true,
+      "detail": "label_why={'canary 路径 /admin.php': 2}"
+    },
+    {
+      "name": "标注输出保留攻击 body（需 `--keep-body`）",
+      "ok": true,
+      "detail": "不加 --keep-body 下游按隐私默认清空 body"
+    },
+    {
+      "name": "标注后仍保留流级字段",
+      "ok": true,
+      "detail": "dur_ms/bytes_out 透传"
+    },
+    {
+      "name": "**模型输出不可能变成标签**：标注后无 `pred` 键",
+      "ok": true,
+      "detail": "parse_jsonl 只保留已知键 ⇒ pred 被结构性地挡在标签之外"
+    }
+  ],
+  "n_pass": 43,
+  "n_fail": 0,
+  "verdict": "PASS",
+  "n_raw": 7,
+  "n_attack": 2,
+  "n_benign": 5,
+  "label_why": {
+    "canary 路径 /admin.php": 2
+  },
+  "pred_stats": {
+    "actions": {
+      "allow": 5,
+      "block": 2,
+      "alert": 0
+    },
+    "per_request": [
+      {
+        "method": "GET",
+        "path": "/index.php",
+        "ua": "p8-probe/1.0",
+        "body_len": 0,
+        "action": "allow",
+        "supervised_score": 0.034384,
+        "supervised_flagged": false,
+        "zero_day_score": -8.519237,
+        "zero_day_score_crossed": false,
+        "zero_day_flagged": false,
+        "shap_top1": "val_special_r"
+      },
+      {
+        "method": "POST",
+        "path": "/comment.php",
+        "ua": "p8-probe/1.0",
+        "body_len": 13,
+        "action": "allow",
+        "supervised_score": 0.002072,
+        "supervised_flagged": false,
+        "zero_day_score": -7.95694,
+        "zero_day_score_crossed": false,
+        "zero_day_flagged": false,
+        "shap_top1": "val_special_r"
+      },
+      {
+        "method": "POST",
+        "path": "/admin.php",
+        "ua": "sqlmap/1.7",
+        "body_len": 29,
+        "action": "block",
+        "supervised_score": 0.999959,
+        "supervised_flagged": true,
+        "zero_day_score": -6.401914,
+        "zero_day_score_crossed": true,
+        "zero_day_flagged": false,
+        "shap_top1": "sql_weak_r"
+      },
+      {
+        "method": "POST",
+        "path": "/admin.php",
+        "ua": "Mozilla/5.0",
+        "body_len": 29,
+        "action": "block",
+        "supervised_score": 0.999938,
+        "supervised_flagged": true,
+        "zero_day_score": -7.673534,
+        "zero_day_score_crossed": false,
+        "zero_day_flagged": false,
+        "shap_top1": "xss_strong_r"
+      },
+      {
+        "method": "POST",
+        "path": "/comment.php",
+        "ua": "p8-probe/1.0",
+        "body_len": 29,
+        "action": "allow",
+        "supervised_score": 0.330947,
+        "supervised_flagged": false,
+        "zero_day_score": -7.647206,
+        "zero_day_score_crossed": false,
+        "zero_day_flagged": false,
+        "shap_top1": "val_special_r"
+      },
+      {
+        "method": "POST",
+        "path": "/upload.php",
+        "ua": "p8-probe/1.0",
+        "body_len": 200005,
+        "action": "allow",
+        "supervised_score": 0.300173,
+        "supervised_flagged": false,
+        "zero_day_score": -6.798639,
+        "zero_day_score_crossed": true,
+        "zero_day_flagged": false,
+        "shap_top1": "max_repeat"
+      },
+      {
+        "method": "POST",
+        "path": "/binary.php",
+        "ua": "p8-probe/1.0",
+        "body_len": 2048,
+        "action": "allow",
+        "supervised_score": 0.032388,
+        "supervised_flagged": false,
+        "zero_day_score": -8.495755,
+        "zero_day_score_crossed": false,
+        "zero_day_flagged": false,
+        "shap_top1": "val_special_r"
+      }
+    ],
+    "note": "**诊断值，不是验收指标**：上线模型训练集带 body 记录 = 0 条，且阈值未在真实本地良性上重标定。这 7 条不构成任何率的证据。"
+  },
+  "limitations": [
+    "本验证只覆盖**采集、出处标注与 dry-run 判定留证**；判定按设计**不阻断**，",
+    "上游是本地假的 echo 后端；真实业务的 body 分布需上线后采集",
+    "攻击标签来自**蜜罐路径出处**，不是内容正则 —— 这正是可审计的前提",
+    "`pred` 是拿**上线模型**（训练集带 body 记录 = 0 条）对真实流量算的诊断值，**不能当验收指标**；",
+    "阈值必须在真实本地良性留出流量上重标定（python/thresholds.py --pool file:...）"
+  ],
+  "tmp_dir": "C:\\Users\\lenovo\\AppData\\Local\\Temp\\p8_proxy_ylojomcq"
+}

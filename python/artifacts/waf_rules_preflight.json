@@ -1,0 +1,678 @@
+{
+  "pools": {
+    "benign_n": 6190,
+    "attack_n": 25119,
+    "benign_sources": "csic_norm_holdout(6000) + local_benign(190)",
+    "attack_sources": "csic_anom(25065) + inwild_atk(12) + datacon_atk(42)",
+    "benign_caveat": "CSIC 留出集与 p7 的**筛选语料同源**（p7 用了全部 36,000 条正常流量）⇒ 挖出的规则在本池上的点估计系统性偏低。阻断预算一律用 Wilson 95% 上界。"
+  },
+  "n_pass": 23,
+  "n_total": 66,
+  "rules": [
+    {
+      "id": "custom_waf_sf_003",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 1446,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": true,
+      "pass": true
+    },
+    {
+      "id": "custom_waf_xss_007",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 1159,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": true,
+      "pass": true
+    },
+    {
+      "id": "custom_waf_xss_001",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 1150,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": true,
+      "pass": true
+    },
+    {
+      "id": "custom_waf_sqli_007",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 1104,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": true,
+      "pass": true
+    },
+    {
+      "id": "custom_waf_xss_002",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 990,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": true,
+      "pass": true
+    },
+    {
+      "id": "custom_waf_sqli_009",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 706,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": true,
+      "pass": true
+    },
+    {
+      "id": "custom_waf_sqli_003",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 528,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": true,
+      "pass": true
+    },
+    {
+      "id": "custom_waf_xss_004",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 354,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": true,
+      "pass": true
+    },
+    {
+      "id": "custom_waf_sqli_002",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 352,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": true,
+      "pass": true
+    },
+    {
+      "id": "custom_waf_ssrf_003",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 347,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": true,
+      "pass": true
+    },
+    {
+      "id": "custom_waf_xss_006",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 346,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": true,
+      "pass": true
+    },
+    {
+      "id": "custom_waf_rce_001",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 200,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": true,
+      "pass": true
+    },
+    {
+      "id": "custom_waf_lfi_004",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 180,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": true,
+      "pass": true
+    },
+    {
+      "id": "custom_waf_pt_003",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 99,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": true,
+      "pass": true
+    },
+    {
+      "id": "custom_waf_sqli_008",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 78,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": true,
+      "pass": true
+    },
+    {
+      "id": "custom_waf_sf_002",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 9,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": true,
+      "pass": true
+    },
+    {
+      "id": "custom_waf_ds_005",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 3,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": true,
+      "pass": true
+    },
+    {
+      "id": "custom_waf_rce_003",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 2,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": true,
+      "pass": true
+    },
+    {
+      "id": "custom_waf_pt_001",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 2,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": true,
+      "pass": true
+    },
+    {
+      "id": "custom_waf_pt_004",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 2,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": true,
+      "pass": true
+    },
+    {
+      "id": "custom_waf_sqli_001",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 1,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": true,
+      "pass": true
+    },
+    {
+      "id": "custom_waf_rce_005",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 1,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": true,
+      "pass": true
+    },
+    {
+      "id": "custom_waf_ssrf_002",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 1,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": true,
+      "pass": true
+    },
+    {
+      "id": "custom_waf_sf_004",
+      "benign_hits": 140,
+      "benign_n": 6190,
+      "attack_hits": 1,
+      "attack_n": 25119,
+      "g2": false,
+      "g3": true,
+      "pass": false
+    },
+    {
+      "id": "custom_waf_sqli_004",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 0,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": false,
+      "pass": false
+    },
+    {
+      "id": "custom_waf_sqli_005",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 0,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": false,
+      "pass": false
+    },
+    {
+      "id": "custom_waf_sqli_006",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 0,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": false,
+      "pass": false
+    },
+    {
+      "id": "custom_waf_sqli_010",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 0,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": false,
+      "pass": false
+    },
+    {
+      "id": "custom_waf_sqli_011",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 0,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": false,
+      "pass": false
+    },
+    {
+      "id": "custom_waf_sqli_012",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 0,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": false,
+      "pass": false
+    },
+    {
+      "id": "custom_waf_xss_003",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 0,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": false,
+      "pass": false
+    },
+    {
+      "id": "custom_waf_xss_005",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 0,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": false,
+      "pass": false
+    },
+    {
+      "id": "custom_waf_xss_008",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 0,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": false,
+      "pass": false
+    },
+    {
+      "id": "custom_waf_xss_009",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 0,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": false,
+      "pass": false
+    },
+    {
+      "id": "custom_waf_xss_010",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 0,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": false,
+      "pass": false
+    },
+    {
+      "id": "custom_waf_rce_002",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 0,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": false,
+      "pass": false
+    },
+    {
+      "id": "custom_waf_rce_004",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 0,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": false,
+      "pass": false
+    },
+    {
+      "id": "custom_waf_rce_006",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 0,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": false,
+      "pass": false
+    },
+    {
+      "id": "custom_waf_rce_007",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 0,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": false,
+      "pass": false
+    },
+    {
+      "id": "custom_waf_rce_008",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 0,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": false,
+      "pass": false
+    },
+    {
+      "id": "custom_waf_rce_009",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 0,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": false,
+      "pass": false
+    },
+    {
+      "id": "custom_waf_rce_010",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 0,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": false,
+      "pass": false
+    },
+    {
+      "id": "custom_waf_lfi_001",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 0,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": false,
+      "pass": false
+    },
+    {
+      "id": "custom_waf_lfi_002",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 0,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": false,
+      "pass": false
+    },
+    {
+      "id": "custom_waf_lfi_003",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 0,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": false,
+      "pass": false
+    },
+    {
+      "id": "custom_waf_ssrf_001",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 0,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": false,
+      "pass": false
+    },
+    {
+      "id": "custom_waf_sf_001",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 0,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": false,
+      "pass": false
+    },
+    {
+      "id": "custom_waf_up_001",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 0,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": false,
+      "pass": false
+    },
+    {
+      "id": "custom_waf_up_002",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 0,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": false,
+      "pass": false
+    },
+    {
+      "id": "custom_waf_up_003",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 0,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": false,
+      "pass": false
+    },
+    {
+      "id": "custom_waf_ds_001",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 0,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": false,
+      "pass": false
+    },
+    {
+      "id": "custom_waf_ds_002",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 0,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": false,
+      "pass": false
+    },
+    {
+      "id": "custom_waf_ds_003",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 0,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": false,
+      "pass": false
+    },
+    {
+      "id": "custom_waf_ds_004",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 0,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": false,
+      "pass": false
+    },
+    {
+      "id": "custom_waf_ds_006",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 0,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": false,
+      "pass": false
+    },
+    {
+      "id": "custom_waf_ds_007",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 0,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": false,
+      "pass": false
+    },
+    {
+      "id": "custom_waf_ws_001",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 0,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": false,
+      "pass": false
+    },
+    {
+      "id": "custom_waf_ws_002",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 0,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": false,
+      "pass": false
+    },
+    {
+      "id": "custom_waf_ws_003",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 0,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": false,
+      "pass": false
+    },
+    {
+      "id": "custom_waf_ws_004",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 0,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": false,
+      "pass": false
+    },
+    {
+      "id": "custom_waf_en_001",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 0,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": false,
+      "pass": false
+    },
+    {
+      "id": "custom_waf_en_002",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 0,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": false,
+      "pass": false
+    },
+    {
+      "id": "custom_waf_en_003",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 0,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": false,
+      "pass": false
+    },
+    {
+      "id": "custom_waf_xxe_001",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 0,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": false,
+      "pass": false
+    },
+    {
+      "id": "custom_waf_xxe_002",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 0,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": false,
+      "pass": false
+    },
+    {
+      "id": "custom_waf_inf_001",
+      "benign_hits": 0,
+      "benign_n": 6190,
+      "attack_hits": 0,
+      "attack_n": 25119,
+      "g2": true,
+      "g3": false,
+      "pass": false
+    }
+  ],
+  "calibration_report": "C:\\Users\\lenovo\\AppData\\Local\\Temp\\wafjson_pf_h7kf56y3\\calibration.json",
+  "generated_at": "2026-10-20 15:20:24",
+  "status": "batch_preflight",
+  "about": "这是**批量预检**：把 waf_rules_import_report.json 里导入的规则**整批**跑一遍真实良性/攻击回放，用来回答『现在就能过 ②③ 的有几条』。它不是任何一条规则的`validate` 结论 —— 那必须逐条 POST /api/rules/custom/{id}/validate，结果写进 rules_custom.validation。本文件不改变任何规则的合格/启用状态。",
+  "caveat": "攻击池 = csic_anom(25065) + inwild_atk(12) + datacon_atk(42)，覆盖以 CSIC 词法为主。`attack_hits=0` 只能说明**这个池证明不了**它（unverifiable_by_pool），不等于规则无效；要下结论得换更宽的攻击语料。良性池 6,190 = csic 留出 6,000 + 本机真实良性 190，规模仍然偏小。"
+}

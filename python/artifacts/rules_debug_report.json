@@ -1,0 +1,462 @@
+{
+ "schema": 1,
+ "generated_at": 1792484168331,
+ "pools": {
+  "benign": 6190,
+  "attack": 25119,
+  "benign_sources": [
+   "csic_norm_holdout",
+   "local_benign"
+  ],
+  "attack_sources": [
+   "csic_anom",
+   "inwild_atk",
+   "datacon_atk"
+  ]
+ },
+ "fixed": [
+  {
+   "id": "custom_waf_xxe_001",
+   "change": "scope body → body,query（真实 XXE 把 XML 放在 query）",
+   "attack_hits": 1
+  },
+  {
+   "id": "custom_waf_xxe_002",
+   "change": "补参数实体 `<!ENTITY % name SYSTEM ...>` + scope 加 query",
+   "attack_hits": 1
+  },
+  {
+   "id": "custom_waf_rce_007",
+   "change": "补 `${...<ldap|rmi|dns>://}` 混淆分支 + scope 加 ua/referer",
+   "attack_hits": 1
+  },
+  {
+   "id": "custom_waf_rce_006",
+   "change": "补 SpEL `@java.lang.X@` / `getClass().forName` 分支",
+   "attack_hits": 1
+  },
+  {
+   "id": "custom_waf_sqli_011",
+   "change": "`INTO OUTFILE` 后无括号 → 改词边界分支",
+   "attack_hits": 1
+  },
+  {
+   "id": "custom_waf_en_003",
+   "change": "编码分支解码后不可达 → 认解码后的「换行 + 头名 + 冒号」（裸 \\r\\n 在 body 可能是合法多行正文，故不单独匹配）",
+   "attack_hits": 939
+  },
+  {
+   "id": "custom_waf_up_002",
+   "change": "`%00` 解码后是 NUL → 匹配解码后的 `\\x00`",
+   "attack_hits": 180
+  },
+  {
+   "id": "custom_waf_sf_004",
+   "change": "去掉会命中真实管理员的 `phpmyadmin|phpinfo`，收窄到高危入口",
+   "attack_hits": 1
+  }
+ ],
+ "blocked_by_data": [
+  {
+   "id": "custom_waf_ds_001",
+   "name": "[DS-001] Java 序列化特征",
+   "category": "Java 序列化流头",
+   "why": "池里没有任何 Java 序列化流（base64/hex/gzip）",
+   "marker": "rO0AB|aced0005|H4sIAAAAAAAA",
+   "marker_attack_hits": 0,
+   "marker_benign_hits": 0,
+   "rule_attack_hits_all_scopes": 0,
+   "recommendation": "keep_draft_until_corpus_available"
+  },
+  {
+   "id": "custom_waf_ds_002",
+   "name": "[DS-002] 反序列化利用类",
+   "category": "gadget 链类名",
+   "why": "池里没有 ysoserial / commons-collections 类名",
+   "marker": "ysoserial|commons-collections|javax\\.objectstream",
+   "marker_attack_hits": 0,
+   "marker_benign_hits": 0,
+   "rule_attack_hits_all_scopes": 0,
+   "recommendation": "keep_draft_until_corpus_available"
+  },
+  {
+   "id": "custom_waf_ds_003",
+   "name": "[DS-003] PHP 序列化对象",
+   "category": "PHP serialize",
+   "why": "池里没有 PHP 序列化对象",
+   "marker": "O:\\d+:\"|a:\\d+:\\{|s:\\d+:\"",
+   "marker_attack_hits": 0,
+   "marker_benign_hits": 0,
+   "rule_attack_hits_all_scopes": 0,
+   "recommendation": "keep_draft_until_corpus_available"
+  },
+  {
+   "id": "custom_waf_ds_004",
+   "name": "[DS-004] fastjson 自动类型",
+   "category": "fastjson @type",
+   "why": "池里没有 fastjson autotype 载荷",
+   "marker": "@type\\s*[:=]",
+   "marker_attack_hits": 0,
+   "marker_benign_hits": 0,
+   "rule_attack_hits_all_scopes": 0,
+   "recommendation": "keep_draft_until_corpus_available"
+  },
+  {
+   "id": "custom_waf_ds_006",
+   "name": "[DS-006] Jackson 多态类型",
+   "category": "Jackson @class",
+   "why": "池里没有 Jackson 多态类型载荷（`foo@classroom.lv` 这类邮箱不算）",
+   "marker": "@class\\s*[:=]",
+   "marker_attack_hits": 0,
+   "marker_benign_hits": 0,
+   "rule_attack_hits_all_scopes": 0,
+   "recommendation": "keep_draft_until_corpus_available"
+  },
+  {
+   "id": "custom_waf_ds_007",
+   "name": "[DS-007] Python 反序列化函数",
+   "category": "pickle 魔术方法",
+   "why": "池里没有 pickle/yaml 反序列化载荷",
+   "marker": "__reduce__|__import__",
+   "marker_attack_hits": 0,
+   "marker_benign_hits": 0,
+   "rule_attack_hits_all_scopes": 0,
+   "recommendation": "keep_draft_until_corpus_available"
+  },
+  {
+   "id": "custom_waf_en_001",
+   "name": "[EN-001] 双重 URL 编码",
+   "category": "双重编码残留",
+   "why": "解码两遍后不再有 `%25XX`；池里无双/三重编码样本",
+   "marker": "%25[0-9a-f]{2}",
+   "marker_attack_hits": 0,
+   "marker_benign_hits": 0,
+   "rule_attack_hits_all_scopes": 0,
+   "recommendation": "keep_draft_until_corpus_available"
+  },
+  {
+   "id": "custom_waf_en_002",
+   "name": "[EN-002] 异常 Unicode/超长编码",
+   "category": "%u / overlong",
+   "why": "池里没有 %uXXXX 或 overlong UTF-8 样本",
+   "marker": "%u[0-9a-f]{4}|%c0%|%e0%80%",
+   "marker_attack_hits": 0,
+   "marker_benign_hits": 0,
+   "rule_attack_hits_all_scopes": 0,
+   "recommendation": "keep_draft_until_corpus_available"
+  },
+  {
+   "id": "custom_waf_inf_001",
+   "name": "[INF-001] 报错信息泄露",
+   "category": "报错文案",
+   "why": "报错文案在**响应**里，请求侧没有；请求里出现错误关键词不等于攻击",
+   "marker": "fatal error|stack trace|SQLSTATE\\[|traceback",
+   "marker_attack_hits": 0,
+   "marker_benign_hits": 0,
+   "rule_attack_hits_all_scopes": 0,
+   "recommendation": "keep_draft_until_corpus_available"
+  },
+  {
+   "id": "custom_waf_lfi_001",
+   "name": "[LFI-001] 危险流包装器",
+   "category": "危险流包装器",
+   "why": "池里没有 php:// / data:// / phar:// 等包装器；唯一 `ldap://` 是 Log4Shell UA（应归 RCE-007）",
+   "marker": "php://|data://|phar://|expect://|zip://|gopher://",
+   "marker_attack_hits": 0,
+   "marker_benign_hits": 0,
+   "rule_attack_hits_all_scopes": 1,
+   "recommendation": "keep_draft_until_corpus_available"
+  },
+  {
+   "id": "custom_waf_lfi_002",
+   "name": "[LFI-002] 文件操作函数+路径",
+   "category": "文件包含函数+路径",
+   "why": "池里的包含是 SSI 指令 `<!--#include file=... -->`（98 条），不是 PHP include()/require() 语法；按「不近似翻译」不改语义",
+   "marker": "\\b(?:include|require|include_once|require_once)\\s*\\(?\\s*['\\\"]?(?:/|\\.\\./)",
+   "marker_attack_hits": 0,
+   "marker_benign_hits": 0,
+   "rule_attack_hits_all_scopes": 0,
+   "recommendation": "keep_draft_until_corpus_available"
+  },
+  {
+   "id": "custom_waf_lfi_003",
+   "name": "[LFI-003] data:// 编码载荷",
+   "category": "data:text/plain",
+   "why": "池里没有 data: 协议载荷",
+   "marker": "data:\\s*text/plain",
+   "marker_attack_hits": 0,
+   "marker_benign_hits": 0,
+   "rule_attack_hits_all_scopes": 0,
+   "recommendation": "keep_draft_until_corpus_available"
+  },
+  {
+   "id": "custom_waf_rce_002",
+   "name": "[RCE-002] 命令替换/变量展开",
+   "category": "命令替换",
+   "why": "query/body 里没有 $() 或反引号；池里唯一的 `${...}` 是 Log4Shell UA（已归 RCE-007）",
+   "marker": "\\$\\(|`[^`]{1,100}`",
+   "marker_attack_hits": 0,
+   "marker_benign_hits": 0,
+   "rule_attack_hits_all_scopes": 1,
+   "recommendation": "keep_draft_until_corpus_available"
+  },
+  {
+   "id": "custom_waf_rce_004",
+   "name": "[RCE-004] 编码+执行组合",
+   "category": "解码+执行",
+   "why": "池里没有 base64_decode(长串) 类 webshell 载荷",
+   "marker": "base64_decode\\s*\\(",
+   "marker_attack_hits": 0,
+   "marker_benign_hits": 0,
+   "rule_attack_hits_all_scopes": 0,
+   "recommendation": "keep_draft_until_corpus_available"
+  },
+  {
+   "id": "custom_waf_rce_008",
+   "name": "[RCE-008] 模板注入 SSTI",
+   "category": "SSTI",
+   "why": "池里没有模板表达式（{{7*7}} / __class__）载荷",
+   "marker": "\\{\\{|\\{%|__class__|__globals__|_subclasses__",
+   "marker_attack_hits": 0,
+   "marker_benign_hits": 0,
+   "rule_attack_hits_all_scopes": 0,
+   "recommendation": "keep_draft_until_corpus_available"
+  },
+  {
+   "id": "custom_waf_rce_009",
+   "name": "[RCE-009] Windows 命令特征",
+   "category": "Windows 命令",
+   "why": "池里没有 Windows 命令执行特征",
+   "marker": "cmd(?:\\.exe)?\\s*/\\s*c|powershell\\s+-|%comspec%",
+   "marker_attack_hits": 0,
+   "marker_benign_hits": 0,
+   "rule_attack_hits_all_scopes": 0,
+   "recommendation": "keep_draft_until_corpus_available"
+  },
+  {
+   "id": "custom_waf_rce_010",
+   "name": "[RCE-010] IFS 空格绕过",
+   "category": "IFS 绕过",
+   "why": "池里没有 ${IFS} 样本",
+   "marker": "\\$\\{IFS\\}",
+   "marker_attack_hits": 0,
+   "marker_benign_hits": 0,
+   "rule_attack_hits_all_scopes": 0,
+   "recommendation": "keep_draft_until_corpus_available"
+  },
+  {
+   "id": "custom_waf_sf_001",
+   "name": "[SF-001] 版本控制目录",
+   "category": "版本控制目录",
+   "why": "池里没有 .git/.svn 探测（异常扫描集中在 .BAK/.OLD 备份文件）",
+   "marker": "\\.git|\\.svn|\\.hg",
+   "marker_attack_hits": 0,
+   "marker_benign_hits": 0,
+   "rule_attack_hits_all_scopes": 0,
+   "recommendation": "keep_draft_until_corpus_available"
+  },
+  {
+   "id": "custom_waf_sqli_004",
+   "name": "[SQLI-004] 报错注入函数",
+   "category": "报错注入函数",
+   "why": "池里没有报错注入函数（真实 SQLi 只有 union select 型）",
+   "marker": "updatexml|extractvalue|floor\\s*\\(",
+   "marker_attack_hits": 0,
+   "marker_benign_hits": 0,
+   "rule_attack_hits_all_scopes": 0,
+   "recommendation": "keep_draft_until_corpus_available"
+  },
+  {
+   "id": "custom_waf_sqli_005",
+   "name": "[SQLI-005] 数据库信息函数/变量",
+   "category": "库信息函数",
+   "why": "池里没有 @@version / user() 探测",
+   "marker": "@@version|@@datadir|\\b(?:user|database|version)\\(\\)",
+   "marker_attack_hits": 0,
+   "marker_benign_hits": 0,
+   "rule_attack_hits_all_scopes": 0,
+   "recommendation": "keep_draft_until_corpus_available"
+  },
+  {
+   "id": "custom_waf_sqli_006",
+   "name": "[SQLI-006] 字符串/编码函数探测",
+   "category": "字符串函数",
+   "why": "池里没有盲注字符串函数组合",
+   "marker": "\\b(?:concat|substring|substr|mid|char|ascii|hex|ord)\\s*\\(",
+   "marker_attack_hits": 0,
+   "marker_benign_hits": 0,
+   "rule_attack_hits_all_scopes": 0,
+   "recommendation": "keep_draft_until_corpus_available"
+  },
+  {
+   "id": "custom_waf_sqli_010",
+   "name": "[SQLI-010] information_schema 探测",
+   "category": "information_schema",
+   "why": "池里没有 information_schema 枚举",
+   "marker": "information_schema",
+   "marker_attack_hits": 0,
+   "marker_benign_hits": 0,
+   "rule_attack_hits_all_scopes": 0,
+   "recommendation": "keep_draft_until_corpus_available"
+  },
+  {
+   "id": "custom_waf_sqli_012",
+   "name": "[SQLI-012] 十六进制编码值",
+   "category": "长十六进制",
+   "why": "池里没有 0x 长十六进制绕过",
+   "marker": "0x[0-9a-f]{6,}\\b",
+   "marker_attack_hits": 0,
+   "marker_benign_hits": 0,
+   "rule_attack_hits_all_scopes": 0,
+   "recommendation": "keep_draft_until_corpus_available"
+  },
+  {
+   "id": "custom_waf_ssrf_001",
+   "name": "[SSRF-001] 云元数据地址",
+   "category": "云元数据",
+   "why": "池里没有云元数据地址探测",
+   "marker": "169\\.254\\.|metadata\\.google|100\\.100\\.100\\.200",
+   "marker_attack_hits": 0,
+   "marker_benign_hits": 0,
+   "rule_attack_hits_all_scopes": 0,
+   "recommendation": "keep_draft_until_corpus_available"
+  },
+  {
+   "id": "custom_waf_up_001",
+   "name": "[UP-001] 可执行文件扩展名",
+   "category": "上传可执行后缀",
+   "why": "池里只有 `filename=uljkbgco.txt` / `fileName=/etc/passwd`，没有可执行后缀上传",
+   "marker": "filename\\s*=\\s*['\\\"]?[^'\\\"\\s]{0,200}\\.(?:php|jsp|asp|exe|sh)",
+   "marker_attack_hits": 0,
+   "marker_benign_hits": 0,
+   "rule_attack_hits_all_scopes": 0,
+   "recommendation": "keep_draft_until_corpus_available"
+  },
+  {
+   "id": "custom_waf_up_003",
+   "name": "[UP-003] 上传路径穿越",
+   "category": "上传路径穿越",
+   "why": "池里没有 filename=../ 形式（绝对路径读文件由 mined 的 path_sensitive_file 覆盖）",
+   "marker": "(?:filename|file|name)\\s*=\\s*['\\\"]?[^'\\\"\\s]*\\.\\./",
+   "marker_attack_hits": 0,
+   "marker_benign_hits": 0,
+   "rule_attack_hits_all_scopes": 0,
+   "recommendation": "keep_draft_until_corpus_available"
+  },
+  {
+   "id": "custom_waf_ws_001",
+   "name": "[WS-001] 常见木马文件名",
+   "category": "木马文件名",
+   "why": "池里没有 c99/r57/shell.php 等马名（站点的 /cms/*.php 不是木马）",
+   "marker": "\\b(?:c99|r57|b374k|wso|phpspy|webshell|shell)\\.php",
+   "marker_attack_hits": 0,
+   "marker_benign_hits": 0,
+   "rule_attack_hits_all_scopes": 0,
+   "recommendation": "keep_draft_until_corpus_available"
+  },
+  {
+   "id": "custom_waf_ws_002",
+   "name": "[WS-002] 混淆执行组合",
+   "category": "eval+解码嵌套",
+   "why": "池里没有 eval(base64_decode(...)) 嵌套",
+   "marker": "eval\\s*\\(\\s*(?:base64_decode|gzinflate|str_rot13)",
+   "marker_attack_hits": 0,
+   "marker_benign_hits": 0,
+   "rule_attack_hits_all_scopes": 0,
+   "recommendation": "keep_draft_until_corpus_available"
+  },
+  {
+   "id": "custom_waf_ws_003",
+   "name": "[WS-003] 超级全局变量调用",
+   "category": "超级全局变量",
+   "why": "池里没有 $_GET[..] 直调（inwild 载荷是 `$POST_['A']`，不是 PHP 语法）",
+   "marker": "\\$_(?:GET|POST|REQUEST|COOKIE|FILES|SERVER)\\s*\\[",
+   "marker_attack_hits": 0,
+   "marker_benign_hits": 0,
+   "rule_attack_hits_all_scopes": 0,
+   "recommendation": "keep_draft_until_corpus_available"
+  },
+  {
+   "id": "custom_waf_ws_004",
+   "name": "[WS-004] 管理工具特征",
+   "category": "管理工具特征",
+   "why": "池里没有蚁剑/冰蝎/哥斯拉特征",
+   "marker": "antSword|Behinder|Godzilla|菜刀|蚁剑|冰蝎",
+   "marker_attack_hits": 0,
+   "marker_benign_hits": 0,
+   "rule_attack_hits_all_scopes": 0,
+   "recommendation": "keep_draft_until_corpus_available"
+  },
+  {
+   "id": "custom_waf_xss_003",
+   "name": "[XSS-003] 事件属性注入",
+   "category": "事件属性",
+   "why": "池里的 XSS 全是 `<script>alert(Paros)</script>`，没有任何 on*= 事件属性",
+   "marker": "\\bon[a-z]{3,15}\\s*=",
+   "marker_attack_hits": 0,
+   "marker_benign_hits": 0,
+   "rule_attack_hits_all_scopes": 0,
+   "recommendation": "keep_draft_until_corpus_available"
+  },
+  {
+   "id": "custom_waf_xss_005",
+   "name": "[XSS-005] data 协议 HTML",
+   "category": "data:text/html",
+   "why": "池里没有 data:text/html 载荷",
+   "marker": "data\\s*:\\s*text/html",
+   "marker_attack_hits": 0,
+   "marker_benign_hits": 0,
+   "rule_attack_hits_all_scopes": 0,
+   "recommendation": "keep_draft_until_corpus_available"
+  },
+  {
+   "id": "custom_waf_xss_008",
+   "name": "[XSS-008] 编码混淆的 Script",
+   "category": "编码 script",
+   "why": "解码两遍后 `<script>` 已被 XSS-001 覆盖，编码分支全部不可达 ⇒ 与 XSS-001 重复",
+   "marker": "%3c\\s*script|\\\\x3c|%253c",
+   "marker_attack_hits": 0,
+   "marker_benign_hits": 0,
+   "rule_attack_hits_all_scopes": 0,
+   "recommendation": "merge_or_delete"
+  },
+  {
+   "id": "custom_waf_xss_009",
+   "name": "[XSS-009] 属性内伪协议",
+   "category": "href/javascript:",
+   "why": "池里只有裸 `javascript:alert(...)`（XSS-004 已覆盖），没有 href=/src= 属性包裹形式",
+   "marker": "(?:href|src)\\s*=\\s*['\\\"]?\\s*(?:javascript|vbscript)",
+   "marker_attack_hits": 0,
+   "marker_benign_hits": 0,
+   "rule_attack_hits_all_scopes": 0,
+   "recommendation": "keep_draft_until_corpus_available"
+  },
+  {
+   "id": "custom_waf_xss_010",
+   "name": "[XSS-010] srcdoc/样式注入",
+   "category": "srcdoc/样式表达式",
+   "why": "池里没有 srcdoc / expression() 载荷",
+   "marker": "srcdoc\\s*=|expression\\s*\\(|-moz-binding",
+   "marker_attack_hits": 0,
+   "marker_benign_hits": 0,
+   "rule_attack_hits_all_scopes": 0,
+   "recommendation": "keep_draft_until_corpus_available"
+  }
+ ],
+ "ssi_gap": {
+  "rows": 724,
+  "matched_by_existing_rules": {
+   "cmd_shell_bin": 194,
+   "path_sensitive_file": 194,
+   "custom_waf_pt_003": 194,
+   "custom_waf_rce_001": 194,
+   "custom_waf_sqli_003": 528
+  },
+  "note": "724 行 = 98 条唯一 SSI 载荷的 GET/POST 双份；现有规则靠其中的 /etc/passwd、; 等副特征命中，不是专用 SSI 检测"
+ },
+ "summary": {
+  "passed": 31,
+  "blocked": 35,
+  "total": 66
+ }
+}

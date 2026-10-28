@@ -1,0 +1,209 @@
+{
+  "score_def": "1 - P(normal)",
+  "supervised_threshold": 0.6997649669647217,
+  "target_fpr": "0.01",
+  "zero_day_threshold": -7.262677192687988,
+  "training_body_coverage": {
+    "n_train": 21212,
+    "n_with_body": 0
+  },
+  "sets": {
+    "csic_normal": {
+      "desc": "真实良性（CSIC 2010 正常流量）",
+      "kind": "benign",
+      "n": 36000,
+      "n_with_body": 8000,
+      "hit_with_body": 330,
+      "hit_without_body": 330,
+      "rate_with_body": [
+        0.009166666666666667,
+        0.008233209925858588,
+        0.010204866970913452
+      ],
+      "rate_without_body": [
+        0.009166666666666667,
+        0.008233209925858588,
+        0.010204866970913452
+      ],
+      "only_with_body": 0,
+      "only_without_body": 0,
+      "both": 330,
+      "mean_score_with_body": 0.026245150715112686,
+      "mean_score_without_body": 0.022275935858488083,
+      "mean_score_delta": 0.003969214856624603,
+      "body_subset": {
+        "n": 8000,
+        "hit_with_body": 0,
+        "hit_without_body": 0,
+        "rate_with_body": [
+          0.0,
+          0.0,
+          0.00047996951863715044
+        ],
+        "rate_without_body": [
+          0.0,
+          0.0,
+          0.00047996951863715044
+        ],
+        "delta_hits": 0
+      },
+      "reportable": true
+    },
+    "csic_anomaly": {
+      "desc": "真实攻击（CSIC 2010 异常流量）",
+      "kind": "attack",
+      "n": 25065,
+      "n_with_body": 9977,
+      "hit_with_body": 4847,
+      "hit_without_body": 2944,
+      "rate_with_body": [
+        0.193377219230002,
+        0.18853490441082715,
+        0.19831350903959738
+      ],
+      "rate_without_body": [
+        0.11745461799321763,
+        0.11352721993802005,
+        0.12149926010483923
+      ],
+      "only_with_body": 1903,
+      "only_without_body": 0,
+      "both": 2944,
+      "mean_score_with_body": 0.2594525218009949,
+      "mean_score_without_body": 0.16040682792663574,
+      "mean_score_delta": 0.09904569387435913,
+      "body_subset": {
+        "n": 9977,
+        "hit_with_body": 1903,
+        "hit_without_body": 0,
+        "rate_with_body": [
+          0.19073869900771775,
+          0.18314891003497513,
+          0.19856655572294252
+        ],
+        "rate_without_body": [
+          0.0,
+          0.0,
+          0.0003848974018383379
+        ],
+        "delta_hits": 1903
+      },
+      "reportable": true
+    },
+    "datacon_labeled": {
+      "desc": "真实攻击（datacon 官方标注=1，OOD）",
+      "kind": "attack",
+      "n": 42,
+      "n_with_body": 17,
+      "hit_with_body": 19,
+      "hit_without_body": 14,
+      "rate_with_body": [
+        0.4523809523809524,
+        0.3122316381863852,
+        0.6005113725287732
+      ],
+      "rate_without_body": [
+        0.3333333333333333,
+        0.2101228076197232,
+        0.4844777298833308
+      ],
+      "only_with_body": 6,
+      "only_without_body": 1,
+      "both": 13,
+      "mean_score_with_body": 0.5780870914459229,
+      "mean_score_without_body": 0.4657096266746521,
+      "mean_score_delta": 0.11237746477127075,
+      "body_subset": {
+        "n": 17,
+        "hit_with_body": 8,
+        "hit_without_body": 3,
+        "rate_with_body": [
+          0.47058823529411764,
+          0.26164801196088106,
+          0.6903710268845051
+        ],
+        "rate_without_body": [
+          0.17647058823529413,
+          0.0619101371254899,
+          0.41029929017375777
+        ],
+        "delta_hits": 5
+      },
+      "reportable": false,
+      "reportable_reason": "datacon 样本量过小：命中/检出只用于确认链路可用，**不得引用其召回率/准确率**"
+    },
+    "datacon_unlabeled": {
+      "desc": "官方未标注（**≠良性**，单列不参与 FPR）",
+      "kind": "unknown",
+      "n": 58,
+      "n_with_body": 23,
+      "hit_with_body": 4,
+      "hit_without_body": 3,
+      "rate_with_body": [
+        0.06896551724137931,
+        0.027143807598168326,
+        0.16433894834605045
+      ],
+      "rate_without_body": [
+        0.05172413793103448,
+        0.017745812831795674,
+        0.14139625335019185
+      ],
+      "only_with_body": 1,
+      "only_without_body": 0,
+      "both": 3,
+      "mean_score_with_body": 0.31235212087631226,
+      "mean_score_without_body": 0.36326199769973755,
+      "mean_score_delta": -0.05090987682342529,
+      "body_subset": {
+        "n": 23,
+        "hit_with_body": 1,
+        "hit_without_body": 0,
+        "rate_with_body": [
+          0.043478260869565216,
+          0.0077164669621267445,
+          0.20991586494059142
+        ],
+        "rate_without_body": [
+          0.0,
+          0.0,
+          0.14312112541726274
+        ],
+        "delta_hits": 1
+      },
+      "reportable": false,
+      "reportable_reason": "datacon 样本量过小：命中/检出只用于确认链路可用，**不得引用其召回率/准确率**"
+    }
+  },
+  "verdict": {
+    "benign_fpr_with_body": [
+      0.009166666666666667,
+      0.008233209925858588,
+      0.010204866970913452
+    ],
+    "benign_fpr_without_body": [
+      0.009166666666666667,
+      0.008233209925858588,
+      0.010204866970913452
+    ],
+    "benign_body_subset": {
+      "n": 8000,
+      "hit_with_body": 0,
+      "hit_without_body": 0,
+      "rate_with_body": [
+        0.0,
+        0.0,
+        0.00047996951863715044
+      ],
+      "rate_without_body": [
+        0.0,
+        0.0,
+        0.00047996951863715044
+      ],
+      "delta_hits": 0
+    },
+    "attack_lift_with_body": 0.07592260123678438,
+    "datacon_attack_lift_with_body": 0.11904761904761907,
+    "note": "body 特征在训练中恒为常量 ⇒ 这里的收益/代价都是**外推**行为，不是学出来的；任何要靠 body 才能检出的攻击，本质上都是运气。"
+  }
+}

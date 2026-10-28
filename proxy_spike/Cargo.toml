@@ -1,0 +1,16 @@
+[package]
+name = "waf-proxy-spike"
+version = "0.1.0"
+edition = "2021"
+description = "S4 门禁实验：验证 Cloudflare Pingora 能否在 Windows x86_64 MSVC 上编译并跑起一个可读 body 的反向代理"
+
+[dependencies]
+# `default = []`：pingora 默认什么都不开，必须显式选 feature。
+# 选 `rustls` 而不是 `openssl`/`boringssl`：后两者要 Perl + OpenSSL 工具链，
+# 本机没有 perl（已实测），会在编译期就挂掉。
+pingora = { version = "0.9", features = ["proxy", "rustls"] }
+async-trait = "0.1"
+bytes = "1"
+
+[profile.release]
+opt-level = 2

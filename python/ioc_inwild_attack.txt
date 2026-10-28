@@ -1,0 +1,70 @@
+# 真实在野攻击 IOC 正则（匹配 method|path|query|body）
+#
+# ⚠️ 用途限制：这份列表**只用于**从服务端 error log 里把真实在野攻击 URL 挑出来，
+#    构造**测试集**（衡量真实攻击召回率，S8）。
+#    绝对不要用它产生训练标签 —— 那等于把 IOC 抄进模型，是循环论证，
+#    而且会把 IOC 没覆盖的新型攻击标成良性。
+#
+# 挑选原则：宁可精确率优先（漏掉的攻击会让测试集偏乐观，但假攻击会污染指标）。
+# 只保留语法上几乎不可能是正常业务的写法。
+
+# --- SQLi ---
+(?i)union[\s+/%]*all[\s+/%]*select
+(?i)union[\s+/%]*select
+(?i)\binto\s+(out|dump)file\b
+(?i)information_schema\.(tables|columns|schemata)
+(?i)\bsleep\(\s*\d{1,3}\s*\)
+(?i)\bbenchmark\(\s*\d{3,}
+(?i)\b(load_file|updatexml|extractvalue)\s*\(
+(?i)\bconcat\(\s*0x[0-9a-f]{4,}
+(?i)@@(version|datadir|basedir)
+(?i)xp_cmdshell
+(?i)\bor\s+1\s*=\s*1\b
+(?i)'\s*or\s*'?\d{1,3}'?\s*=\s*'?\d{1,3}
+(?i)\)\s*union\s+select
+(?i)\bwaitfor\s+delay\b
+(?i)select\s+.{0,40}\s+from\s+.{0,40}\s+where\s+.{0,40}(=|\blike\b)
+
+# --- XSS / HTML 注入 ---
+(?i)<\s*script[\s>]
+(?i)<\s*(svg|img|iframe|body)[\s/][^>]{0,60}on(error|load|mouseover|focus)\s*=
+(?i)\bon(error|load|mouseover|focus)\s*=\s*[a-z]+\s*\(
+(?i)javascript\s*:
+(?i)document\.cookie
+(?i)\balert\(\s*\d{1,4}\s*\)
+(?i)<\s*iframe\s+src\s*=\s*[\"']?https?:
+
+# --- 路径穿越 / 任意文件 ---
+(\.\./){2,}
+(?i)(%2e%2e(%2f|/)){2,}
+(?i)/(etc|proc)/[a-z_]+
+(?i)(win\.ini|boot\.ini|/windows/(system32|win))
+(?i)\.\.%5c|%5c\.\.
+(?i)/(\.ssh/|\.bash_history|web\.config|\.htpasswd)
+(?i)/(\.env|\.git/config|\.svn/entries|\.hg/|\.DS_Store)
+(?i)/(backup|db|dump|www|web|site|data|sql|config)\.(zip|rar|tar\.gz|tgz|7z|sql|bak|old|txt)$
+
+# --- 命令执行 / webshell 操作 ---
+(?i)(cmd|command)\.exe
+(?i)(/bin/|/usr/bin/)?(ba)?sh\s+-c
+(?i);\s*(cat|ls(?!t)|id|whoami|uname|pwd|wget|curl)\b
+(?i)\|\s*(cat|ls(?!t)|id|whoami|uname|nc|bash)\b
+(?i)(eval|assert|system|passthru|shell_exec|popen|proc_open|assert)\s*\(\s*\$_
+(?i)base64_decode\s*\(
+(?i)\$_(POST|GET|REQUEST|COOKIE|SERVER)\s*\[
+(?i)\b(wget|curl)\s+(-O|-o|http) 
+(?i)chmod\s+(\+x|777)
+(?i)nc\s+-e\b
+
+# --- 探测 / 扫描器 / 已知漏洞面 ---
+(?i)\b(sqlmap|nikto|acunetix|nessus|nuclei|gobuster|dirbuster|dirsearch|wfuzz|wpscan|xray|masscan)\b
+(?i)/phpmyadmin/(scripts/setup|import\.php)
+(?i)/actuator/(env|heapdump|jolokia)
+(?i)/druid/index\.html
+(?i)/(manager/html|host-manager/html)
+(?i)/(wp-login\.php|xmlrpc\.php|wp-config\.php)
+(?i)/(solr|elasticsearch)/_cat
+(?i)/jenkins/(script|manage)
+(?i)\.(php|asp|aspx|jsp)\?.*=(\.\.|/etc/|http)
+(?i)%00
+(?i)(<|%3c)\?php

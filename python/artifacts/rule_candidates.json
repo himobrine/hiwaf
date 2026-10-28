@@ -1,0 +1,894 @@
+{
+  "dictionary": {
+    "file": "..\\traindata\\WEB_APPLICATION_PAYLOADS.jsonl",
+    "n_payloads": 499,
+    "n_types": 500,
+    "type_counts": {
+      "CSRF": 100,
+      "SSRF": 100,
+      "Command Injection": 100,
+      "reflected": 54,
+      "stored": 46,
+      "blind-time": 33,
+      "tautology": 19,
+      "union": 19,
+      "boolean-blind": 13,
+      "stacked-queries": 12,
+      "error-based": 4
+    },
+    "warning": "文件 JSON 损坏（第 181 行起乱码），且**禁止用于训练**"
+  },
+  "eval": {
+    "benign_n": 37000,
+    "attack_n": 25213,
+    "benign_sources": "lexical 正常 1,000 + CSIC 正常 36,000",
+    "attack_sources": "lexical 攻击 106 + CSIC 异常 25,065 + datacon 标注 42",
+    "text": "method path?query body（与 features.py 一致）",
+    "decoding": "urllib.parse.unquote_plus 两次（兼容双重编码）"
+  },
+  "mined_tokens": [
+    {
+      "token": "alert",
+      "in_dict": 102,
+      "in_benign": 0,
+      "dict_per_1k": 204.41,
+      "benign_per_1k": 0.0
+    },
+    {
+      "token": "svg",
+      "in_dict": 80,
+      "in_benign": 0,
+      "dict_per_1k": 160.32,
+      "benign_per_1k": 0.0
+    },
+    {
+      "token": "submit",
+      "in_dict": 75,
+      "in_benign": 0,
+      "dict_per_1k": 150.3,
+      "benign_per_1k": 0.0
+    },
+    {
+      "token": "getelementbyid",
+      "in_dict": 56,
+      "in_benign": 0,
+      "dict_per_1k": 112.22,
+      "benign_per_1k": 0.0
+    },
+    {
+      "token": "form",
+      "in_dict": 145,
+      "in_benign": 2,
+      "dict_per_1k": 290.58,
+      "benign_per_1k": 0.054
+    },
+    {
+      "token": "iframe",
+      "in_dict": 45,
+      "in_benign": 0,
+      "dict_per_1k": 90.18,
+      "benign_per_1k": 0.0
+    },
+    {
+      "token": "attacker",
+      "in_dict": 30,
+      "in_benign": 0,
+      "dict_per_1k": 60.12,
+      "benign_per_1k": 0.0
+    },
+    {
+      "token": "body",
+      "in_dict": 28,
+      "in_benign": 0,
+      "dict_per_1k": 56.11,
+      "benign_per_1k": 0.0
+    },
+    {
+      "token": "action",
+      "in_dict": 75,
+      "in_benign": 2,
+      "dict_per_1k": 150.3,
+      "benign_per_1k": 0.054
+    },
+    {
+      "token": "target",
+      "in_dict": 74,
+      "in_benign": 2,
+      "dict_per_1k": 148.3,
+      "benign_per_1k": 0.054
+    },
+    {
+      "token": "value",
+      "in_dict": 74,
+      "in_benign": 2,
+      "dict_per_1k": 148.3,
+      "benign_per_1k": 0.054
+    },
+    {
+      "token": "document",
+      "in_dict": 98,
+      "in_benign": 3,
+      "dict_per_1k": 196.39,
+      "benign_per_1k": 0.081
+    },
+    {
+      "token": "createelement",
+      "in_dict": 23,
+      "in_benign": 0,
+      "dict_per_1k": 46.09,
+      "benign_per_1k": 0.0
+    },
+    {
+      "token": "appendchild",
+      "in_dict": 23,
+      "in_benign": 0,
+      "dict_per_1k": 46.09,
+      "benign_per_1k": 0.0
+    },
+    {
+      "token": "xhr",
+      "in_dict": 21,
+      "in_benign": 0,
+      "dict_per_1k": 42.08,
+      "benign_per_1k": 0.0
+    },
+    {
+      "token": "input",
+      "in_dict": 78,
+      "in_benign": 3,
+      "dict_per_1k": 156.31,
+      "benign_per_1k": 0.081
+    },
+    {
+      "token": "javascript",
+      "in_dict": 19,
+      "in_benign": 0,
+      "dict_per_1k": 38.08,
+      "benign_per_1k": 0.0
+    },
+    {
+      "token": "whoami",
+      "in_dict": 17,
+      "in_benign": 0,
+      "dict_per_1k": 34.07,
+      "benign_per_1k": 0.0
+    },
+    {
+      "token": "evil",
+      "in_dict": 31,
+      "in_benign": 1,
+      "dict_per_1k": 62.12,
+      "benign_per_1k": 0.027
+    },
+    {
+      "token": "onload",
+      "in_dict": 15,
+      "in_benign": 0,
+      "dict_per_1k": 30.06,
+      "benign_per_1k": 0.0
+    },
+    {
+      "token": "method",
+      "in_dict": 85,
+      "in_benign": 5,
+      "dict_per_1k": 170.34,
+      "benign_per_1k": 0.135
+    },
+    {
+      "token": "injected",
+      "in_dict": 14,
+      "in_benign": 0,
+      "dict_per_1k": 28.06,
+      "benign_per_1k": 0.0
+    },
+    {
+      "token": "div",
+      "in_dict": 13,
+      "in_benign": 0,
+      "dict_per_1k": 26.05,
+      "benign_per_1k": 0.0
+    },
+    {
+      "token": "username",
+      "in_dict": 12,
+      "in_benign": 0,
+      "dict_per_1k": 24.05,
+      "benign_per_1k": 0.0
+    },
+    {
+      "token": "srcdoc",
+      "in_dict": 12,
+      "in_benign": 0,
+      "dict_per_1k": 24.05,
+      "benign_per_1k": 0.0
+    },
+    {
+      "token": "settimeout",
+      "in_dict": 12,
+      "in_benign": 0,
+      "dict_per_1k": 24.05,
+      "benign_per_1k": 0.0
+    },
+    {
+      "token": "hidden",
+      "in_dict": 12,
+      "in_benign": 0,
+      "dict_per_1k": 24.05,
+      "benign_per_1k": 0.0
+    },
+    {
+      "token": "credentials",
+      "in_dict": 12,
+      "in_benign": 0,
+      "dict_per_1k": 24.05,
+      "benign_per_1k": 0.0
+    },
+    {
+      "token": "passwd",
+      "in_dict": 12,
+      "in_benign": 0,
+      "dict_per_1k": 24.05,
+      "benign_per_1k": 0.0
+    },
+    {
+      "token": "script",
+      "in_dict": 205,
+      "in_benign": 17,
+      "dict_per_1k": 410.82,
+      "benign_per_1k": 0.459
+    },
+    {
+      "token": "style",
+      "in_dict": 22,
+      "in_benign": 1,
+      "dict_per_1k": 44.09,
+      "benign_per_1k": 0.027
+    },
+    {
+      "token": "substring",
+      "in_dict": 11,
+      "in_benign": 0,
+      "dict_per_1k": 22.04,
+      "benign_per_1k": 0.0
+    },
+    {
+      "token": "sleep",
+      "in_dict": 20,
+      "in_benign": 1,
+      "dict_per_1k": 40.08,
+      "benign_per_1k": 0.027
+    },
+    {
+      "token": "pg_sleep",
+      "in_dict": 10,
+      "in_benign": 0,
+      "dict_per_1k": 20.04,
+      "benign_per_1k": 0.0
+    },
+    {
+      "token": "textarea",
+      "in_dict": 10,
+      "in_benign": 0,
+      "dict_per_1k": 20.04,
+      "benign_per_1k": 0.0
+    },
+    {
+      "token": "json",
+      "in_dict": 10,
+      "in_benign": 0,
+      "dict_per_1k": 20.04,
+      "benign_per_1k": 0.0
+    },
+    {
+      "token": "cmd",
+      "in_dict": 10,
+      "in_benign": 0,
+      "dict_per_1k": 20.04,
+      "benign_per_1k": 0.0
+    },
+    {
+      "token": "href",
+      "in_dict": 9,
+      "in_benign": 0,
+      "dict_per_1k": 18.04,
+      "benign_per_1k": 0.0
+    },
+    {
+      "token": "information_schema",
+      "in_dict": 8,
+      "in_benign": 0,
+      "dict_per_1k": 16.03,
+      "benign_per_1k": 0.0
+    },
+    {
+      "token": "hacked",
+      "in_dict": 8,
+      "in_benign": 0,
+      "dict_per_1k": 16.03,
+      "benign_per_1k": 0.0
+    }
+  ],
+  "rules": [
+    {
+      "rule": "sqli_union_select",
+      "regex": "(?i)\\bunion\\b[\\s/*+%]{0,4}\\bselect\\b",
+      "benign_hits": 0,
+      "benign_n": 37000,
+      "benign_rate": 0.0,
+      "attack_hits": 0,
+      "attack_n": 25213,
+      "attack_rate": 0.0,
+      "pool_support": 1,
+      "verdict": "insufficient_support",
+      "attack_hits_raw": 0,
+      "benign_hits_raw": 0,
+      "decoding_gain": 0
+    },
+    {
+      "rule": "sqli_into_outfile",
+      "regex": "(?i)\\binto\\s+(out|dump)file\\b",
+      "benign_hits": 0,
+      "benign_n": 37000,
+      "benign_rate": 0.0,
+      "attack_hits": 0,
+      "attack_n": 25213,
+      "attack_rate": 0.0,
+      "pool_support": 0,
+      "verdict": "unverifiable_by_pool",
+      "attack_hits_raw": 0,
+      "benign_hits_raw": 0,
+      "decoding_gain": 0
+    },
+    {
+      "rule": "sqli_meta_table",
+      "regex": "(?i)\\b(information_schema|sysobjects|pg_catalog|msdb)\\b",
+      "benign_hits": 0,
+      "benign_n": 37000,
+      "benign_rate": 0.0,
+      "attack_hits": 0,
+      "attack_n": 25213,
+      "attack_rate": 0.0,
+      "pool_support": 0,
+      "verdict": "unverifiable_by_pool",
+      "attack_hits_raw": 0,
+      "benign_hits_raw": 0,
+      "decoding_gain": 0
+    },
+    {
+      "rule": "sqli_file_func",
+      "regex": "(?i)\\b(load_file|xp_cmdshell|utl_http|dbms_pipe)\\b",
+      "benign_hits": 0,
+      "benign_n": 37000,
+      "benign_rate": 0.0,
+      "attack_hits": 0,
+      "attack_n": 25213,
+      "attack_rate": 0.0,
+      "pool_support": 0,
+      "verdict": "unverifiable_by_pool",
+      "attack_hits_raw": 0,
+      "benign_hits_raw": 0,
+      "decoding_gain": 0
+    },
+    {
+      "rule": "sqli_time_delay",
+      "regex": "(?i)\\b(sleep|benchmark|pg_sleep|waitfor\\s+delay)\\s*[\\(\\s]",
+      "benign_hits": 1,
+      "benign_n": 37000,
+      "benign_rate": 2.7027027027027027e-05,
+      "attack_hits": 1104,
+      "attack_n": 25213,
+      "attack_rate": 0.04378693531114901,
+      "pool_support": 1104,
+      "verdict": "reject_fp",
+      "attack_hits_raw": 0,
+      "benign_hits_raw": 1,
+      "decoding_gain": 1104
+    },
+    {
+      "rule": "sqli_tautology",
+      "regex": "(?i)(\\bor\\b|\\band\\b)\\s*['\\\"\\w]{1,4}\\s*=\\s*['\\\"\\w]{1,4}",
+      "benign_hits": 0,
+      "benign_n": 37000,
+      "benign_rate": 0.0,
+      "attack_hits": 604,
+      "attack_n": 25213,
+      "attack_rate": 0.02395589576805616,
+      "pool_support": 19706,
+      "verdict": "keep",
+      "attack_hits_raw": 0,
+      "benign_hits_raw": 0,
+      "decoding_gain": 604
+    },
+    {
+      "rule": "sqli_comment_tail",
+      "regex": "(?i)(--|#|/\\*)\\s*$",
+      "benign_hits": 0,
+      "benign_n": 37000,
+      "benign_rate": 0.0,
+      "attack_hits": 551,
+      "attack_n": 25213,
+      "attack_rate": 0.02185380557648832,
+      "pool_support": 1849,
+      "verdict": "keep",
+      "attack_hits_raw": 551,
+      "benign_hits_raw": 0,
+      "decoding_gain": 0
+    },
+    {
+      "rule": "sql_ddl_dml",
+      "regex": "(?i)\\b(drop|truncate|insert\\s+into|update\\s+\\w+\\s+set)\\b",
+      "benign_hits": 6,
+      "benign_n": 37000,
+      "benign_rate": 0.00016216216216216215,
+      "attack_hits": 225,
+      "attack_n": 25213,
+      "attack_rate": 0.008923967794391781,
+      "pool_support": 2797,
+      "verdict": "reject_fp",
+      "attack_hits_raw": 225,
+      "benign_hits_raw": 6,
+      "decoding_gain": 0
+    },
+    {
+      "rule": "xss_script_tag",
+      "regex": "(?i)<\\s*script[\\s>]",
+      "benign_hits": 0,
+      "benign_n": 37000,
+      "benign_rate": 0.0,
+      "attack_hits": 1151,
+      "attack_n": 25213,
+      "attack_rate": 0.04565105302819974,
+      "pool_support": 1151,
+      "verdict": "keep",
+      "attack_hits_raw": 1,
+      "benign_hits_raw": 0,
+      "decoding_gain": 1150
+    },
+    {
+      "rule": "xss_event_handler",
+      "regex": "(?i)\\bon(error|load|click|mouseover|focus|submit)\\s*=",
+      "benign_hits": 0,
+      "benign_n": 37000,
+      "benign_rate": 0.0,
+      "attack_hits": 2,
+      "attack_n": 25213,
+      "attack_rate": 7.93241581723714e-05,
+      "pool_support": 500,
+      "verdict": "keep",
+      "attack_hits_raw": 2,
+      "benign_hits_raw": 0,
+      "decoding_gain": 0
+    },
+    {
+      "rule": "xss_js_uri",
+      "regex": "(?i)javascript\\s*:|vbscript\\s*:",
+      "benign_hits": 0,
+      "benign_n": 37000,
+      "benign_rate": 0.0,
+      "attack_hits": 354,
+      "attack_n": 25213,
+      "attack_rate": 0.014040375996509737,
+      "pool_support": 354,
+      "verdict": "keep",
+      "attack_hits_raw": 0,
+      "benign_hits_raw": 0,
+      "decoding_gain": 354
+    },
+    {
+      "rule": "xss_danger_tag",
+      "regex": "(?i)<\\s*(img|svg|iframe|object|embed|body|input)[^>]{0,60}>",
+      "benign_hits": 0,
+      "benign_n": 37000,
+      "benign_rate": 0.0,
+      "attack_hits": 0,
+      "attack_n": 25213,
+      "attack_rate": 0.0,
+      "pool_support": 0,
+      "verdict": "unverifiable_by_pool",
+      "attack_hits_raw": 0,
+      "benign_hits_raw": 0,
+      "decoding_gain": 0
+    },
+    {
+      "rule": "cmd_shell_bin",
+      "regex": "(?i)[;&|`$]{1,2}\\s*(cat|ls|id|whoami|uname|curl|wget|nc|bash|sh|cmd|powershell)\\b",
+      "benign_hits": 12,
+      "benign_n": 37000,
+      "benign_rate": 0.0003243243243243243,
+      "attack_hits": 391,
+      "attack_n": 25213,
+      "attack_rate": 0.015507872922698607,
+      "pool_support": 969,
+      "verdict": "reject_fp",
+      "attack_hits_raw": 4,
+      "benign_hits_raw": 12,
+      "decoding_gain": 387
+    },
+    {
+      "rule": "cmd_subshell",
+      "regex": "\\$\\(|\\`[^\\`]{1,40}\\`",
+      "benign_hits": 129,
+      "benign_n": 37000,
+      "benign_rate": 0.0034864864864864865,
+      "attack_hits": 1,
+      "attack_n": 25213,
+      "attack_rate": 3.96620790861857e-05,
+      "pool_support": 2330,
+      "verdict": "reject_fp",
+      "attack_hits_raw": 1,
+      "benign_hits_raw": 129,
+      "decoding_gain": 0
+    },
+    {
+      "rule": "php_webshell",
+      "regex": "(?i)<\\?php|<\\?=|eval\\s*\\(|assert\\s*\\(|system\\s*\\(",
+      "benign_hits": 2,
+      "benign_n": 37000,
+      "benign_rate": 5.4054054054054054e-05,
+      "attack_hits": 5,
+      "attack_n": 25213,
+      "attack_rate": 0.0001983103954309285,
+      "pool_support": 25,
+      "verdict": "reject_fp",
+      "attack_hits_raw": 5,
+      "benign_hits_raw": 2,
+      "decoding_gain": 0
+    },
+    {
+      "rule": "path_traversal",
+      "regex": "(?i)(\\.\\./|\\.\\.\\\\|%2e%2e%2f|%2e%2e/|\\.\\.%2f)",
+      "benign_hits": 1,
+      "benign_n": 37000,
+      "benign_rate": 2.7027027027027027e-05,
+      "attack_hits": 2,
+      "attack_n": 25213,
+      "attack_rate": 7.93241581723714e-05,
+      "pool_support": 13,
+      "verdict": "reject_fp",
+      "attack_hits_raw": 2,
+      "benign_hits_raw": 1,
+      "decoding_gain": 0
+    },
+    {
+      "rule": "path_sensitive_file",
+      "regex": "(?i)(/etc/passwd|/etc/shadow|/windows/win\\.ini|/proc/self/environ|\\.\\.%00)",
+      "benign_hits": 0,
+      "benign_n": 37000,
+      "benign_rate": 0.0,
+      "attack_hits": 196,
+      "attack_n": 25213,
+      "attack_rate": 0.007773767500892397,
+      "pool_support": 199,
+      "verdict": "keep",
+      "attack_hits_raw": 2,
+      "benign_hits_raw": 0,
+      "decoding_gain": 194
+    },
+    {
+      "rule": "log4shell_jndi",
+      "regex": "(?i)\\$\\{jndi:(ldap|rmi|dns|http)",
+      "benign_hits": 0,
+      "benign_n": 37000,
+      "benign_rate": 0.0,
+      "attack_hits": 0,
+      "attack_n": 25213,
+      "attack_rate": 0.0,
+      "pool_support": 0,
+      "verdict": "unverifiable_by_pool",
+      "attack_hits_raw": 0,
+      "benign_hits_raw": 0,
+      "decoding_gain": 0
+    },
+    {
+      "rule": "log4shell_lookup",
+      "regex": "(?i)\\$\\{(\\$\\{|\\w{1,12}:)",
+      "benign_hits": 0,
+      "benign_n": 37000,
+      "benign_rate": 0.0,
+      "attack_hits": 0,
+      "attack_n": 25213,
+      "attack_rate": 0.0,
+      "pool_support": 2,
+      "verdict": "insufficient_support",
+      "attack_hits_raw": 0,
+      "benign_hits_raw": 0,
+      "decoding_gain": 0
+    },
+    {
+      "rule": "ssrf_meta_endpoint",
+      "regex": "(?i)(169\\.254\\.169\\.254|metadata\\.google\\.internal|/latest/meta-data)",
+      "benign_hits": 0,
+      "benign_n": 37000,
+      "benign_rate": 0.0,
+      "attack_hits": 0,
+      "attack_n": 25213,
+      "attack_rate": 0.0,
+      "pool_support": 0,
+      "verdict": "unverifiable_by_pool",
+      "attack_hits_raw": 0,
+      "benign_hits_raw": 0,
+      "decoding_gain": 0
+    },
+    {
+      "rule": "rce_gateway_probe",
+      "regex": "(?i)/(actuator/(gateway|env|heapdump)|nacos/v1|/druid/index\\.html)",
+      "benign_hits": 0,
+      "benign_n": 37000,
+      "benign_rate": 0.0,
+      "attack_hits": 1,
+      "attack_n": 25213,
+      "attack_rate": 3.96620790861857e-05,
+      "pool_support": 2,
+      "verdict": "keep",
+      "attack_hits_raw": 1,
+      "benign_hits_raw": 0,
+      "decoding_gain": 0
+    }
+  ],
+  "rules_raw": [
+    {
+      "rule": "sqli_union_select",
+      "regex": "(?i)\\bunion\\b[\\s/*+%]{0,4}\\bselect\\b",
+      "benign_hits": 0,
+      "benign_n": 37000,
+      "benign_rate": 0.0,
+      "attack_hits": 0,
+      "attack_n": 25213,
+      "attack_rate": 0.0,
+      "pool_support": 1,
+      "verdict": "insufficient_support"
+    },
+    {
+      "rule": "sqli_into_outfile",
+      "regex": "(?i)\\binto\\s+(out|dump)file\\b",
+      "benign_hits": 0,
+      "benign_n": 37000,
+      "benign_rate": 0.0,
+      "attack_hits": 0,
+      "attack_n": 25213,
+      "attack_rate": 0.0,
+      "pool_support": 0,
+      "verdict": "unverifiable_by_pool"
+    },
+    {
+      "rule": "sqli_meta_table",
+      "regex": "(?i)\\b(information_schema|sysobjects|pg_catalog|msdb)\\b",
+      "benign_hits": 0,
+      "benign_n": 37000,
+      "benign_rate": 0.0,
+      "attack_hits": 0,
+      "attack_n": 25213,
+      "attack_rate": 0.0,
+      "pool_support": 0,
+      "verdict": "unverifiable_by_pool"
+    },
+    {
+      "rule": "sqli_file_func",
+      "regex": "(?i)\\b(load_file|xp_cmdshell|utl_http|dbms_pipe)\\b",
+      "benign_hits": 0,
+      "benign_n": 37000,
+      "benign_rate": 0.0,
+      "attack_hits": 0,
+      "attack_n": 25213,
+      "attack_rate": 0.0,
+      "pool_support": 0,
+      "verdict": "unverifiable_by_pool"
+    },
+    {
+      "rule": "sqli_time_delay",
+      "regex": "(?i)\\b(sleep|benchmark|pg_sleep|waitfor\\s+delay)\\s*[\\(\\s]",
+      "benign_hits": 1,
+      "benign_n": 37000,
+      "benign_rate": 2.7027027027027027e-05,
+      "attack_hits": 0,
+      "attack_n": 25213,
+      "attack_rate": 0.0,
+      "pool_support": 1104,
+      "verdict": "reject_fp"
+    },
+    {
+      "rule": "sqli_tautology",
+      "regex": "(?i)(\\bor\\b|\\band\\b)\\s*['\\\"\\w]{1,4}\\s*=\\s*['\\\"\\w]{1,4}",
+      "benign_hits": 0,
+      "benign_n": 37000,
+      "benign_rate": 0.0,
+      "attack_hits": 0,
+      "attack_n": 25213,
+      "attack_rate": 0.0,
+      "pool_support": 19706,
+      "verdict": "reject_no_hit"
+    },
+    {
+      "rule": "sqli_comment_tail",
+      "regex": "(?i)(--|#|/\\*)\\s*$",
+      "benign_hits": 0,
+      "benign_n": 37000,
+      "benign_rate": 0.0,
+      "attack_hits": 551,
+      "attack_n": 25213,
+      "attack_rate": 0.02185380557648832,
+      "pool_support": 1841,
+      "verdict": "keep"
+    },
+    {
+      "rule": "sql_ddl_dml",
+      "regex": "(?i)\\b(drop|truncate|insert\\s+into|update\\s+\\w+\\s+set)\\b",
+      "benign_hits": 6,
+      "benign_n": 37000,
+      "benign_rate": 0.00016216216216216215,
+      "attack_hits": 225,
+      "attack_n": 25213,
+      "attack_rate": 0.008923967794391781,
+      "pool_support": 2797,
+      "verdict": "reject_fp"
+    },
+    {
+      "rule": "xss_script_tag",
+      "regex": "(?i)<\\s*script[\\s>]",
+      "benign_hits": 0,
+      "benign_n": 37000,
+      "benign_rate": 0.0,
+      "attack_hits": 1,
+      "attack_n": 25213,
+      "attack_rate": 3.96620790861857e-05,
+      "pool_support": 1,
+      "verdict": "keep"
+    },
+    {
+      "rule": "xss_event_handler",
+      "regex": "(?i)\\bon(error|load|click|mouseover|focus|submit)\\s*=",
+      "benign_hits": 0,
+      "benign_n": 37000,
+      "benign_rate": 0.0,
+      "attack_hits": 2,
+      "attack_n": 25213,
+      "attack_rate": 7.93241581723714e-05,
+      "pool_support": 154,
+      "verdict": "keep"
+    },
+    {
+      "rule": "xss_js_uri",
+      "regex": "(?i)javascript\\s*:|vbscript\\s*:",
+      "benign_hits": 0,
+      "benign_n": 37000,
+      "benign_rate": 0.0,
+      "attack_hits": 0,
+      "attack_n": 25213,
+      "attack_rate": 0.0,
+      "pool_support": 0,
+      "verdict": "unverifiable_by_pool"
+    },
+    {
+      "rule": "xss_danger_tag",
+      "regex": "(?i)<\\s*(img|svg|iframe|object|embed|body|input)[^>]{0,60}>",
+      "benign_hits": 0,
+      "benign_n": 37000,
+      "benign_rate": 0.0,
+      "attack_hits": 0,
+      "attack_n": 25213,
+      "attack_rate": 0.0,
+      "pool_support": 0,
+      "verdict": "unverifiable_by_pool"
+    },
+    {
+      "rule": "cmd_shell_bin",
+      "regex": "(?i)[;&|`$]{1,2}\\s*(cat|ls|id|whoami|uname|curl|wget|nc|bash|sh|cmd|powershell)\\b",
+      "benign_hits": 12,
+      "benign_n": 37000,
+      "benign_rate": 0.0003243243243243243,
+      "attack_hits": 4,
+      "attack_n": 25213,
+      "attack_rate": 0.0001586483163447428,
+      "pool_support": 969,
+      "verdict": "reject_fp"
+    },
+    {
+      "rule": "cmd_subshell",
+      "regex": "\\$\\(|\\`[^\\`]{1,40}\\`",
+      "benign_hits": 129,
+      "benign_n": 37000,
+      "benign_rate": 0.0034864864864864865,
+      "attack_hits": 1,
+      "attack_n": 25213,
+      "attack_rate": 3.96620790861857e-05,
+      "pool_support": 95,
+      "verdict": "reject_fp"
+    },
+    {
+      "rule": "php_webshell",
+      "regex": "(?i)<\\?php|<\\?=|eval\\s*\\(|assert\\s*\\(|system\\s*\\(",
+      "benign_hits": 2,
+      "benign_n": 37000,
+      "benign_rate": 5.4054054054054054e-05,
+      "attack_hits": 5,
+      "attack_n": 25213,
+      "attack_rate": 0.0001983103954309285,
+      "pool_support": 25,
+      "verdict": "reject_fp"
+    },
+    {
+      "rule": "path_traversal",
+      "regex": "(?i)(\\.\\./|\\.\\.\\\\|%2e%2e%2f|%2e%2e/|\\.\\.%2f)",
+      "benign_hits": 1,
+      "benign_n": 37000,
+      "benign_rate": 2.7027027027027027e-05,
+      "attack_hits": 2,
+      "attack_n": 25213,
+      "attack_rate": 7.93241581723714e-05,
+      "pool_support": 13,
+      "verdict": "reject_fp"
+    },
+    {
+      "rule": "path_sensitive_file",
+      "regex": "(?i)(/etc/passwd|/etc/shadow|/windows/win\\.ini|/proc/self/environ|\\.\\.%00)",
+      "benign_hits": 0,
+      "benign_n": 37000,
+      "benign_rate": 0.0,
+      "attack_hits": 2,
+      "attack_n": 25213,
+      "attack_rate": 7.93241581723714e-05,
+      "pool_support": 199,
+      "verdict": "keep"
+    },
+    {
+      "rule": "log4shell_jndi",
+      "regex": "(?i)\\$\\{jndi:(ldap|rmi|dns|http)",
+      "benign_hits": 0,
+      "benign_n": 37000,
+      "benign_rate": 0.0,
+      "attack_hits": 0,
+      "attack_n": 25213,
+      "attack_rate": 0.0,
+      "pool_support": 0,
+      "verdict": "unverifiable_by_pool"
+    },
+    {
+      "rule": "log4shell_lookup",
+      "regex": "(?i)\\$\\{(\\$\\{|\\w{1,12}:)",
+      "benign_hits": 0,
+      "benign_n": 37000,
+      "benign_rate": 0.0,
+      "attack_hits": 0,
+      "attack_n": 25213,
+      "attack_rate": 0.0,
+      "pool_support": 0,
+      "verdict": "unverifiable_by_pool"
+    },
+    {
+      "rule": "ssrf_meta_endpoint",
+      "regex": "(?i)(169\\.254\\.169\\.254|metadata\\.google\\.internal|/latest/meta-data)",
+      "benign_hits": 0,
+      "benign_n": 37000,
+      "benign_rate": 0.0,
+      "attack_hits": 0,
+      "attack_n": 25213,
+      "attack_rate": 0.0,
+      "pool_support": 0,
+      "verdict": "unverifiable_by_pool"
+    },
+    {
+      "rule": "rce_gateway_probe",
+      "regex": "(?i)/(actuator/(gateway|env|heapdump)|nacos/v1|/druid/index\\.html)",
+      "benign_hits": 0,
+      "benign_n": 37000,
+      "benign_rate": 0.0,
+      "attack_hits": 1,
+      "attack_n": 25213,
+      "attack_rate": 3.96620790861857e-05,
+      "pool_support": 2,
+      "verdict": "keep"
+    }
+  ],
+  "summary": {
+    "n_rules": 21,
+    "n_keep": 7,
+    "n_reject_fp": 6,
+    "n_reject_no_hit": 0,
+    "n_unverifiable_by_pool": 6,
+    "n_insufficient_support": 2,
+    "decoding_gain_total": 3793,
+    "key_finding": "不先 URL 解码 → 规则几乎全漏（如 union_select 原文命中 0）；M1 规则引擎必须先解码再匹配，且解码后仍要重测误报。",
+    "key_finding_2": "评测池的**攻击覆盖面很窄**（CSIC 2010 基本只有购物车 SQLi/XSS）：`union` 在 25,213 条攻击里只出现 1 次，outfile/information_schema/jndi 均为 0。所以 `unverifiable_by_pool` 的规则**不能当无用删掉**，只能等真的评测数据。",
+    "note": "只有**误报=0 且在真实攻击上有命中**的规则才建议进 M1 规则引擎；`reject_fp` 一律不进；`unverifiable_by_pool` 挂起待数据。误报是在真实良性文本上量的，不是估计值。"
+  }
+}

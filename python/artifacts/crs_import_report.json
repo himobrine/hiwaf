@@ -1,0 +1,111 @@
+{
+  "generated_at": "2026-10-20 14:20:32",
+  "source": "<self-test>",
+  "license": "Apache-2.0",
+  "totals": {
+    "files": 1,
+    "logical_lines": 13,
+    "secrules": 13,
+    "imported": 6,
+    "skipped": 7,
+    "parse_errors": 0
+  },
+  "skip_reasons": {
+    "chain": 1,
+    "chain_continuation": 1,
+    "operator:@detectsqli": 1,
+    "pcre_only:(?=": 1,
+    "transform:htmlentitydecode": 1,
+    "unsupported_variable:REQUEST_COOKIES:\"SESSION\"": 1,
+    "operator:@gt": 1
+  },
+  "files": {},
+  "rules": [
+    {
+      "id": "crs_900001",
+      "name": "SQL Injection: union select",
+      "regex": "(?i)union\\s+select",
+      "scopes": [
+        "query",
+        "body"
+      ],
+      "severity": "critical",
+      "weight": 5.0,
+      "action": "alert",
+      "notes": "OWASP CRS id=900001 severity=CRITICAL t=urldecodeuni,lowercase vars=ARGS",
+      "crs_id": "900001"
+    },
+    {
+      "id": "crs_900002",
+      "name": "Scanner UA",
+      "regex": "sqlmap/1\\.\\d+\\z",
+      "scopes": [
+        "ua"
+      ],
+      "severity": "medium",
+      "weight": 3.0,
+      "action": "alert",
+      "notes": "OWASP CRS id=900002 severity=WARNING t=none vars=REQUEST_HEADERS:User-Agent",
+      "crs_id": "900002"
+    },
+    {
+      "id": "crs_900009",
+      "name": "time delay",
+      "regex": "sleep\\s*\\(\\s*\\d+",
+      "scopes": [
+        "query",
+        "body"
+      ],
+      "severity": "medium",
+      "weight": 3.0,
+      "action": "alert",
+      "notes": "OWASP CRS id=900009 severity=? t=none vars=ARGS",
+      "crs_id": "900009"
+    },
+    {
+      "id": "crs_900010",
+      "name": "literal dollar",
+      "regex": "[a$]{2}",
+      "scopes": [
+        "query",
+        "body"
+      ],
+      "severity": "medium",
+      "weight": 3.0,
+      "action": "alert",
+      "notes": "OWASP CRS id=900010 severity=? t=none vars=ARGS",
+      "crs_id": "900010"
+    },
+    {
+      "id": "crs_900012",
+      "name": "git dir",
+      "regex": "/\\.git/",
+      "scopes": [
+        "path"
+      ],
+      "severity": "medium",
+      "weight": 3.0,
+      "action": "alert",
+      "notes": "OWASP CRS id=900012 severity=? t=none vars=REQUEST_FILENAME",
+      "crs_id": "900012"
+    },
+    {
+      "id": "crs_900013",
+      "name": "inline flag",
+      "regex": "(?i)select\\s+.*\\s+from",
+      "scopes": [
+        "query",
+        "body"
+      ],
+      "severity": "medium",
+      "weight": 3.0,
+      "action": "alert",
+      "notes": "OWASP CRS id=900013 severity=? t=lowercase vars=ARGS",
+      "crs_id": "900013"
+    }
+  ],
+  "notes": [],
+  "status": "self_test_only",
+  "real_crs_imported": false,
+  "about": "这是**解析器自检**的报告，不是真实 CRS 的导入结果。输入是 import_crs.py 里的 SELF_TEST_SNIPPETS（测试片段），不是 OWASP CRS 的文件。真实导入需要 --src <coreruleset 的 rules 目录>；本机当前无网络出口、也没有本地 CRS 检出，所以这一步尚未执行。"
+}

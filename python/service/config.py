@@ -1,0 +1,150 @@
+"""控制面 API 配置（单机）。
+
+所有路径都可被环境变量覆盖，方便换机 / 换盘 / 测试。
+"""
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+PY = HERE.parent                  # F:\waf\python
+ROOT = PY.parent                  # F:\waf
+
+ARTIFACTS = PY / "artifacts"
+RAW_DIR = ROOT / "traindata" / "proxy"
+LOCAL_DIR = ROOT / "traindata" / "local"
+
+DB_PATH = Path(os.environ.get("WAF_CONSOLE_DB", str(HERE / "console.db")))
+#: 90 天保留期（DB 事件与 raw JSONL 使用同一个 cutoff）。
+RETENTION_DAYS = int(os.environ.get("WAF_RETENTION_DAYS", "90"))
+#: 孤儿 `.trash` 超过一轮（默认 24h）才告警。
+RAW_CLEANUP_ORPHAN_AGE_SEC = int(os.environ.get("WAF_RAW_CLEANUP_ORPHAN_AGE_SEC", "86400"))
+#: 保留期**只做每日 dry-run 快照**；真正删除仍要求 admin 显式 apply。
+RETENTION_SCHEDULER_ENABLED = os.environ.get(
+    "WAF_RETENTION_SCHEDULER", "1").strip().lower() not in ("0", "false", "no", "off")
+RETENTION_CHECK_INTERVAL_SEC = max(
+    60, int(os.environ.get("WAF_RETENTION_CHECK_INTERVAL_SEC", "86400")))
+#: 审计日志保留期：默认 90 天，系统每日自动清理；admin 也可手动预览/立即清理。
+AUDIT_RETENTION_DAYS = int(os.environ.get("WAF_AUDIT_RETENTION_DAYS", "90"))
+AUDIT_RETENTION_SCHEDULER_ENABLED = os.environ.get(
+    "WAF_AUDIT_RETENTION_SCHEDULER", "1").strip().lower() not in ("0", "false", "no", "off")
+AUDIT_RETENTION_INTERVAL_SEC = max(
+    60, int(os.environ.get("WAF_AUDIT_RETENTION_INTERVAL_SEC", "86400")))
+#: 按时间清理时每批删除的行数；勾选删除单次上限。
+AUDIT_CLEANUP_BATCH = max(100, int(os.environ.get("WAF_AUDIT_CLEANUP_BATCH", "5000")))
+AUDIT_SELECTED_MAX = max(1, int(os.environ.get("WAF_AUDIT_SELECTED_MAX", "500")))
+#: 控制面持续吸收入库；采集器写入 raw 后最多一个周期就能在事件/告警页看到。
+INGEST_SCHEDULER_ENABLED = os.environ.get(
+    "WAF_INGEST_SCHEDULER", "1").strip().lower() not in ("0", "false", "no", "off")
+INGEST_INTERVAL_SEC = max(
+    2, int(os.environ.get("WAF_INGEST_INTERVAL_SEC", "5")))
+#: 默认把整个敏感头值逐字符显示为 `*`；Cookie/Set-Cookie 不逐 cookie 解析。
+SENSITIVE_HEADERS = {
+    h.strip().lower()
+    for h in os.environ.get(
+        "WAF_SENSITIVE_HEADERS",
+        "authorization,proxy-authorization,cookie,set-cookie,x-api-key,"
+        "x-auth-token,x-csrf-token,x-session-id",
+    ).split(",")
+    if h.strip()
+}
+SECRET_PATH = Path(os.environ.get("WAF_CONSOLE_SECRET_FILE", str(HERE / ".secret")))
+LOG_DIR = Path(os.environ.get("WAF_CONSOLE_LOG_DIR", str(HERE / "logs")))
+RETENTION_DRY_RUN_FILE = Path(os.environ.get(
+    "WAF_RETENTION_DRY_RUN_FILE", str(LOG_DIR / "retention-dry-run.json")))
+
+POLICY_JSON = ARTIFACTS / "decision_policy.json"
+FEATURE_NAMES = ARTIFACTS / "feature_names_v2.json"
+RULE_CANDIDATES = ARTIFACTS / "rule_candidates.json"
+CURVES = ARTIFACTS / "curves"
+
+# 模型代际 / 训练 staging / 切换备份。训练**只写 staging**，现役槽位文件只由
+# 「切换现役」流程更新；否则训练会悄悄覆盖数据面正在使用的模型。
+MODELS = ARTIFACTS / "models"
+STAGING = ARTIFACTS / "staging"
+SWITCH_BACKUP = ARTIFACTS / "switch_backup"
+
+#: 数据面按固定文件名加载（`rust/src/engine.rs` 的常量）。切换模型时保持槽位名不变，
+#: 只替换内容；采集器用内容 sha1 拒绝"新策略 + 旧内存模型"的混合状态。
+LIVE_SLOTS = {
+    "supervised": {
+        "onnx": "xgboost_v20261015_001.onnx",
+        "meta": "xgboost_meta.json",
+        "model_json": "xgb_model.json",
+        "trees": "xgb_trees.json",
+    },
+    "zero_day": {
+        "onnx": "iforest_lean_v20261015_001.onnx",
+        "meta": "iforest_meta.json",
+        "model_json": "iforest_model.joblib",
+    },
+}
+
+#: 训练任务 -> (通道, 变体)。只有 official 会参与「当前模型」判定。
+TRAIN_CHANNELS = {
+    "train_realdata": ("supervised", "official"),
+    "iforest_csic": ("zero_day", "official"),
+    "iforest_local": ("zero_day", "local"),
+}
+
+#: 用户上传训练数据（控制台）。文件与元数据都在这里；**不**写入 artifacts。
+UPLOADS = Path(os.environ.get("WAF_UPLOADS_DIR", str(PY / "traindata" / "uploads")))
+UPLOAD_PARSER = PY / "upload_parse.py"
+UPLOAD_MAX_BYTES = int(os.environ.get("WAF_UPLOAD_MAX_BYTES", str(256 << 20)))
+UPLOAD_MAX_ROWS = int(os.environ.get("WAF_UPLOAD_MAX_ROWS", "200000"))
+UPLOAD_MAX_BODY = int(os.environ.get("WAF_UPLOAD_MAX_BODY", str(1 << 20)))
+UPLOAD_MAX_PACKETS = int(os.environ.get("WAF_UPLOAD_MAX_PACKETS", "2000000"))
+UPLOAD_MAX_FLOWS = int(os.environ.get("WAF_UPLOAD_MAX_FLOWS", "50000"))
+UPLOAD_TIMEOUT_SEC = int(os.environ.get("WAF_UPLOAD_TIMEOUT_SEC", "600"))
+UPLOAD_ROLES = ("supervised", "benign", "eval")
+UPLOAD_FORMATS = {
+    ".csv": "csv", ".tsv": "csv",
+    ".json": "json", ".jsonl": "json", ".ndjson": "json",
+    ".pcap": "pcap", ".pcapng": "pcap", ".cap": "pcap",
+}
+
+MODEL_SETTINGS_DEFAULTS = {
+    "max_per_channel": 10,
+    "max_total": 20,
+    "inherit_mode": "warm_start",     # off | lineage | warm_start
+    "auto_register": True,
+    "keep_curves": True,
+}
+
+# 规则通道（第三通道）产物。`rules_authoritative.json` 是**数据面唯一读的规则集**，
+# 由控制台「提升」时生成；`rules_testvec.json` 是 Rust/Python 同源回归向量。
+RULES_AUTHORITATIVE = ARTIFACTS / "rules_authoritative.json"
+RULES_TESTVEC = ARTIFACTS / "rules_testvec.json"
+RULE_CALIBRATION = ARTIFACTS / "rule_calibration.json"
+CRS_IMPORT_REPORT = ARTIFACTS / "crs_import_report.json"
+
+# 采集器 `--stats-out` 指向的指标文件（控制台轮询它拿 written/dropped/actions）。
+COLLECTOR_METRICS = Path(
+    os.environ.get("WAF_COLLECTOR_METRICS", str(RAW_DIR / "collector-metrics.json"))
+)
+
+TOKEN_TTL_SEC = int(os.environ.get("WAF_CONSOLE_TOKEN_TTL", "28800"))
+ALLOWED_ORIGINS = [
+    o.strip()
+    for o in os.environ.get(
+        "WAF_CONSOLE_ORIGINS",
+        "http://127.0.0.1:5173,http://localhost:5173",
+    ).split(",")
+    if o.strip()
+]
+
+# 内置任务白名单：**不接受任意命令/参数**（避免把控制台变成 RCE 面）。
+TASKS = {
+    "train_realdata": ["train_realdata.py", "--features", "v2", "--hard-neg", "lexical", "--export"],
+    "iforest_csic": ["iforest_lean_onnx.py", "--data", "csic", "--export"],
+    "iforest_local": ["iforest_lean_onnx.py", "--data", "local", "--export"],
+    "calibrate_csic": ["thresholds.py", "--pool", "csic"],
+    "export_testvec": ["export_testvec.py"],
+    "export_shap_ref": ["export_shap_ref.py"],
+    "export_feature_names": ["export_feature_names.py"],
+    "p8_e2e": ["p8_proxy_e2e.py"],
+    "p4_local": ["p4_local.py"],
+}
+
+ROLE_RANK = {"viewer": 1, "analyst": 2, "admin": 3}

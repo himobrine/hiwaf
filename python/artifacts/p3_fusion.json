@@ -1,0 +1,225 @@
+{
+  "policy": {
+    "schema": 2,
+    "version": 6,
+    "generated_by": "thresholds.py",
+    "generated_at": "2026-10-20 13:37:03",
+    "zero_day_enabled": false,
+    "calibration_pool": {
+      "name": "CSIC 2010 正常流量留出 6,000 条（seed=7 切分，与零日通道训练集互斥）",
+      "source": "csic-holdout",
+      "n": 6000,
+      "n_overlap": 0,
+      "overlap_rate": 0.0,
+      "training_set": "hard_neg=lexical seed=11 lexical_split=random dict=off extra_benign=0 valid_frac=0.0",
+      "n_training": 21212
+    },
+    "supervised": {
+      "artifact": "xgboost_v20261015_001.onnx",
+      "artifact_sha1_16": "b79c89d6d2c95cdc",
+      "score_def": "1 - P(normal)",
+      "target_fpr": "0.01",
+      "threshold": 0.6997649669647217,
+      "thresholds": {
+        "0.001": 0.8144991397857666,
+        "0.01": 0.6997649669647217,
+        "0.03": 0.13753646612167358
+      },
+      "actual_fpr": {
+        "0.001": 0.0065,
+        "0.01": 0.010166666666666666,
+        "0.03": 0.03
+      },
+      "effective_target_fpr": 0.009360166512216883,
+      "budget_deduction": 0.0006398334877831171,
+      "actual_fpr_at_effective": 0.010166666666666666,
+      "normal_class_index": 0,
+      "labels": {
+        "0": "normal",
+        "1": "sqli",
+        "2": "xss",
+        "3": "cmdi",
+        "4": "traversal"
+      },
+      "training_recipe_note": "阈值仅在下方 calibration_pool 上标定"
+    },
+    "zero_day": {
+      "artifact": "iforest_lean_v20261015_001.onnx",
+      "artifact_sha1_16": "c3af8fc61410b008",
+      "score_def": "-avg_path_len",
+      "target_fpr": "0.01",
+      "threshold": -7.262677192687988,
+      "thresholds": {
+        "0.001": -6.578374862670898,
+        "0.01": -7.262677192687988,
+        "0.03": -7.473628520965576
+      },
+      "actual_fpr": {
+        "0.001": 0.001,
+        "0.01": 0.0105,
+        "0.03": 0.03
+      }
+    },
+    "rules": {
+      "enabled": true,
+      "ruleset_path": "artifacts/rules_authoritative.json",
+      "ruleset_sha1_16": "07a5f505067ae45f",
+      "n_rules": 7,
+      "n_block_rules": 0,
+      "min_weight_to_block": 1.0,
+      "nominal_target_fpr": 0.01,
+      "sup_target_fpr": 0.009360166512216883,
+      "measured_fpr_point_on_pool": 0.0,
+      "fpr_upper_95_on_pool": 0.0006398334877831174,
+      "budget_deducted": 0.0006398334877831174,
+      "budget_cap": 0.003,
+      "budget_method": "wilson95_upper_on_pool",
+      "n_pool": 6000,
+      "hits_by_block_rule": {},
+      "note": "规则通道是**并列第三通道**（不是『规则→AI』串行管线）。只有 action=block 的命中消耗阻断预算；未被策略认可（总开关关 / 指纹不一致）时规则证据完全不影响动作。预算按实测从监督目标里扣，故融合阻断 FPR 目标不变。 当前 0 条 block 规则 ⇒ 预算占用 0。"
+    },
+    "fusion": {
+      "policy": "supervised_block__zero_day_alert__rules_block",
+      "description": "监督通道命中 -> block；规则通道的 block 规则权重和 ≥ 阻断线 -> block；仅零日通道命中、或规则通道有命中（但不够阻断线）-> alert（需人工复核）；否则 allow。零日通道不单独阻断：其误报语义是\"没见过\"，而非\"确认是攻击\"。⚠️ 顶层 `zero_day_enabled=false` 时零日通道**不参与融合**（分数仍计算留证）。 ⚠️ 规则通道的误报预算已从监督通道的目标 FPR 里**扣掉**：监督目标 1% -> 0.936%（扣掉规则的阻断误报 0.06398%，7 条规则 / 0 条 block）。并且只有当**磁盘上的规则集指纹与策略记录一致**时规则通道才生效 —— 预算是对着特定规则集算出来的。",
+      "actions": {
+        "allow": "放行",
+        "alert": "告警（零日通道 / 规则通道的非 block 命中；强制人工复核）",
+        "block": "阻断（监督通道）；规则集里**没有** block 规则，规则通道目前只能告警"
+      }
+    },
+    "union_fpr_on_pool": 0.019166666666666665,
+    "block_fpr_on_pool": 0.010166666666666666,
+    "fused_block_fpr_on_pool": 0.010166666666666666,
+    "effective_fused_fpr_on_pool": 0.010166666666666666
+  },
+  "budgets": [
+    0.001,
+    0.01,
+    0.03
+  ],
+  "csic_recall": {
+    "0.001": {
+      "sup_thr": 0.8144991397857666,
+      "zd_thr": -6.578374862670898,
+      "recall_sup": 0.15755036904049471,
+      "recall_zd": 0.14829443447037702,
+      "recall_rule_block": 0.0,
+      "recall_fused_block": 0.15755036904049471,
+      "fpr_fused_block": 0.0065,
+      "recall_union": 0.21077199281867146,
+      "fpr_union": 0.0075
+    },
+    "0.01": {
+      "sup_thr": 0.6997649669647217,
+      "zd_thr": -7.262677192687988,
+      "recall_sup": 0.193377219230002,
+      "recall_zd": 0.2599241970875723,
+      "recall_rule_block": 0.0,
+      "recall_fused_block": 0.193377219230002,
+      "fpr_fused_block": 0.010166666666666666,
+      "recall_union": 0.28541791342509476,
+      "fpr_union": 0.019166666666666665
+    },
+    "0.03": {
+      "sup_thr": 0.13753646612167358,
+      "zd_thr": -7.473628520965576,
+      "recall_sup": 0.3648912826650708,
+      "recall_zd": 0.31697586275683226,
+      "recall_rule_block": 0.0,
+      "recall_fused_block": 0.3648912826650708,
+      "fpr_fused_block": 0.03,
+      "recall_union": 0.4211051266706563,
+      "fpr_union": 0.041166666666666664
+    }
+  },
+  "cross_pool": {
+    "lexical": {
+      "n": 606,
+      "n_attack": 106,
+      "fpr_sup": 0.008,
+      "fpr_zd": 0.282,
+      "fpr_union": 0.284,
+      "recall_sup": 0.3584905660377358,
+      "recall_zd": 0.7735849056603774,
+      "recall_union": 0.8018867924528302,
+      "fpr_rule_block": 0.0,
+      "recall_rule_block": 0.0,
+      "flag_rate_rule_any": 0.0049504950495049506,
+      "fpr_fused_block": 0.008,
+      "recall_fused_block": 0.3584905660377358
+    },
+    "payload_test": {
+      "n": 10355,
+      "n_attack": 3921,
+      "fpr_sup": 0.00046627292508548337,
+      "fpr_zd": 0.0,
+      "fpr_union": 0.00046627292508548337,
+      "recall_sup": 0.9992348890589136,
+      "recall_zd": 0.824534557510839,
+      "recall_union": 0.9994899260392757,
+      "fpr_rule_block": 0.0,
+      "recall_rule_block": 0.0,
+      "flag_rate_rule_any": 0.24509898599710284,
+      "fpr_fused_block": 0.00046627292508548337,
+      "recall_fused_block": 0.9992348890589136
+    },
+    "csic_pool": {
+      "n": 6000,
+      "n_attack": 0,
+      "fpr_sup": 0.010166666666666666,
+      "fpr_zd": 0.0105,
+      "fpr_union": 0.019166666666666665,
+      "recall_sup": NaN,
+      "recall_zd": NaN,
+      "recall_union": NaN,
+      "fpr_rule_block": 0.0,
+      "recall_rule_block": NaN,
+      "flag_rate_rule_any": 0.0,
+      "fpr_fused_block": 0.010166666666666666,
+      "recall_fused_block": NaN
+    },
+    "csic_anomaly": {
+      "n": 25065,
+      "n_attack": 25065,
+      "fpr_sup": NaN,
+      "fpr_zd": NaN,
+      "fpr_union": NaN,
+      "recall_sup": 0.193377219230002,
+      "recall_zd": 0.2599241970875723,
+      "recall_union": 0.28541791342509476,
+      "fpr_rule_block": NaN,
+      "recall_rule_block": 0.0,
+      "flag_rate_rule_any": 0.11378416118092959,
+      "fpr_fused_block": NaN,
+      "recall_fused_block": 0.193377219230002
+    }
+  },
+  "old_tail_threshold": {
+    "value": 0.488107,
+    "fpr_on_representative_pool": 0.011166666666666667,
+    "recall_csic_anomaly": 0.2506283662477558,
+    "fpr_lexical": 0.01,
+    "optimism_factor_vs_1pct": 1.1166666666666667
+  },
+  "datacon": {
+    "n": 100,
+    "n_labeled_attack": 42,
+    "recall_labeled_sup": 0.4523809523809524,
+    "recall_labeled_zd": 0.5238095238095238,
+    "recall_labeled_union": 0.6666666666666666,
+    "recall_labeled_rule_block": 0.0,
+    "recall_labeled_fused_block": 0.4523809523809524,
+    "flag_rate_unlabeled_sup": 0.06896551724137931,
+    "flag_rate_unlabeled_zd": 0.5689655172413793,
+    "flag_rate_unlabeled_union": 0.6206896551724138,
+    "flag_rate_unlabeled_rule_block": 0.0,
+    "actions": {
+      "allow": 73,
+      "alert": 4,
+      "block": 23
+    },
+    "rules_enabled": true,
+    "zero_day_enabled": false
+  },
+  "elapsed_s": 23.7
+}

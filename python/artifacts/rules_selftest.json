@@ -1,0 +1,371 @@
+{
+ "schema": 1,
+ "ruleset_id": "selftest-ruleset",
+ "decode": [
+  "urlencoded",
+  "unicode"
+ ],
+ "min_weight_to_block": 1.0,
+ "rules": [
+  {
+   "id": "sqli_union_select",
+   "name": "sqli_union_select",
+   "regex": "(?i)\\bunion\\b[\\s/*+%]{0,4}\\bselect\\b",
+   "scopes": [
+    "full"
+   ],
+   "severity": "medium",
+   "weight": 1.0,
+   "action": "alert",
+   "source": "mined"
+  },
+  {
+   "id": "sqli_into_outfile",
+   "name": "sqli_into_outfile",
+   "regex": "(?i)\\binto\\s+(out|dump)file\\b",
+   "scopes": [
+    "full"
+   ],
+   "severity": "medium",
+   "weight": 1.0,
+   "action": "alert",
+   "source": "mined"
+  },
+  {
+   "id": "sqli_meta_table",
+   "name": "sqli_meta_table",
+   "regex": "(?i)\\b(information_schema|sysobjects|pg_catalog|msdb)\\b",
+   "scopes": [
+    "full"
+   ],
+   "severity": "medium",
+   "weight": 1.0,
+   "action": "alert",
+   "source": "mined"
+  },
+  {
+   "id": "sqli_file_func",
+   "name": "sqli_file_func",
+   "regex": "(?i)\\b(load_file|xp_cmdshell|utl_http|dbms_pipe)\\b",
+   "scopes": [
+    "full"
+   ],
+   "severity": "medium",
+   "weight": 1.0,
+   "action": "alert",
+   "source": "mined"
+  },
+  {
+   "id": "sqli_time_delay",
+   "name": "sqli_time_delay",
+   "regex": "(?i)\\b(sleep|benchmark|pg_sleep|waitfor\\s+delay)\\s*[\\(\\s]",
+   "scopes": [
+    "full"
+   ],
+   "severity": "medium",
+   "weight": 1.0,
+   "action": "alert",
+   "source": "mined"
+  },
+  {
+   "id": "sqli_tautology",
+   "name": "sqli_tautology",
+   "regex": "(?i)(\\bor\\b|\\band\\b)\\s*['\\\"\\w]{1,4}\\s*=\\s*['\\\"\\w]{1,4}",
+   "scopes": [
+    "full"
+   ],
+   "severity": "medium",
+   "weight": 1.0,
+   "action": "alert",
+   "source": "mined"
+  },
+  {
+   "id": "sqli_comment_tail",
+   "name": "sqli_comment_tail",
+   "regex": "(?i)(--|#|/\\*)\\s*$",
+   "scopes": [
+    "full"
+   ],
+   "severity": "medium",
+   "weight": 1.0,
+   "action": "alert",
+   "source": "mined"
+  },
+  {
+   "id": "sql_ddl_dml",
+   "name": "sql_ddl_dml",
+   "regex": "(?i)\\b(drop|truncate|insert\\s+into|update\\s+\\w+\\s+set)\\b",
+   "scopes": [
+    "full"
+   ],
+   "severity": "medium",
+   "weight": 1.0,
+   "action": "alert",
+   "source": "mined"
+  },
+  {
+   "id": "xss_script_tag",
+   "name": "xss_script_tag",
+   "regex": "(?i)<\\s*script[\\s>]",
+   "scopes": [
+    "full"
+   ],
+   "severity": "medium",
+   "weight": 1.0,
+   "action": "alert",
+   "source": "mined"
+  },
+  {
+   "id": "xss_event_handler",
+   "name": "xss_event_handler",
+   "regex": "(?i)\\bon(error|load|click|mouseover|focus|submit)\\s*=",
+   "scopes": [
+    "full"
+   ],
+   "severity": "medium",
+   "weight": 1.0,
+   "action": "alert",
+   "source": "mined"
+  },
+  {
+   "id": "xss_js_uri",
+   "name": "xss_js_uri",
+   "regex": "(?i)javascript\\s*:|vbscript\\s*:",
+   "scopes": [
+    "full"
+   ],
+   "severity": "medium",
+   "weight": 1.0,
+   "action": "alert",
+   "source": "mined"
+  },
+  {
+   "id": "xss_danger_tag",
+   "name": "xss_danger_tag",
+   "regex": "(?i)<\\s*(img|svg|iframe|object|embed|body|input)[^>]{0,60}>",
+   "scopes": [
+    "full"
+   ],
+   "severity": "medium",
+   "weight": 1.0,
+   "action": "alert",
+   "source": "mined"
+  },
+  {
+   "id": "cmd_shell_bin",
+   "name": "cmd_shell_bin",
+   "regex": "(?i)[;&|`$]{1,2}\\s*(cat|ls|id|whoami|uname|curl|wget|nc|bash|sh|cmd|powershell)\\b",
+   "scopes": [
+    "full"
+   ],
+   "severity": "medium",
+   "weight": 1.0,
+   "action": "alert",
+   "source": "mined"
+  },
+  {
+   "id": "cmd_subshell",
+   "name": "cmd_subshell",
+   "regex": "\\$\\(|\\`[^\\`]{1,40}\\`",
+   "scopes": [
+    "full"
+   ],
+   "severity": "medium",
+   "weight": 1.0,
+   "action": "alert",
+   "source": "mined"
+  },
+  {
+   "id": "php_webshell",
+   "name": "php_webshell",
+   "regex": "(?i)<\\?php|<\\?=|eval\\s*\\(|assert\\s*\\(|system\\s*\\(",
+   "scopes": [
+    "full"
+   ],
+   "severity": "medium",
+   "weight": 1.0,
+   "action": "alert",
+   "source": "mined"
+  },
+  {
+   "id": "path_traversal",
+   "name": "path_traversal",
+   "regex": "(?i)(\\.\\./|\\.\\.\\\\|%2e%2e%2f|%2e%2e/|\\.\\.%2f)",
+   "scopes": [
+    "full"
+   ],
+   "severity": "medium",
+   "weight": 1.0,
+   "action": "alert",
+   "source": "mined"
+  },
+  {
+   "id": "path_sensitive_file",
+   "name": "path_sensitive_file",
+   "regex": "(?i)(/etc/passwd|/etc/shadow|/windows/win\\.ini|/proc/self/environ|\\.\\.%00)",
+   "scopes": [
+    "full"
+   ],
+   "severity": "medium",
+   "weight": 1.0,
+   "action": "alert",
+   "source": "mined"
+  },
+  {
+   "id": "log4shell_jndi",
+   "name": "log4shell_jndi",
+   "regex": "(?i)\\$\\{jndi:(ldap|rmi|dns|http)",
+   "scopes": [
+    "full"
+   ],
+   "severity": "medium",
+   "weight": 1.0,
+   "action": "alert",
+   "source": "mined"
+  },
+  {
+   "id": "log4shell_lookup",
+   "name": "log4shell_lookup",
+   "regex": "(?i)\\$\\{(\\$\\{|\\w{1,12}:)",
+   "scopes": [
+    "full"
+   ],
+   "severity": "medium",
+   "weight": 1.0,
+   "action": "alert",
+   "source": "mined"
+  },
+  {
+   "id": "ssrf_meta_endpoint",
+   "name": "ssrf_meta_endpoint",
+   "regex": "(?i)(169\\.254\\.169\\.254|metadata\\.google\\.internal|/latest/meta-data)",
+   "scopes": [
+    "full"
+   ],
+   "severity": "medium",
+   "weight": 1.0,
+   "action": "alert",
+   "source": "mined"
+  },
+  {
+   "id": "rce_gateway_probe",
+   "name": "rce_gateway_probe",
+   "regex": "(?i)/(actuator/(gateway|env|heapdump)|nacos/v1|/druid/index\\.html)",
+   "scopes": [
+    "full"
+   ],
+   "severity": "medium",
+   "weight": 1.0,
+   "action": "alert",
+   "source": "mined"
+  },
+  {
+   "id": "selftest_query_scope",
+   "name": "SELECT 只在 query 里算",
+   "regex": "(?i)\\bselect\\b",
+   "scopes": [
+    "query"
+   ],
+   "severity": "low",
+   "weight": 1.0,
+   "action": "alert",
+   "source": "synthetic"
+  },
+  {
+   "id": "selftest_body_scope",
+   "name": "<script 只在 body 里算",
+   "regex": "(?i)<script",
+   "scopes": [
+    "body"
+   ],
+   "severity": "low",
+   "weight": 0.5,
+   "action": "alert",
+   "source": "synthetic"
+  },
+  {
+   "id": "selftest_ua_scope",
+   "name": "UA 里的 sqlmap",
+   "regex": "(?i)\\bsqlmap\\b",
+   "scopes": [
+    "ua"
+   ],
+   "severity": "low",
+   "weight": 1.0,
+   "action": "alert",
+   "source": "synthetic"
+  },
+  {
+   "id": "selftest_referer_scope",
+   "name": "referer 里的 evil",
+   "regex": "(?i)\\bevil\\b",
+   "scopes": [
+    "referer"
+   ],
+   "severity": "low",
+   "weight": 1.0,
+   "action": "alert",
+   "source": "synthetic"
+  },
+  {
+   "id": "selftest_z_anchor",
+   "name": "串尾 exec",
+   "regex": "(?i)\\bexec\\b\\z",
+   "scopes": [
+    "body"
+   ],
+   "severity": "low",
+   "weight": 1.0,
+   "action": "alert",
+   "source": "synthetic"
+  },
+  {
+   "id": "selftest_double_encoded",
+   "name": "双重编码的 union",
+   "regex": "(?i)\\bunion\\b",
+   "scopes": [
+    "query"
+   ],
+   "severity": "low",
+   "weight": 1.0,
+   "action": "alert",
+   "source": "synthetic"
+  },
+  {
+   "id": "selftest_block_a",
+   "name": "加权 A",
+   "regex": "(?i)zzzblocka",
+   "scopes": [
+    "full"
+   ],
+   "severity": "high",
+   "weight": 0.6,
+   "action": "block",
+   "source": "synthetic"
+  },
+  {
+   "id": "selftest_block_b",
+   "name": "加权 B",
+   "regex": "(?i)zzzblockb",
+   "scopes": [
+    "full"
+   ],
+   "severity": "high",
+   "weight": 0.6,
+   "action": "block",
+   "source": "synthetic"
+  },
+  {
+   "id": "selftest_loud_alert",
+   "name": "大声的告警（权重 9.0，只告警）",
+   "regex": "(?i)zzzloud",
+   "scopes": [
+    "full"
+   ],
+   "severity": "high",
+   "weight": 9.0,
+   "action": "alert",
+   "source": "synthetic"
+  }
+ ]
+}

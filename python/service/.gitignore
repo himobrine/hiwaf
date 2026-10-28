@@ -1,0 +1,8 @@
+# 运行时产物（不入库）
+console.db
+console.db-wal
+console.db-shm
+.secret
+.admin_password
+logs/
+__pycache__/
