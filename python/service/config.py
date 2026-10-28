@@ -55,6 +55,10 @@ RETENTION_DRY_RUN_FILE = Path(os.environ.get(
     "WAF_RETENTION_DRY_RUN_FILE", str(LOG_DIR / "retention-dry-run.json")))
 
 POLICY_JSON = ARTIFACTS / "decision_policy.json"
+#: 时序规则（攻击链）JSON：文件缺失/非法时回退 `service.correlate.DEFAULT_RULES`。
+#: 默认指向 artifacts 下的可编辑文件；测试用 patch 指到临时目录。
+TEMPORAL_RULES_JSON = Path(os.environ.get(
+    "WAF_TEMPORAL_RULES", str(ARTIFACTS / "temporal_rules.json")))
 FEATURE_NAMES = ARTIFACTS / "feature_names_v2.json"
 RULE_CANDIDATES = ARTIFACTS / "rule_candidates.json"
 CURVES = ARTIFACTS / "curves"

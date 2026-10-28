@@ -32,7 +32,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import (alerts as alerts_mod, audit_retention, audit_retention_scheduler,
-               auth, config, db,
+               auth, config, correlate, db,
                ingest as ingest_mod, ingest_scheduler, login_guard,
                model_registry, model_switch,
                packet as packet_mod, retention, retention_scheduler, rule_spans,
@@ -888,26 +888,37 @@ def event_packet_body(eid: int, request: Request, side: str = Query("response"),
 def list_alerts(
     window_hours: int = Query(24, ge=1, le=24 * 90),
     bucket_min: int = Query(10, ge=1, le=1440),
+    dedup: bool = False,
     user: dict = Depends(auth.current_user),
 ):
+    """聚合告警。
+
+    * 默认：`src_ip + action + method/path + 时间桶`，一条路径一组。
+    * `dedup=1`：`src_ip + action + attack_type + 时间桶`，把同一源在同一桶内
+      打不同路径的同类攻击合并成一行（`path_count` 是路径数），用于扫描风暴去重。
+    """
     since = db.now_ms() - window_hours * 3600 * 1000
     bucket_ms = bucket_min * 60 * 1000
-    items = db.rows(
-        """SELECT src_ip, action, method, path,
-                  CAST(ts / ? AS INTEGER) AS bucket,
-                  MIN(ts) AS first_ts, MAX(ts) AS last_ts, COUNT(*) AS n,
-                  MAX(supervised_score) AS max_score,
-                  MAX(attack_type) AS attack_type
-           FROM events
-           WHERE ts>=? AND action IN ('block','alert')
-           GROUP BY src_ip, action, method, path, bucket
-           ORDER BY last_ts DESC LIMIT 500""",
-        (bucket_ms, since),
-    )
-    for r in items:
-        key = f"{r['src_ip']}|{r['action']}|{r.get('method')} {r.get('path')}|{r['bucket']}"
-        r["group_key"] = key
-        r["severity"] = "P1" if r["action"] == "block" else "P2"
+    if dedup:
+        items = alerts_mod.dedup_groups(since, bucket_min)
+    else:
+        items = db.rows(
+            """SELECT src_ip, action, method, path,
+                      CAST(ts / ? AS INTEGER) AS bucket,
+                      MIN(ts) AS first_ts, MAX(ts) AS last_ts, COUNT(*) AS n,
+                      MAX(supervised_score) AS max_score,
+                      MAX(attack_type) AS attack_type
+               FROM events
+               WHERE ts>=? AND action IN ('block','alert')
+               GROUP BY src_ip, action, method, path, bucket
+               ORDER BY last_ts DESC LIMIT 500""",
+            (bucket_ms, since),
+        )
+        for r in items:
+            key = f"{r['src_ip']}|{r['action']}|{r.get('method')} {r.get('path')}|{r['bucket']}"
+            r["group_key"] = key
+            r["severity"] = "P1" if r["action"] == "block" else "P2"
+            r["path_count"] = 1
 
     # 批量取确认状态，避免每行一次查询（最多 500 行）。
     states = {}
@@ -924,7 +935,8 @@ def list_alerts(
         st = states.get(r["group_key"])
         r["status"] = st["status"] if st else "open"
         r["assignee"] = st["assignee"] if st else None
-    return {"window_hours": window_hours, "bucket_min": bucket_min, "items": items}
+    return {"window_hours": window_hours, "bucket_min": bucket_min,
+            "dedup": dedup, "items": items}
 
 
 @app.get("/api/alerts/events")
@@ -935,6 +947,8 @@ def alert_group_events(
     bucket_min: int = Query(10, ge=1, le=1440),
     method: Optional[str] = None,
     path: Optional[str] = None,
+    attack_type: Optional[str] = None,
+    dedup: bool = False,
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
     user: dict = Depends(auth.current_user),
@@ -943,7 +957,63 @@ def alert_group_events(
     try:
         return alerts_mod.group_events(
             src_ip=src_ip, action=action, bucket=bucket, bucket_min=bucket_min,
-            method=method, path=path, limit=limit, offset=offset)
+            method=method, path=path, attack_type=attack_type, dedup=dedup,
+            limit=limit, offset=offset)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.get("/api/alerts/chains")
+def alert_chains(
+    window_hours: int = Query(24, ge=1, le=24 * 90),
+    gap_min: int = Query(10, ge=1, le=1440),
+    min_events: int = Query(2, ge=1, le=1000),
+    only_suspicious: bool = True,
+    include_noise: bool = False,
+    limit: int = Query(200, ge=1, le=500),
+    user: dict = Depends(auth.current_user),
+):
+    """同源攻击链：按 (src_ip, ua) 聚合窗口内事件，间隔 > `gap_min` 切链。
+
+    `chain_key` 与聚合告警共用 `alert_state.group_key`，所以确认/关闭走同一个
+    `/api/alerts/ack`。扫描噪音（大量探测且无拦截）默认折叠，`include_noise=1` 可看。
+    """
+    res = correlate.collect(
+        window_hours=window_hours, gap_min=gap_min, min_events=min_events,
+        only_suspicious=only_suspicious, include_noise=include_noise, limit=limit)
+
+    keys = [c["chain_key"] for c in res["items"]]
+    states = {}
+    if keys:
+        ph = ",".join("?" * len(keys))
+        states = {
+            s["group_key"]: s
+            for s in db.rows(
+                f"SELECT group_key, status, assignee FROM alert_state "
+                f"WHERE group_key IN ({ph})", keys)
+        }
+    for c in res["items"]:
+        st = states.get(c["chain_key"])
+        c["status"] = st["status"] if st else "open"
+        c["assignee"] = st["assignee"] if st else None
+    return res
+
+
+@app.get("/api/alerts/chains/events")
+def alert_chain_events(
+    src_ip: str,
+    from_ts: int,
+    to_ts: int,
+    ua: Optional[str] = None,
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    user: dict = Depends(auth.current_user),
+):
+    """攻击链下钻：同源 + 同 UA + 时间范围（升序，含阶段分类）。"""
+    try:
+        return correlate.chain_events(
+            src_ip=src_ip, ua=ua, from_ts=from_ts, to_ts=to_ts,
+            limit=limit, offset=offset)
     except ValueError as e:
         raise HTTPException(400, str(e))
 

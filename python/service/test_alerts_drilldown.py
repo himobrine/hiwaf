@@ -38,11 +38,12 @@ class AlertsDrilldownTest(unittest.TestCase):
 
     def _add(self, ts: int, *, src_ip: str = "1.1.1.1", action: str = "block",
              method: str | None = "POST", path: str | None = "/api/user",
-             rule_hits: str | None = None, score: float = 0.9) -> int:
+             rule_hits: str | None = None, score: float = 0.9,
+             attack_type: str | None = None) -> int:
         return db.execute(
             "INSERT INTO events(ts, ingest_ts, src_ip, action, method, path, "
-            "supervised_score, rule_hits_json) VALUES(?,?,?,?,?,?,?,?)",
-            (ts, ts, src_ip, action, method, path, score, rule_hits),
+            "supervised_score, rule_hits_json, attack_type) VALUES(?,?,?,?,?,?,?,?,?)",
+            (ts, ts, src_ip, action, method, path, score, rule_hits, attack_type),
         )
 
     def test_exact_match_does_not_mix_substring_paths(self):
@@ -131,6 +132,48 @@ class AlertsDrilldownTest(unittest.TestCase):
             alerts.window(1, 0)
         with self.assertRaises(ValueError):
             alerts.window(1, 1441)
+
+    # ---- dedup=1：同源同类合并 ------------------------------------------
+    def test_dedup_merges_paths_of_same_type(self):
+        for i in range(1, 4):
+            self._add(FROM_TS + 1_000 * i, path=f"/p/{i}", attack_type="sqli")
+        rows = alerts.dedup_groups(FROM_TS, BUCKET_MIN)
+        self.assertEqual(len(rows), 1)
+        r = rows[0]
+        self.assertEqual(r["n"], 3)
+        self.assertEqual(r["path_count"], 3)
+        self.assertEqual(r["attack_type"], "sqli")
+        self.assertIsNone(r["path"])
+        self.assertEqual(r["severity"], "P1")
+        self.assertEqual(r["group_key"], f"1.1.1.1|block|dedup|sqli|{BUCKET}")
+
+    def test_dedup_keeps_types_and_buckets_separate(self):
+        self._add(FROM_TS + 1_000, attack_type="sqli")
+        self._add(FROM_TS + 2_000, attack_type="xss")
+        self._add(FROM_TS + BUCKET_MS + 1_000, attack_type="sqli")  # 下一桶
+        rows = alerts.dedup_groups(FROM_TS, BUCKET_MIN)
+        self.assertEqual(len(rows), 3)
+        self.assertEqual({r["attack_type"] for r in rows}, {"sqli", "xss"})
+
+    def test_dedup_null_attack_type_grouped(self):
+        self._add(FROM_TS + 1_000)
+        self._add(FROM_TS + 2_000, attack_type="")
+        rows = alerts.dedup_groups(FROM_TS, BUCKET_MIN)
+        self.assertEqual(len(rows), 1)
+        self.assertIsNone(rows[0]["attack_type"])
+        self.assertIn("|dedup|-|", rows[0]["group_key"])
+
+    def test_dedup_drilldown_matches_type(self):
+        a = self._add(FROM_TS + 1_000, attack_type="sqli", path="/a")
+        b = self._add(FROM_TS + 2_000, attack_type="sqli", path="/b")
+        self._add(FROM_TS + 3_000, attack_type="xss", path="/c")
+        r = alerts.group_events(src_ip="1.1.1.1", action="block", bucket=BUCKET,
+                                bucket_min=BUCKET_MIN, attack_type="sqli", dedup=True)
+        self.assertEqual(r["total"], 2)
+        self.assertEqual({it["id"] for it in r["items"]}, {a, b})
+        r2 = alerts.group_events(src_ip="1.1.1.1", action="block", bucket=BUCKET,
+                                 bucket_min=BUCKET_MIN, attack_type=None, dedup=True)
+        self.assertEqual(r2["total"], 0)
 
 
 if __name__ == "__main__":

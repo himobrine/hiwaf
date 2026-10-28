@@ -29,14 +29,55 @@ def window(bucket: int, bucket_min: int) -> tuple[int, int]:
     return from_ts, from_ts + bucket_ms
 
 
+def dedup_groups(since: int, bucket_min: int = 10, limit: int = 500) -> list[dict]:
+    """`/api/alerts?dedup=1` 的聚合：`src_ip + action + attack_type + 时间桶`。
+
+    同一源在同一桶内打不同路径的同类攻击只占一行；`path_count` 是不同
+    `method path` 的数量，用来判断是不是扫描/爆破风暴。空攻击类型归为 `None`。
+    """
+    bucket_ms = bucket_min * BUCKET_MS
+    items = db.rows(
+        """SELECT src_ip, action,
+                  COALESCE(NULLIF(attack_type,''),'') AS attack_type,
+                  CAST(ts / ? AS INTEGER) AS bucket,
+                  MIN(ts) AS first_ts, MAX(ts) AS last_ts, COUNT(*) AS n,
+                  COUNT(DISTINCT COALESCE(method,'') || ' ' || COALESCE(path,''))
+                      AS path_count,
+                  MAX(supervised_score) AS max_score
+           FROM events
+           WHERE ts>=? AND action IN ('block','alert')
+           GROUP BY src_ip, action, COALESCE(NULLIF(attack_type,''),''), bucket
+           ORDER BY last_ts DESC LIMIT ?""",
+        (bucket_ms, since, limit),
+    )
+    for r in items:
+        at = r.get("attack_type") or None
+        r["attack_type"] = at
+        r["method"] = None
+        r["path"] = None
+        r["group_key"] = f"{r['src_ip']}|{r['action']}|dedup|{at or '-'}|{r['bucket']}"
+        r["severity"] = "P1" if r["action"] == "block" else "P2"
+    return items
+
+
 def group_events(src_ip: str, action: str, bucket: int, bucket_min: int = 10,
                  method: Optional[str] = None, path: Optional[str] = None,
+                 attack_type: Optional[str] = None, dedup: bool = False,
                  limit: int = 50, offset: int = 0) -> dict:
-    """按聚合组精确取事件；返回 {total, from_ts, to_ts, items}。"""
+    """按聚合组精确取事件；返回 {total, from_ts, to_ts, items}。
+
+    `dedup=True` 时对应 `/api/alerts?dedup=1` 的「同源 + 动作 + 类型 + 桶」合并组：
+    忽略 method/path，改为按 `attack_type` 精确匹配（空值归一为空串）。
+    """
     from_ts, to_ts = window(bucket, bucket_min)
-    w = ("ts>=? AND ts<? AND src_ip=? AND action=? "
-         "AND COALESCE(method,'')=? AND COALESCE(path,'')=?")
-    p = [from_ts, to_ts, src_ip, action, method or "", path or ""]
+    if dedup:
+        w = ("ts>=? AND ts<? AND src_ip=? AND action=? "
+             "AND COALESCE(NULLIF(attack_type,''),'')=?")
+        p = [from_ts, to_ts, src_ip, action, attack_type or ""]
+    else:
+        w = ("ts>=? AND ts<? AND src_ip=? AND action=? "
+             "AND COALESCE(method,'')=? AND COALESCE(path,'')=?")
+        p = [from_ts, to_ts, src_ip, action, method or "", path or ""]
     total = int(db.scalar(f"SELECT COUNT(*) AS n FROM events WHERE {w}", p, 0) or 0)
     items = db.rows(
         f"""SELECT id, ts, src_ip, src_port, method, path, status, dur_ms,
@@ -60,6 +101,8 @@ def group_events(src_ip: str, action: str, bucket: int, bucket_min: int = 10,
         "action": action,
         "method": method,
         "path": path,
+        "attack_type": attack_type,
+        "dedup": dedup,
         "bucket": bucket,
         "bucket_min": bucket_min,
         "from_ts": from_ts,

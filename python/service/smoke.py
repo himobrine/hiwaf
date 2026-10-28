@@ -106,6 +106,29 @@ def main() -> int:
     else:
         ck("聚合下钻（无告警数据，跳过）", True, "no items")
 
+    st, ad = call("GET", "/api/alerts?window_hours=168&dedup=1", token=token)
+    ck("告警去重", st == 200 and ad.get("dedup") is True and "items" in ad,
+       f"{st} n={len(ad.get('items') or [])}")
+
+    st, ch = call("GET", "/api/alerts/chains?window_hours=168", token=token)
+    ck("攻击链", st == 200 and "items" in ch and "noise_hidden" in ch,
+       f"{st} chains={len(ch.get('items') or [])} noise_hidden={ch.get('noise_hidden')}")
+
+    if ch.get("items"):
+        c0 = ch["items"][0]
+        qs = urllib.parse.urlencode({
+            "src_ip": c0.get("src_ip") or "",
+            "ua": c0.get("ua") or "",
+            "from_ts": int(c0.get("first_ts") or 0),
+            "to_ts": int(c0.get("last_ts") or 0),
+            "limit": 5,
+        })
+        st, ce = call("GET", f"/api/alerts/chains/events?{qs}", token=token)
+        ck("攻击链下钻", st == 200 and "items" in ce,
+           f"{st} total={ce.get('total')} n={len(ce.get('items') or [])}")
+    else:
+        ck("攻击链下钻（无链数据，跳过）", True, "no chains")
+
     st, ru = call("GET", "/api/rules", token=token)
     ck("规则", st == 200 and "rules" in ru, f"{st} n={len(ru.get('rules') or [])}")
 
