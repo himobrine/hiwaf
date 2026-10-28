@@ -461,6 +461,17 @@ py -3.10 upload_parse.py --input cap.pcap --out %TEMP%\up2 --role benign --defau
 **刷新策略**：按要求用**手动 / 定时轮询**（总览可选 15s、顶栏运行模式 30s、任务日志 2s、
 规则 incident 默认 10s 且有 open 时 5s），**没有 SSE**。
 
+**性能（本机实测，单进程）**：
+
+- SQLite 采用**线程内连接复用**（服务启动时 `db.enable_pool()`）：本机每条新连接的第一条
+  语句约 23 ms，复用后单查询 ~0.1 ms。`/api/overview/summary`、`/api/events`、`/api/alerts`
+  的端到端延迟从 **28–55 ms 降到 1.5–5.4 ms**。
+- 总览的事件聚合有 5s 缓存（`WAF_OVERVIEW_CACHE_SEC`，`0` 关闭）；直方图在 SQL 里分桶。
+- 事件页用 **keyset 游标**翻页（`cursor_ts`+`cursor_id`），深翻页不再扫前 N 行；
+  总数只在第一页统计（`with_total=false`）。
+- 事件表索引：`ix_events_ts`、`ix_events_action_ts`、`ix_events_ip_ts`；老库启动时自动删旧单列索引。
+- 若要多人并发/多机，SQLite 仍是瓶颈，需要迁 Postgres（见 `python/service/README.md` §6）。
+
 **必须在界面上记住的四件事**：
 
 1. **阈值不能在界面手改**：策略页只能「选标定池 → 预览 → 提升」。预览走

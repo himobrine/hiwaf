@@ -22,7 +22,7 @@ py -3.10 -m service.run                  # http://127.0.0.1:8090/docs
 | 文件 | 作用 |
 | --- | --- |
 | `config.py` | 路径、JWT 有效期、CORS、**任务白名单**（`TASKS`）、上传目录/格式/限额 |
-| `db.py` | SQLite schema + 连接/查询工具（每调用一连接） |
+| `db.py` | SQLite schema + 连接/查询工具（服务模式**线程内复用连接**，见 §2.2） |
 | `auth.py` | PBKDF2 口令、HS256 JWT（标准库实现）、`current_user` / `require_at_least`、令牌版本校验 |
 | `login_guard.py` | 登录失败限流（单进程内存；多 worker 需换共享存储） |
 | `ingest.py` | `traindata/proxy/raw-*.jsonl` → `events`（**增量、幂等**，按字节偏移续读） |
@@ -51,6 +51,10 @@ py -3.10 -m service.run                  # http://127.0.0.1:8090/docs
 | `test_task_plan_upload.py` | 上传训练 argv：add/only、lineage、校准集、非法数据拒绝 |
 | `test_audit_retention.py` | 审计保留：dry-run、只删旧行、清理留痕、勾选删除、回滚、自动清理开关 |
 | `test_alerts_drilldown.py` | 聚合下钻：精确匹配（子串不混入）、桶边界左闭右开、NULL 字段、分页 |
+| `test_db_session.py` | 连接复用：`session()` 分组/嵌套、线程内长连接、换库自动重连、关池释放句柄 |
+| `test_overview_cache.py` | 总览聚合：SQL 分桶直方图、越界夹取、TTL 缓存命中/关闭 |
+| `test_events_paging.py` | 事件 keyset 分页：(ts,id) 游标不重不漏、`with_total=false` 跳过 COUNT、复合索引命中 |
+| `test_retention_orphan.py` | 保留期兜底：raw 已不存在的过期事件（含 `src_file` 为空）分批删除、保留 feedback |
 | `test_sites.py` | 站点→模型：多站点归组、版本解析、五种状态、同名模型、快照缺失、窗口/Top |
 | `app.py` | 全部 REST 接口 + 静态前端托管 |
 | `run.py` | uvicorn 启动器 |
@@ -82,6 +86,7 @@ py -3.10 -m service.run                  # http://127.0.0.1:8090/docs
 | `WAF_CONSOLE_SECRET_FILE` | `service/.secret` | JWT 密钥文件 |
 | `WAF_CONSOLE_LOG_DIR` | `service/logs` | 任务日志目录 |
 | `WAF_CONSOLE_TOKEN_TTL` | `28800` | JWT 有效期（秒） |
+| `WAF_OVERVIEW_CACHE_SEC` | `5` | 总览事件聚合缓存（秒）；`0` 关闭。多标签页 15s 轮询下省重复 COUNT |
 | `WAF_LOGIN_MAX_FAILS` | `10` | 登录失败多少次后锁定该用户名 |
 | `WAF_LOGIN_WINDOW_SEC` | `300` | 失败计数滑动窗口（秒） |
 | `WAF_LOGIN_LOCK_SEC` | `300` | 触发上限后的锁定时长（秒） |
@@ -100,6 +105,32 @@ py -3.10 -m service.run                  # http://127.0.0.1:8090/docs
 | `WAF_RAW_CLEANUP_ORPHAN_AGE_SEC` | `86400` | 孤儿 `.trash` 超过多久才登记/告警 |
 | `WAF_SENSITIVE_HEADERS` | Authorization, Cookie, Set-Cookie, X-Api-Key... | 默认逐字符 `*` 打码的头名（逗号分隔，大小写不敏感） |
 | `WAF_COLLECTOR_METRICS` | `traindata/proxy/collector-metrics.json` | 采集器 `--stats-out` 指标文件 |
+
+## 2.2 性能与数据层
+
+**连接复用（默认开启）**：`app.py` 在 lifespan 末尾调用 `db.enable_pool()`，
+每个线程（uvicorn 线程池、ingest 线程…）持有一条 SQLite 长连接跨请求复用。
+这不是微优化：本机实测**每条新连接的第一条语句约 23 ms**（打开库文件 + WAL 索引），
+总览一次要跑十几条查询、前端 15s 轮询都付这个钱；复用后单查询降到 ~0.1 ms。
+
+- 写入一律即时 `commit`，事务不会跨请求泄漏；`journal_mode` 只在本库不是 WAL 时才设置
+  （它持久化在库文件头里，每次设置都会强制拿排它锁）。
+- `db.session()` 是显式的「一组读写绑一条连接」，可嵌套；脚本/测试/批删仍可用它。
+- 测试与一次性脚本**不开池**（`enable_pool(False)`），每次调用自己开关连接，
+  临时库的文件句柄才能正常删除。
+- 关池/换库用 `db.close_thread_connection()`；换 `WAF_CONSOLE_DB` 时会自动重连。
+
+**总览聚合缓存**：`/api/overview/summary` 的事件部分（计数、直方图、Top 类型/路径）
+按 `(DB 路径, window_hours)` 缓存 `WAF_OVERVIEW_CACHE_SEC` 秒。直方图在 SQL 里分桶
+（`MIN(9, MAX(0, CAST(score*10 AS INTEGER)))`），不再把全窗口的分数行拉到 Python。
+
+**事件索引**：`ix_events_ts`（纯时间序）+ `ix_events_action_ts(action, ts)` +
+`ix_events_ip_ts(src_ip, ts)`。事件列表/告警都是「等值 + ts 范围 + ts 倒序」，
+复合索引可直接按需扫描；旧单列 `ix_events_action` / `ix_events_ip` 是它们的前缀，
+`init()` 会自动 `DROP`，减少 ingest 写放大。
+
+**告警状态批量查询**：`/api/alerts` 先用一条 `WHERE group_key IN (...)` 取回全部
+`alert_state`，不再每行查一次（最多 500 行 → 1 条 SQL）。
 
 ## 3. 接口
 
@@ -129,8 +160,13 @@ py -3.10 -m service.run                  # http://127.0.0.1:8090/docs
   ingest 不会补判或改写 `pred/action`。
 
 ### 事件
-- `GET  /api/events?limit&offset&action&src_ip&path&min_score&from_ts&to_ts&q`
-- `GET  /api/events/{id}` — 含 `shap`（Top-8）、`related`（±10min 同源）、`has_body`、`feedback`；
+- `GET /api/events?limit&offset&action&src_ip&path&min_score&from_ts&to_ts&q&rule_testing`
+  - **keyset 翻页**：带 `cursor_ts` + `cursor_id` 时用 `(ts, id) < (cursor)` 定位下一页
+    （`ORDER BY ts DESC, id DESC`），不扫描/丢弃前 N 行；此时忽略 `offset`。
+    返回 `has_more` / `next_cursor:{ts,id}`，前端存每页起点游标即可前后翻页。
+  - `with_total=false` 跳过 `COUNT(*)`，返回 `total: null`；翻页时总数沿用第一页。
+  - 不带游标时行为与旧版一致（`offset` + `total`），供脚本/兼容调用。
+- `GET /api/events/{id}` — 含 `shap`（Top-8）、`related`（±10min 同源）、`has_body`、`feedback`；
   规则证据优先读 `events.rule_hits_json`，旧事件缺失时回退 `event_rules` 明细
   （新写入的 `event_rules` 带 `scope/start/end`；旧行缺偏移时前端只做字段级降级）
 - `GET  /api/events/{id}/packet?reveal=false`（analyst，**每次写审计**）
@@ -169,6 +205,12 @@ path/trash 同时存在、symlink、stat 不匹配都不会自动删；连续 5 
 `POST /api/retention/raw-cleanup`。dry-run/apply 的 `aggregates` 段会同时统计/清理
 `rule_hits_daily`（cutoff 当天之前的 UTC 日桶）和已 resolved 且解决时间早于 cutoff 的
 `rule_incidents`；open/acked incident 永不按时间删除。
+
+**`orphan_events` 兜底**：`scan_candidates` 只遍历 `RAW_DIR` 里**现存**的文件，被外部删掉
+（换机、手工清理、磁盘故障）的 raw 对应的事件行会永远留着。dry-run/apply 的 `orphan_events`
+段按 `ts < cutoff` + `src_file` 分组，文件不存在的整组删除（`src_file` 为空的旧行同样按过期处理），
+每批 1000 行、单次上限 50000 行；`event_shap` / `event_bodies` / `event_rules` 一起删，
+**`feedback` 保留**（人工结论不随证据过期丢弃）。
 
 ### 告警
 - `GET  /api/alerts?window_hours&bucket_min` — 按 **源IP + 动作 + 方法/路径 + 时间桶** 聚合
@@ -395,6 +437,10 @@ py -3.10 -X utf8 -m service.test_task_plan_upload -v  # 上传训练任务 argv 
 py -3.10 -X utf8 -m service.test_audit_retention -v   # 审计保留/勾选删除/自动清理测试
 py -3.10 -X utf8 -m service.test_alerts_drilldown -v  # 告警聚合下钻：桶边界/精确匹配/分页
 py -3.10 -X utf8 -m service.test_sites -v             # 站点→模型：归组/状态/快照反查
+py -3.10 -X utf8 -m service.test_db_session -v        # 连接复用：session/线程内长连接/换库
+py -3.10 -X utf8 -m service.test_overview_cache -v    # 总览：SQL 分桶直方图 + TTL 缓存
+py -3.10 -X utf8 -m service.test_events_paging -v     # 事件 keyset 分页 + 复合索引命中
+py -3.10 -X utf8 -m service.test_retention_orphan -v  # 保留期兜底：raw 已缺失的过期事件
 py -3.10 -X utf8 -m service.demo_seed      # 灌一批真实采集数据（假上游 + 采集器 + 判定）
 ```
 
@@ -403,7 +449,7 @@ py -3.10 -X utf8 -m service.demo_seed      # 灌一批真实采集数据（假�
 ```bash
 curl -s -H "Authorization: Bearer <admin-token>" \
   "http://127.0.0.1:8090/api/retention/raw-cleanup?days=90"
-# 检查 scan.eligible、pending、orphan_trash 和每个 skipped 的 reason 后：
+# 检查 scan.eligible、pending、orphan_trash、orphan_events 和每个 skipped 的 reason 后：
 curl -s -X POST -H "Authorization: Bearer <admin-token>" -H "Content-Type: application/json" \
   -d '{"confirm":true,"note":"90d retention"}' \
   "http://127.0.0.1:8090/api/retention/raw-cleanup"
@@ -415,6 +461,8 @@ curl -s -X POST -H "Authorization: Bearer <admin-token>" -H "Content-Type: appli
       真正 apply 仍需 admin 显式确认，不会自动删 raw。
 - [x] **`rule_hits_daily` / `rule_incidents` 的保留策略**：随 dry-run/apply 同一 cutoff 清理；
       只删 cutoff 前日桶与已 resolved 的旧 incident，open/acked 保留。
+- [x] **数据层性能**：线程内连接复用、总览 SQL 分桶 + 5s 缓存、事件复合索引 + keyset 分页、
+      告警状态批量查询（见 §2.2）。
 - [ ] **用户管理页**：目前只有引导创建的 `admin`，没有增删改用户的接口。
 - [ ] **攻击链关联**：告警只做同源 + 同类型 + 时间桶聚合，未做跨阶段链路还原。
 - [ ] **SQLite 迁移到 Postgres**（若要多人并发/多机）。
