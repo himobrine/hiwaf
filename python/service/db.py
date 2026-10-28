@@ -1,14 +1,36 @@
 """SQLite 存储层。
 
-单机足够；每次调用开新连接（sqlite3 连接不是线程安全的）。
+单机足够。连接有三种使用方式：
+
+* **线程内复用（服务默认）**：`app.py` 启动时调用 `enable_pool()`。每个线程
+  （uvicorn 线程池、ingest 线程…）持有一条连接并跨请求复用。这不是可选项：
+  本机实测**每条新连接的第一条语句约 23 ms**（打开 DB + WAL 索引），
+  总览一次十几条查询、15s 轮询都付这个钱；复用后降到 ~0.1 ms。
+* **请求级分组**：`session()` 显式把一组读写绑到同一条连接（中间件或脚本）。
+* **独立连接**：未开池、也没有 session 时（测试、一次性脚本）每次调用
+  自己开/关，行为与旧版一致 —— 测试用临时库时不会留下文件句柄。
+
+写入一律即时 commit，因此复用连接不会把事务跨请求泄漏出去。
 事件由 `ingest.py` 从 `traindata/proxy/raw-*.jsonl` 增量灌入。
 """
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import sqlite3
+import threading
 import time
+from typing import Iterator, Optional, Tuple
 
 from . import config
+
+#: 当前请求/调用显式绑定的连接；None = 未开启 session。
+_SESSION: contextvars.ContextVar[Optional[sqlite3.Connection]] = contextvars.ContextVar(
+    "waf_db_session", default=None,
+)
+#: 服务模式：每个线程持有一条长连接（见模块 docstring）。
+_POOL_ENABLED = False
+_local = threading.local()
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -96,8 +118,11 @@ CREATE TABLE IF NOT EXISTS events (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS ux_events_src ON events(src_file, src_line);
 CREATE INDEX IF NOT EXISTS ix_events_ts ON events(ts);
-CREATE INDEX IF NOT EXISTS ix_events_ip ON events(src_ip);
-CREATE INDEX IF NOT EXISTS ix_events_action ON events(action);
+-- 复合索引：事件列表/告警都是「等值 action/src_ip + ts 范围 + ts 倒序」，
+-- 单列索引只能定位一半，再回表排序；复合索引可直接按需扫描。
+-- 旧的 ix_events_action / ix_events_ip 是它们的前缀，已在 init() 里删除。
+CREATE INDEX IF NOT EXISTS ix_events_action_ts ON events(action, ts);
+CREATE INDEX IF NOT EXISTS ix_events_ip_ts ON events(src_ip, ts);
 
 CREATE TABLE IF NOT EXISTS event_shap (
   event_id     INTEGER NOT NULL,
@@ -386,12 +411,108 @@ MIGRATIONS = (
 )
 
 
-def connect() -> sqlite3.Connection:
-    conn = sqlite3.connect(str(config.DB_PATH), timeout=10)
+def _open(path: str, **kw) -> sqlite3.Connection:
+    conn = sqlite3.connect(path, timeout=10, **kw)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
+    # journal_mode 持久化在库文件头里；**每次连接都设**会强制拿排它锁
+    # （本机实测 23–40 ms/次，API 延迟全被它吃掉）。只有不是 WAL 时才切换。
+    mode = conn.execute("PRAGMA journal_mode").fetchone()
+    if not mode or str(mode[0]).lower() != "wal":
+        conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
     return conn
+
+
+def connect() -> sqlite3.Connection:
+    return _open(str(config.DB_PATH))
+
+
+def _session_connect() -> sqlite3.Connection:
+    """session 专用连接：允许跨线程创建/使用/关闭（同请求内串行）。"""
+    return _open(str(config.DB_PATH), check_same_thread=False)
+
+
+@contextlib.contextmanager
+def session() -> Iterator[sqlite3.Connection]:
+    """显式把一组读写绑到同一条连接；可嵌套（内层复用外层）。"""
+    current = _SESSION.get()
+    if current is not None:
+        yield current
+        return
+    conn = _session_connect()
+    token = _SESSION.set(conn)
+    try:
+        yield conn
+    finally:
+        _SESSION.reset(token)
+        conn.close()
+
+
+def enable_pool(enabled: bool = True) -> None:
+    """服务启动时开启线程内连接复用；测试默认不开启。"""
+    global _POOL_ENABLED
+    _POOL_ENABLED = bool(enabled)
+    if not _POOL_ENABLED:
+        close_thread_connection()
+
+
+def pooling() -> bool:
+    return _POOL_ENABLED
+
+
+def close_thread_connection() -> None:
+    """关闭当前线程缓存的连接（换库 / 测试清理 / 进程退出前）。"""
+    conn = getattr(_local, "conn", None)
+    if conn is not None:
+        try:
+            conn.close()
+        except Exception:
+            pass
+    _local.conn = None
+    _local.path = None
+
+
+def _thread_connect() -> sqlite3.Connection:
+    path = str(config.DB_PATH)
+    conn = getattr(_local, "conn", None)
+    if conn is not None and getattr(_local, "path", None) != path:
+        close_thread_connection()
+        conn = None
+    if conn is None:
+        conn = _session_connect()
+        _local.conn = conn
+        _local.path = path
+    return conn
+
+
+def _acquire() -> Tuple[sqlite3.Connection, bool]:
+    """返回 (连接, 是否需要调用方关闭)。"""
+    current = _SESSION.get()
+    if current is not None:
+        return current, False
+    if _POOL_ENABLED:
+        return _thread_connect(), False
+    return connect(), True
+
+
+def _execute_write(sql: str, params):
+    conn, ephemeral = _acquire()
+    try:
+        cur = conn.execute(sql, params)
+        conn.commit()
+        return cur
+    finally:
+        if ephemeral:
+            conn.close()
+
+
+def rows(sql: str, params=()):
+    conn, ephemeral = _acquire()
+    try:
+        return [dict(r) for r in conn.execute(sql, params).fetchall()]
+    finally:
+        if ephemeral:
+            conn.close()
 
 
 def _migrate_data(conn: sqlite3.Connection) -> None:
@@ -434,16 +555,12 @@ def init() -> None:
         conn.executescript(SCHEMA)
         for table, col, ddl in MIGRATIONS:
             _ensure_column(conn, table, col, ddl)
+        # 复合索引 (action, ts) / (src_ip, ts) 已覆盖这两列单列索引的能力，
+        # 老库把旧索引删掉，减少 ingest 的写放大。
+        conn.execute("DROP INDEX IF EXISTS ix_events_action")
+        conn.execute("DROP INDEX IF EXISTS ix_events_ip")
         _migrate_data(conn)
         conn.commit()
-    finally:
-        conn.close()
-
-
-def rows(sql: str, params=()):
-    conn = connect()
-    try:
-        return [dict(r) for r in conn.execute(sql, params).fetchall()]
     finally:
         conn.close()
 
@@ -461,21 +578,10 @@ def scalar(sql: str, params=(), default=None):
 
 
 def execute(sql: str, params=()) -> int:
-    conn = connect()
-    try:
-        cur = conn.execute(sql, params)
-        conn.commit()
-        return cur.lastrowid or 0
-    finally:
-        conn.close()
+    return _execute_write(sql, params).lastrowid or 0
 
 
 def insert_ignore(sql: str, params=()) -> int:
     """返回 lastrowid（插入成功）或 0（被唯一约束忽略）。"""
-    conn = connect()
-    try:
-        cur = conn.execute(sql, params)
-        conn.commit()
-        return cur.lastrowid or 0 if cur.rowcount else 0
-    finally:
-        conn.close()
+    cur = _execute_write(sql, params)
+    return cur.lastrowid or 0 if cur.rowcount else 0
