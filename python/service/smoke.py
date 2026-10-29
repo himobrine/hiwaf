@@ -69,6 +69,10 @@ def main() -> int:
     st, me = call("GET", "/api/auth/me", token=token)
     ck("GET /api/auth/me", st == 200 and me.get("role") == "admin", f"{st} {me}")
 
+    st, us = call("GET", "/api/users", token=token)
+    ck("用户管理列表", st == 200 and "items" in us,
+       f"{st} n={len(us.get('items') or [])}")
+
     st, ov = call("GET", "/api/overview/summary?window_hours=168", token=token)
     ck("总览", st == 200 and "totals" in ov,
        f"{st} events={((ov.get('totals') or {}).get('n'))} mode={ov.get('mode')}")

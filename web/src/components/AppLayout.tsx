@@ -14,6 +14,7 @@ import {
   PlayCircleOutlined,
   SafetyCertificateOutlined,
   StopOutlined,
+  TeamOutlined,
   UnorderedListOutlined,
   WarningOutlined,
 } from '@ant-design/icons'
@@ -172,6 +173,7 @@ export default function AppLayout({
   ]
   if (user.role === 'admin') {
     items.push({ key: '/audit', icon: <FileSearchOutlined />, label: '审计' })
+    items.push({ key: '/users', icon: <TeamOutlined />, label: '用户管理' })
   }
 
   const modeTag =

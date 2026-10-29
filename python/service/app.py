@@ -37,7 +37,7 @@ from . import (alerts as alerts_mod, audit_retention, audit_retention_scheduler,
                model_registry, model_switch,
                packet as packet_mod, proxy_manager, retention, retention_scheduler,
                rule_spans, rules as rules_mod, rules_dsl, sites as sites_mod,
-               suppression, uploads)
+               suppression, uploads, users as users_mod)
 
 # --------------------------------------------------------------------------- 应用
 @asynccontextmanager
@@ -195,6 +195,28 @@ class LoginIn(BaseModel):
 class PasswordIn(BaseModel):
     old: str
     new: str = Field(min_length=8)
+
+
+class UserCreateIn(BaseModel):
+    """管理员新建用户（用户名/密码策略在 service/users.py 里统一校验）。"""
+    model_config = {"extra": "forbid"}
+
+    username: str = Field(min_length=3, max_length=32)
+    password: str = Field(min_length=8, max_length=128)
+    role: str = "analyst"
+
+
+class UserPatchIn(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    role: Optional[str] = None
+    disabled: Optional[bool] = None
+
+
+class UserPasswordIn(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    password: str = Field(min_length=8, max_length=128)
 
 
 class FeedbackIn(BaseModel):
@@ -568,6 +590,66 @@ def change_password(body: PasswordIn, request: Request,
     audit(user["username"], "change_password", ip=_ip(request))
     # 旧 token 立即失效；前端需重新登录。
     return {"ok": True, "relogin": True}
+
+
+# ---- 用户管理（仅 admin） ---------------------------------------------------
+@app.get("/api/users")
+def user_list(user: dict = Depends(auth.require_at_least("admin"))):
+    return {"items": users_mod.list_users()}
+
+
+@app.post("/api/users")
+def user_create(body: UserCreateIn, request: Request,
+                user: dict = Depends(auth.require_at_least("admin"))):
+    try:
+        row = users_mod.create_user(body.username, body.password, body.role)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    audit(user["username"], "user_create", f"user:{row['id']}",
+          json.dumps({"username": row["username"], "role": row["role"]},
+                     ensure_ascii=False), _ip(request))
+    return {"user": row}
+
+
+@app.patch("/api/users/{uid}")
+def user_update(uid: int, body: UserPatchIn, request: Request,
+                user: dict = Depends(auth.require_at_least("admin"))):
+    try:
+        row = users_mod.update_user(uid, actor_id=int(user["id"]),
+                                    role=body.role, disabled=body.disabled)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    audit(user["username"], "user_update", f"user:{uid}",
+          json.dumps({"role": row["role"], "disabled": row["disabled"]},
+                     ensure_ascii=False), _ip(request))
+    return {"user": row}
+
+
+@app.post("/api/users/{uid}/password")
+def user_reset_password(uid: int, body: UserPasswordIn, request: Request,
+                        user: dict = Depends(auth.require_at_least("admin"))):
+    try:
+        row = users_mod.reset_password(uid, body.password)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    # 审计只记事件，不记密码。
+    audit(user["username"], "user_password_reset", f"user:{uid}",
+          json.dumps({"username": row["username"]}, ensure_ascii=False), _ip(request))
+    return {"user": row,
+            "note": "该用户已签发的 token 已失效，需要重新登录。"}
+
+
+@app.delete("/api/users/{uid}")
+def user_delete(uid: int, request: Request,
+                user: dict = Depends(auth.require_at_least("admin"))):
+    try:
+        row = users_mod.delete_user(uid, actor_id=int(user["id"]))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    audit(user["username"], "user_delete", f"user:{uid}",
+          json.dumps({"username": row["username"], "role": row["role"]},
+                     ensure_ascii=False), _ip(request))
+    return {"ok": True, "user": row}
 
 
 # --------------------------------------------------------------------------- 总览

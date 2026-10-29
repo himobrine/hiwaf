@@ -6,6 +6,15 @@ export interface User {
   role: Role
 }
 
+/** 用户管理列表行（仅 admin 可见）。 */
+export interface UserRow {
+  id: number
+  username: string
+  role: Role
+  disabled: boolean
+  created_at: number
+}
+
 export interface EventRow {
   id: number
   ts: number

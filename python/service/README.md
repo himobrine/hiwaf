@@ -235,6 +235,14 @@ py -3.10 -m service.run                   # http://127.0.0.1:8090/docs
 - `GET  /api/auth/me`
 - `POST /api/auth/logout`（写审计，并使该用户所有旧 token 立即失效）
 - `POST /api/auth/password`（写审计；改密后旧 token 失效，需重新登录）
+- **用户管理（仅 admin）**：
+  - `GET /api/users` · `POST /api/users` `{username,password,role}`
+  - `PATCH /api/users/{id}` `{role?, disabled?}` · `POST /api/users/{id}/password` `{password}`
+  - `DELETE /api/users/{id}`
+  - 校验：用户名 3–32 位 `[A-Za-z0-9_.-]`，密码 8–128 位且首尾无空白；
+    不能禁用/删除自己、不能改自己的角色；系统至少保留一个启用的 `admin`；
+    改密码 / 改角色 / 禁用会把 `token_version + 1`，该用户旧 token 立即失效。
+    删除是硬删除；审计只记动作，不记密码。
 
 ### 总览 / 采集面
 - `GET  /api/overview/summary?window_hours=24` — 计数、分数直方图、Top 类型/路径、策略摘要、采集器指标、入库状态、**warnings**、**sites**
@@ -645,5 +653,6 @@ curl -s -X POST -H "Authorization: Bearer <admin-token>" -H "Content-Type: appli
       固定，避免「代理在写、控制台没事件」。
 - [ ] **抑制生效范围可再收窄**：目前实体字段是精确匹配；若需要 CIDR / 路径前缀 /
       正则 UA，需要新增匹配类型并写清审计与回滚语义。
-- [ ] **用户管理页**：目前只有引导创建的 `admin`，没有增删改用户的接口。
+- [x] **用户管理**：`service/users.py` + `/api/users*` + 前端「用户管理」页；
+      创建/改角色/禁用/重置密码/删除，至少保留一个启用 admin、不能操作自己。
 - [ ] **SQLite 迁移到 Postgres**（若要多人并发/多机）。

@@ -20,6 +20,7 @@ const Tasks = lazy(() => import('./pages/Tasks'))
 const Degradation = lazy(() => import('./pages/Degradation'))
 const Proxy = lazy(() => import('./pages/Proxy'))
 const Audit = lazy(() => import('./pages/Audit'))
+const Users = lazy(() => import('./pages/Users'))
 
 function loadUser(): User | null {
   try {
@@ -84,6 +85,7 @@ export default function App() {
           <Route path="/degradation" element={<Degradation />} />
           <Route path="/proxy" element={<Proxy user={user} />} />
           <Route path="/audit" element={<Audit />} />
+          <Route path="/users" element={<Users user={user} />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Suspense>

@@ -660,6 +660,10 @@ py -3.10 upload_parse.py --input cap.pcap --out %TEMP%\up2 --role benign --defau
 **登录**：用户 `admin`，密码见 `python\service\.admin_password`（或在启动日志里打印）。
 登录后立刻改密码：网页右上角 → 退出前请先改（或 `POST /api/auth/password`）。
 
+**用户管理**（菜单「用户管理」，仅 admin）：新建用户 / 改角色 / 禁用 / 重置密码 / 删除。
+角色仍是 `viewer < analyst < admin`；**至少保留一个启用的 admin**，不能禁用/删除自己、
+不能改自己的角色；改密码 / 改角色 / 禁用会立即让该用户已签发的令牌失效（需重新登录）。
+
 **刷新策略**：按要求用**手动 / 定时轮询**（总览可选 15s、顶栏运行模式 30s、任务日志 2s、
 规则 incident 默认 10s 且有 open 时 5s），**没有 SSE**。
 
@@ -1003,7 +1007,7 @@ py -3.10 import_waf_rules.py --write-db         # 写成草稿（enabled=0 / act
 6. **控制台待办**（见 `python\service\README.md` §6）：
    1. **90 天 raw/事件清理**：dry-run / apply / pending 处置 API + 每日自动 dry-run 已实现，
       真正 apply 仍需 admin 显式确认；`rule_hits_daily` / `rule_incidents` 随同一 cutoff 清理；
-   2. **用户管理页缺失**：只有引导创建的 `admin`，没有增删改用户接口；
+   2. ~~用户管理页缺失~~：已实现（新建/改角色/禁用/重置密码/删除，至少保留一个启用 admin）；
    3. ~~攻击链关联未实现~~：已实现同源 + UA 切链、阶段分类、扫描噪音降级与
       时序规则；告警页「攻击链」页签 + `dedup=1` 同源同类去重（见 `service/README.md` §2.3）；
    4. ~~实体级误报抑制未实现~~：已实现草案 → 审批（TTL）→ 撤销/过期，支持从确认误报
