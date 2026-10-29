@@ -334,6 +334,14 @@ class IncidentActionIn(BaseModel):
     restore: bool = False
 
 
+class RuleMonitorSettingsIn(BaseModel):
+    """规则监控开关（下一轮扫描生效，不用重启）。"""
+    model_config = {"extra": "forbid"}
+
+    auto_breaker: Optional[bool] = None
+    breaker_alerts: Optional[bool] = None
+
+
 class RulesPromoteIn(BaseModel):
     min_weight_to_block: Optional[float] = None
     decode: Optional[List[str]] = None
@@ -1560,6 +1568,26 @@ def bulk_restore_breakers(body: BreakerBulkRestoreIn, request: Request,
           _ip(request))
     return {"ok": True, "n_changed": len(restored), "restored": restored,
             "skipped": skipped, "errors": errors}
+
+
+@app.get("/api/rules/monitor/settings")
+def rule_monitor_settings(user: dict = Depends(auth.current_user)):
+    return {"settings": rules_mod.monitor_settings()}
+
+
+@app.put("/api/rules/monitor/settings")
+def rule_monitor_settings_update(body: RuleMonitorSettingsIn, request: Request,
+                                 user: dict = Depends(auth.require_at_least("admin"))):
+    patch = body.model_dump(exclude_none=True)
+    if not patch:
+        raise HTTPException(400, "没有要更新的设置")
+    try:
+        out = rules_mod.update_monitor_settings(patch, user["username"])
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    audit(user["username"], "rule_monitor_settings", "rules",
+          json.dumps(patch, ensure_ascii=False), _ip(request))
+    return {"settings": out}
 
 
 @app.post("/api/rules/monitor/scan")

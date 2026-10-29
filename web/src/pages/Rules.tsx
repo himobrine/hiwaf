@@ -708,14 +708,103 @@ export default function Rules({ user }: { user: User }) {
     })
   }
 
+  const monitor = data?.monitor || { auto_breaker: true, breaker_alerts: true }
+
+  const saveMonitor = async (patch: any, okMsg: string) => {
+    setBusy('monitor')
+    try {
+      await api<any>('/api/rules/monitor/settings', { method: 'PUT', body: patch })
+      message.success(okMsg)
+      await load()
+    } catch (e: any) {
+      message.error(e?.message || '保存失败')
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const toggleAutoBreaker = (next: boolean) => {
+    if (next) {
+      Modal.confirm({
+        title: '开启自动熔断？',
+        content: (
+          <div>
+            <p>只对<b>未验证</b>规则生效：测试中 / 强行启用的规则达到噪声阈值会被移出现役。</p>
+            <p className="muted">已验证规则（合格 / proven）永不自动熔断，只告警。</p>
+          </div>
+        ),
+        okText: '开启',
+        onOk: () => saveMonitor({ auto_breaker: true }, '已开启自动熔断'),
+      })
+      return
+    }
+    let closeAlerts = false
+    Modal.confirm({
+      title: '关闭自动熔断？',
+      width: 560,
+      content: (
+        <div>
+          <p>关闭后监控<b>只发告警、绝不修改规则集</b>；手动熔断不受影响。</p>
+          <p className="muted">已验证规则本来就不会被自动熔断。</p>
+          <div style={{ marginTop: 8 }}>
+            <Switch
+              size="small"
+              onChange={(v) => {
+                closeAlerts = v
+              }}
+            />{' '}
+            同时关闭<b>熔断类告警</b>（误报 / 噪声）
+            <div className="muted" style={{ marginTop: 4 }}>
+              不影响「命中量突增 / 阻断量突增」告警 —— 那是安全信号，永远保留。
+            </div>
+          </div>
+        </div>
+      ),
+      okText: '关闭',
+      onOk: () =>
+        saveMonitor(
+          closeAlerts ? { auto_breaker: false, breaker_alerts: false } : { auto_breaker: false },
+          closeAlerts ? '已关闭自动熔断与熔断类告警' : '已关闭自动熔断（告警保留）',
+        ),
+    })
+  }
+
+  const toggleBreakerAlerts = (next: boolean) => {
+    if (next) {
+      saveMonitor({ breaker_alerts: true }, '已开启熔断类告警')
+      return
+    }
+    Modal.confirm({
+      title: '关闭熔断类告警？',
+      content: (
+        <div>
+          <p>不再新建「人工确认误报」「告警噪声」事件。</p>
+          <p className="muted">
+            命中量 / 阻断量突增告警不受影响，永远保留；即将执行的自动静默仍会留事件。
+          </p>
+        </div>
+      ),
+      okText: '关闭',
+      onOk: () => saveMonitor({ breaker_alerts: false }, '已关闭熔断类告警'),
+    })
+  }
+
   const applyBreaker = (scope: string, rule: string | null, reason = 'manual') => {
     const label = scope === 'channel' ? '关闭规则通道' : scope === 'all_block' ? '全部阻断规则降为 alert' : `熔断 ${rule}`
+    const target = [...(data?.custom || []), ...(data?.rules || [])].find((x) => x.id === rule)
+    const verified = !!(target && (target.is_qualified || target.qualified === 'proven'))
     Modal.confirm({
       title: `确认${label}？`,
       width: 560,
       content: (
         <div>
           <p>熔断只降动作、<b>不停采集</b>；5 秒内热重载，证据继续留档。</p>
+          {verified ? (
+            <p>
+              <Tag color="green">已验证</Tag>
+              该规则已验证，通常只应告警；手动熔断仍会按规则动作自动选择降级方式。
+            </p>
+          ) : null}
           <p className="muted">
             预算沿用旧值（更保守），后台重标定后恢复。恢复 = 删熔断行 + 还原产物。
           </p>
@@ -1401,6 +1490,18 @@ export default function Rules({ user }: { user: User }) {
           <div>
             <Text code>{r.rule}</Text>
             <div className="muted">{r.rule_name || ''}</div>
+            <Space size={2} wrap style={{ marginTop: 2 }}>
+              {r.detail?.verified ? (
+                <Tooltip title="已验证规则：只告警，不自动熔断">
+                  <Tag color="green">已验证 · 只告警</Tag>
+                </Tooltip>
+              ) : null}
+              {r.detail?.auto_action === 'disable' ? (
+                <Tooltip title="未验证规则噪声达标，已自动移出现役；证据与审计保留">
+                  <Tag color="volcano">已自动静默</Tag>
+                </Tooltip>
+              ) : null}
+            </Space>
           </div>
         ) : (
           <Tag color="volcano">全局 / 规则通道</Tag>
@@ -1989,11 +2090,13 @@ export default function Rules({ user }: { user: User }) {
                   type="warning"
                   showIcon
                   style={{ marginBottom: 12 }}
-                  message="自动动作只绑「人工确认的误报」：block 规则 10 分钟内确认良性 ≥5 且占比 ≥50% ⇒ 自动降为 alert + 弹窗。"
+                  message="已验证规则永不自动熔断：命中再多、确认误报再多，也只告警，降级由人决定。"
                   description={
                     <span className="muted">
-                      告警噪声只提示（≥20 条确认良性）；命中量/阻断量突增只弹窗 —— 真攻击也会涨量，
-                      按量自动熔断等于给攻击者一个关规则的后门。
+                      自动熔断只作用于未验证规则（测试中 / 强行启用）：噪声达标会被移出现役。
+                      已验证规则（合格 / proven）只会生成「人工确认误报」「命中量突增」等告警。
+                      命中量 / 阻断量突增告警不受任何开关影响 —— 真攻击也会涨量，按量自动熔断
+                      等于给攻击者一个关规则的后门。
                     </span>
                   }
                 />
@@ -2049,6 +2152,30 @@ export default function Rules({ user }: { user: User }) {
                   <Button size="small" disabled={!isAdmin} loading={busy === 'scan'} onClick={scanNow}>
                     立即扫一轮
                   </Button>
+                  <Tooltip title="只对未验证规则自动动作；已验证规则永不自动熔断">
+                    <Space size={4}>
+                      <Switch
+                        size="small"
+                        checked={!!monitor.auto_breaker}
+                        disabled={!isAdmin}
+                        loading={busy === 'monitor'}
+                        onChange={toggleAutoBreaker}
+                      />
+                      <span className="muted">自动熔断</span>
+                    </Space>
+                  </Tooltip>
+                  <Tooltip title="只影响「人工确认误报 / 告警噪声」；命中量/阻断量突增告警永远保留">
+                    <Space size={4}>
+                      <Switch
+                        size="small"
+                        checked={!!monitor.breaker_alerts}
+                        disabled={!isAdmin}
+                        loading={busy === 'monitor'}
+                        onChange={toggleBreakerAlerts}
+                      />
+                      <span className="muted">熔断类告警</span>
+                    </Space>
+                  </Tooltip>
                   <Button size="small" danger disabled={!isAdmin} onClick={() => applyBreaker('all_block', null, 'manual')}>
                     全部阻断降为 alert
                   </Button>

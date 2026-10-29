@@ -401,6 +401,8 @@ export interface RulesPayload {
   custom: RuleRow[]
   authoritative?: RulesAuthoritativeInfo
   breakers?: RuleBreaker[]
+  /** 误报扫描 / 自动熔断开关（`app_settings.rules.*`，下一轮扫描生效）。 */
+  monitor?: { auto_breaker: boolean; breaker_alerts: boolean }
   decode: string[]
   scopes: string[]
   actions: string[]

@@ -113,6 +113,20 @@ UPLOAD_ROLES = ("supervised", "benign", "eval")
 #: 但同样是**快照**：创建时把行拷成 requests.jsonl，事件到期清理不影响它。
 EVENT_DATASET_MAX_ROWS = int(os.environ.get("WAF_EVENT_DATASET_MAX_ROWS", "20000"))
 EVENT_DATASET_MAX_IDS = int(os.environ.get("WAF_EVENT_DATASET_MAX_IDS", "5000"))
+
+#: 规则监控（误报扫描 / 自动熔断）默认设置。控制台可覆盖（`app_settings.rules.*`，
+#: 改完下一轮扫描生效，不用重启）。环境变量只是首次默认值。
+#:
+#:   * auto_breaker  —— 自动熔断总开关。**只作用于未验证规则**；已验证规则永不
+#:     自动熔断（只告警），因为「已验证」意味着人已经拍过板，降级必须再由人拍板。
+#:   * breaker_alerts —— 熔断类告警（confirmed_fp / noise）。关掉只影响这两类
+#:     incident；「命中量突增 / 阻断量突增」是安全信号，**永远保留**。
+RULE_MONITOR_DEFAULTS = {
+    "auto_breaker": os.environ.get("WAF_RULE_AUTO_BREAKER", "1").strip().lower()
+                    not in ("0", "false", "no", "off"),
+    "breaker_alerts": os.environ.get("WAF_RULE_BREAKER_ALERTS", "1").strip().lower()
+                      not in ("0", "false", "no", "off"),
+}
 UPLOAD_FORMATS = {
     ".csv": "csv", ".tsv": "csv",
     ".json": "json", ".jsonl": "json", ".ndjson": "json",

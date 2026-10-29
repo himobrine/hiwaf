@@ -884,14 +884,23 @@ py -3.10 smoke_test.py
   `{"all":true,"channel_on":true}`。`mode='disable'` 的规则恢复时若已被重新提升/停用则跳过，
   不会悄悄放回现役。熔断期间**不停采集**、不改 DB 里的规则动作；恢复按
   `prev_action` / `prev_rule_json` 快照还原。
-- **自动检测**（`rule_monitor.py`，60s 扫描；默认**只自动降级 `confirmed_fp`**，其余只弹窗）：
+- **自动检测**（`rule_monitor.py`，60s 扫描）。两个控制台开关（`app_settings.rules.*`，
+  下一轮扫描生效，不用重启）：
+
+  | 开关 | 关掉后 |
+  |---|---|
+  | 自动熔断 `auto_breaker` | 监控只告警，**绝不修改规则集**；手动熔断不受影响 |
+  | 熔断类告警 `breaker_alerts` | 不再生成 `confirmed_fp` / `noise`；即将执行的自动动作仍强制留 incident |
+
+  **已验证规则（`qualified_at` / proven）永不自动熔断**：命中再多、确认误报再多，也只告警。
+  自动熔断只作用于未验证的 alert 规则（噪声达标 → 移出现役）。
 
   | `reason` | 触发 | 动作 |
   |---|---|---|
-  | `confirmed_fp` | block 规则 10 分钟内确认良性 ≥5 且占已标样本 ≥50% | 自动 L1 降级 + 高优先级弹窗 |
-  | `noise` | alert 规则 10 分钟内确认良性 ≥20 | 只弹窗 |
-  | `hit_spike` | >100 次/5 分钟且 >5× 基线 | 只弹窗 |
-  | `block_spike` | >50 次/5 分钟 | 只弹窗 |
+  | `confirmed_fp` | block 规则（必然已验证）10 分钟内确认良性 ≥5 且占已标样本 ≥50% | **只告警**（`auto_action=none`）+ 高优先级弹窗 |
+  | `noise` | 未验证 alert 规则 10 分钟内确认良性 ≥20 | 自动静默（`mode=disable`）+ 弹窗；总开关关时只弹窗 |
+  | `hit_spike` | >100 次/5 分钟且 >5× 基线 | **只弹窗，永远保留**（不受两个开关影响） |
+  | `block_spike` | >50 次/5 分钟 | **只弹窗，永远保留** |
   | `manual` | 管理员手动点 | 立即执行 |
 
   前端 `AppLayout` 轮询 `GET /api/rules/incidents?status=open`（默认 10s；有 open 时 5s）：

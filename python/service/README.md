@@ -372,8 +372,16 @@ path/trash 同时存在、symlink、stat 不匹配都不会自动删；连续 5 
   - `GET /api/rules/incidents?status=open`、`POST /api/rules/incidents/{id}/ack` / `resolve`；
   - `POST /api/rules/incidents/bulk`（analyst）body `{ids:[...], op:"ack"|"resolve", restore?, note?}`：
     批量已阅/解决，允许部分成功；`restore=true` 时按熔断快照恢复（admin 建议用于确认误报）。
-  - `POST /api/rules/monitor/scan` 手动触发一次扫描（admin）。
-  - 熔断只 patch 现役产物，不改 DB 里的规则动作；自动扫描只自动降级 `confirmed_fp`，其余只弹窗。
+  - `POST /api/rules/monitor/scan` 手动触发一次扫描（admin）；
+  - `GET|PUT /api/rules/monitor/settings`（PUT=admin）body `{auto_breaker?, breaker_alerts?}`：
+    下一轮扫描生效，不用重启；`/api/rules` 响应里的 `monitor` 块同步返回。
+  - 熔断只 patch 现役产物，不改 DB 里的规则动作。
+  - **已验证规则（`qualified_at` / proven）永不自动熔断**：只生成 `confirmed_fp` /
+    `hit_spike` 告警，降级必须由人点。自动熔断只作用于**未验证**的 alert 规则
+    （噪声达标 → `mode=disable` 移出现役 + 留 incident）。
+  - `auto_breaker=false`：监控只告警、绝不改规则集；`breaker_alerts=false`：不再生成
+    `confirmed_fp` / `noise`（即将执行的自动动作仍强制留 incident）；
+    `hit_spike` / `block_spike` **永远保留**，不受任何开关影响。
 - **模型代际 / 切换**（详见 §3.1）：
   - `GET  /api/models`：产物清单 + 代际登记 + 代际树 `lineage` + 当前现役 + 保留策略 + 可 warm start 的父代。
   - `GET  /api/models/current` · `GET /api/models/{id}` · `GET /api/models/{id}/curve`

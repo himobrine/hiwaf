@@ -166,6 +166,10 @@ def main() -> int:
     st, ru = call("GET", "/api/rules", token=token)
     ck("规则", st == 200 and "rules" in ru, f"{st} n={len(ru.get('rules') or [])}")
 
+    st, ms = call("GET", "/api/rules/monitor/settings", token=token)
+    ck("熔断监控设置", st == 200 and "settings" in ms,
+       f"{st} {ms.get('settings')}")
+
     st, mo = call("GET", "/api/models", token=token)
     ck("模型", st == 200 and "artifacts" in mo,
        f"{st} onnx={len(mo.get('artifacts') or [])} curves={len(mo.get('curves') or [])} "

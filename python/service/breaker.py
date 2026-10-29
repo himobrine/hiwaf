@@ -97,16 +97,22 @@ def _add_one(rid: str, *, rule: Dict[str, Any], mode: str, reason: str,
 
 
 def apply_breaker(*, scope: str, rule: Optional[str], reason: str, actor: str,
-                  incident_id: Optional[int] = None, note: str = "") -> Dict[str, Any]:
+                  incident_id: Optional[int] = None, note: str = "",
+                  auto: bool = False) -> Dict[str, Any]:
     """立即执行熔断（同步、毫秒级写文件；采集器下个轮询周期生效）。
 
     `scope=rule`：block 规则降为 alert；alert/测试规则从现役规则集移除（停用）。
     `scope=all_block`：所有 block 规则降为 alert。
     `scope=channel`：只把 `rules.enabled` 置 false（融合串同步改成两通道）。
+
+    `auto=True` 只给误报监控用：**已验证规则一律拒绝**（降级必须由人拍板），
+    且自动路径只会出现在未验证的 alert 规则上（block 规则必然已验证）。
     """
     scope = (scope or "").strip()
     if scope not in ("rule", "all_block", "channel"):
         raise ValueError("scope 只支持 rule / all_block / channel")
+    if auto and scope != "rule":
+        raise ValueError("自动熔断只支持 scope=rule")
     doc = rules_mod.load_authoritative()
     if not doc:
         raise ValueError("还没有现役规则集，无法熔断（先「提升到现役」）")
@@ -124,6 +130,9 @@ def apply_breaker(*, scope: str, rule: Optional[str], reason: str, actor: str,
         r = _target_rule(doc, rule)
         if not r:
             raise ValueError(f"规则不在现役规则集里：{rule}（先提升，或它已被熔断移除）")
+        if auto and rules_mod.is_verified(r):
+            raise ValueError(
+                f"规则 {rule} 已验证（qualified/proven）：自动熔断被拒绝，只告警等人处理")
         if r.get("action") == "block":
             if _add_one(rule, rule=r, mode="alert", reason=reason, actor=actor,
                         incident_id=incident_id, note=note):

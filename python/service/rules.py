@@ -87,6 +87,56 @@ def breaker_map() -> Dict[str, Dict[str, Any]]:
     return {r["rule"]: r for r in breaker_rows()}
 
 
+# --------------------------------------------------------------------------- 监控设置
+def monitor_settings() -> Dict[str, Any]:
+    """误报扫描 / 自动熔断设置（`app_settings.rules.*` 覆盖默认值）。
+
+    `auto_breaker=False` 时监控只告警、绝不改规则集；`breaker_alerts=False` 时
+    不再生成 confirmed_fp / noise 事件（突增类告警不受影响）。
+    """
+    out: Dict[str, Any] = dict(config.RULE_MONITOR_DEFAULTS)
+    for r in db.rows("SELECT key, value FROM app_settings WHERE key LIKE 'rules.%'"):
+        k = r["key"].split(".", 1)[1] if "." in r["key"] else r["key"]
+        if k not in out:
+            continue
+        try:
+            out[k] = bool(json.loads(r["value"]))
+        except (TypeError, ValueError):
+            pass
+    return out
+
+
+def update_monitor_settings(patch: Dict[str, Any], actor: str) -> Dict[str, Any]:
+    clean: Dict[str, bool] = {}
+    unknown = sorted(set(patch) - set(config.RULE_MONITOR_DEFAULTS))
+    if unknown:
+        raise ValueError(f"未知设置：{unknown}")
+    for k in config.RULE_MONITOR_DEFAULTS:
+        if k in patch:
+            clean[k] = bool(patch[k])
+    if not clean:
+        raise ValueError("没有要更新的设置")
+    for k, v in clean.items():
+        db.execute(
+            "INSERT OR REPLACE INTO app_settings(key, value, updated_at, actor) "
+            "VALUES(?,?,?,?)",
+            (f"rules.{k}", json.dumps(v), db.now_ms(), actor))
+    return monitor_settings()
+
+
+def is_verified(row: Dict[str, Any]) -> bool:
+    """规则是否「已验证」：自撰规则人工确认合格，或挖出候选有真实攻击证据。
+
+    自动熔断对已验证规则一律拒绝（只告警）；手动熔断仍由人决定。
+    """
+    if not row:
+        return False
+    if row.get("qualified_at"):
+        return True
+    prov = row.get("provenance") or {}
+    return prov.get("qualification") in ("proven", "qualified")
+
+
 # --------------------------------------------------------------------------- 在线证据
 def online_stats(days: int = 7,
                  rule_ids: Optional[List[str]] = None) -> Dict[str, Dict[str, Any]]:
@@ -350,6 +400,7 @@ def merged(with_online: bool = True) -> Dict[str, Any]:
         "custom": custom,
         "authoritative": authoritative_info(),
         "breakers": breaker_rows(),
+        "monitor": monitor_settings(),
         "decode": rules_dsl.DEFAULT_DECODE,
         "scopes": list(rules_dsl.SCOPES),
         "actions": list(rules_dsl.ACTIONS),
