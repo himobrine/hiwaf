@@ -627,6 +627,19 @@ py -3.10 -m service.demo_seed     :: 起假上游 + 采集器 + 判定，灌一�
 - 训练产物仍只写 `artifacts\staging\task_<id>\`；上线仍走「模型与门禁」的切换流程。
 - 权限：`analyst` 上传/预览，`admin` 训练/删除；删除为软删除，被运行中任务引用时拒绝。
 
+**从事件选训练数据**（页面「事件」→ 勾选 → 加入训练数据）：
+
+- 也可以不选行，直接「按当前筛选全部」（上限默认 2 万条，超出截断并在预览里提示）。
+- **标签必须人工指定**：事件的 `attack_type`/`attack_label` 是模型预测，只作筛选/提示，
+  不会变成训练标签；良性数据集只能选 0，攻击类型不确定时选 1（与本地在野攻击池口径一致）。
+- 创建时把事件**固化成快照**（`traindata\uploads\<uuid>\`）：事件 90 天保留期清理、
+  raw 文件清理都不影响已建数据集。
+- body 优先取 `event_bodies`，缺失时回退 raw JSONL（按 `src_file` 分组一次扫描），
+  两者都没有则留空并计入 `stats.body.missing`；二进制 body 不伪造。
+- 同一请求指纹只保留最新一条（`stats.dedup` 记录丢弃数），扫描器重复命中不会放大样本。
+- `iforest_local` 的 add 模式：第一个含良性样本的数据集作为本地基线（`--benign`），
+  已自动从增量清单里跳过，避免训练集与校准留出重叠。
+
 ```bat
 :: 命令行复现解析（控制台内部同一脚本）
 py -3.10 upload_parse.py --input data.csv --out %TEMP%\up1 --role supervised

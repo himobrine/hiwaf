@@ -13,6 +13,7 @@ import {
   Space,
   Table,
   Tag,
+  Tooltip,
   Typography,
   Upload,
   message,
@@ -48,6 +49,23 @@ const ROLE_LABEL: Record<string, string> = {
   supervised: '监督训练',
   benign: '良性样本',
   eval: '仅评估',
+}
+
+const ORIGIN_LABEL: Record<string, string> = {
+  upload: '上传',
+  events: '事件选择',
+}
+
+/** 事件数据集的来源摘要：勾选了多少条 / 筛选条件是什么。 */
+function selectionSummary(r: any): string {
+  const s = r?.selection || {}
+  if (s.mode === 'ids') {
+    const n = (s.event_ids || []).length
+    return `勾选 ${n} 条事件`
+  }
+  const f = s.filters || {}
+  const parts = Object.entries(f).map(([k, v]) => `${k}=${v}`)
+  return parts.length ? `筛选：${parts.join(' ')}` : '事件筛选'
 }
 
 export default function Datasets({ user }: { user: User }) {
@@ -169,6 +187,9 @@ export default function Datasets({ user }: { user: User }) {
             {' '}<Text code>{'{requests:[...]}'}</Text> / JSONL；pcap/pcapng 只支持<Text strong>明文 HTTP/1.x</Text>
             （TLS/HTTP2 跳过），且只能整份文件一个标签。所有数据由服务端统一抽 80 维特征，
             与线上同源；与官方评估集重叠的样本会在训练时被剔除。
+            <br />
+            也可以在「事件」页勾选事件（或按筛选全量）直接生成数据集：标签必须人工指定，
+            事件的模型预测不会当标签；body 优先取已入库内容，缺失时回退 raw JSONL。
           </span>
         }
       />
@@ -223,7 +244,7 @@ export default function Datasets({ user }: { user: User }) {
         </Col>
 
         <Col xs={24} lg={14}>
-          <Card size="small" title="已上传数据集">
+          <Card size="small" title="数据集（上传 / 事件选择）">
             {err ? <Alert type="error" message={err} showIcon style={{ marginBottom: 8 }} /> : null}
             <Table
               size="small"
@@ -234,6 +255,18 @@ export default function Datasets({ user }: { user: User }) {
               columns={[
                 { title: 'ID', dataIndex: 'id', width: 60 },
                 { title: '名称', dataIndex: 'name', ellipsis: true },
+                {
+                  title: '来源',
+                  dataIndex: 'origin',
+                  width: 96,
+                  render: (v: string, r: any) => (
+                    <Tooltip title={r.origin === 'events' ? selectionSummary(r) : r.original_name || ''}>
+                      <Tag color={r.origin === 'events' ? 'geekblue' : 'default'}>
+                        {ORIGIN_LABEL[r.origin || 'upload'] || r.origin}
+                      </Tag>
+                    </Tooltip>
+                  ),
+                },
                 {
                   title: '角色',
                   dataIndex: 'role',
@@ -308,6 +341,22 @@ export default function Datasets({ user }: { user: User }) {
             showIcon
             style={{ marginBottom: 8 }}
             message={`与官方评估集重叠 ${preview.dataset.stats.overlap_official_eval.n} 条，训练时已剔除`}
+          />
+        ) : null}
+        {preview?.dataset?.origin === 'events' ? (
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 8 }}
+            message={`来源：事件选择（${selectionSummary(preview.dataset)}）；标签=${preview?.dataset?.default_label ?? '-'}`}
+          />
+        ) : null}
+        {preview?.dataset?.stats?.body?.missing ? (
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginBottom: 8 }}
+            message={`有 ${preview.dataset.stats.body.missing} 条拿不到 body（会以空 body 参与训练）`}
           />
         ) : null}
         <Table

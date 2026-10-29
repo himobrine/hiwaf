@@ -108,6 +108,11 @@ UPLOAD_MAX_PACKETS = int(os.environ.get("WAF_UPLOAD_MAX_PACKETS", "2000000"))
 UPLOAD_MAX_FLOWS = int(os.environ.get("WAF_UPLOAD_MAX_FLOWS", "50000"))
 UPLOAD_TIMEOUT_SEC = int(os.environ.get("WAF_UPLOAD_TIMEOUT_SEC", "600"))
 UPLOAD_ROLES = ("supervised", "benign", "eval")
+
+#: 从事件页选择事件生成数据集（与上传数据同形）。事件数据集没有"原始文件"，
+#: 但同样是**快照**：创建时把行拷成 requests.jsonl，事件到期清理不影响它。
+EVENT_DATASET_MAX_ROWS = int(os.environ.get("WAF_EVENT_DATASET_MAX_ROWS", "20000"))
+EVENT_DATASET_MAX_IDS = int(os.environ.get("WAF_EVENT_DATASET_MAX_IDS", "5000"))
 UPLOAD_FORMATS = {
     ".csv": "csv", ".tsv": "csv",
     ".json": "json", ".jsonl": "json", ".ndjson": "json",

@@ -53,14 +53,20 @@ def _req_sha1(s: dict) -> str:
     return hashlib.sha1(_req_key(s).encode("utf-8", "replace")).hexdigest()
 
 
-def _load_upload_benign(manifest_path: str):
-    """读取控制台上传清单里的良性行；非良性行跳过（零日通道只用良性训练）。"""
+def _load_upload_benign(manifest_path: str, skip_id: int | None = None):
+    """读取控制台数据集清单里的良性行；非良性行跳过（零日通道只用良性训练）。
+
+    `skip_id`：该数据集已经作为 `--benign` 本地基线单独加载（iforest_local add），
+    这里必须跳过，否则同一条请求会同时进训练集和校准留出。
+    """
     from realdata import load_local_jsonl
 
     with open(manifest_path, "r", encoding="utf-8") as f:
         man = json.load(f)
     rows, skipped = [], 0
     for ds in man.get("datasets") or []:
+        if skip_id is not None and int(ds.get("id") or -1) == int(skip_id):
+            continue
         p = ds.get("train_path") or ds.get("requests_path")
         if not p or not os.path.exists(p):
             raise SystemExit(f"上传数据集 #{ds.get('id')} 的训练副本不存在：{p}")
@@ -269,6 +275,8 @@ def main():
     ap.add_argument("--data", choices=["csic", "synthetic", "local", "upload"], default="csic")
     ap.add_argument("--upload-manifest", default=None,
                     help="控制台生成的上传数据清单（staging/datasets.json）")
+    ap.add_argument("--upload-skip-id", type=int, default=None,
+                    help="该数据集已作为 --benign 基线加载，manifest 里跳过它（防训练/留出重叠）")
     ap.add_argument("--upload-mode", choices=["add", "only"], default=None,
                     help="add=官方基数+上传良性；only=只用上传良性")
     ap.add_argument("--calib-mode", choices=["auto", "official", "upload"], default="auto",
@@ -378,7 +386,8 @@ def main():
     upload_train_rows = []
     upload_hold_rows = []
     if args.upload_manifest and args.upload_mode:
-        manifest, rows, skipped = _load_upload_benign(args.upload_manifest)
+        manifest, rows, skipped = _load_upload_benign(
+            args.upload_manifest, skip_id=args.upload_skip_id)
         manifest["mode"] = args.upload_mode
         if skipped:
             print(f"[upload] 跳过非良性行 {skipped} 条（零日只用 label=0）")
@@ -410,9 +419,15 @@ def main():
             "calib_mode": args.calib_mode,
             "overlap_official_eval": {},
         }
+        _base_label = {
+            "csic": "CSIC 2010 正常",
+            "local": "真实本地良性",
+            "synthetic": "合成正常",
+            "upload": "上传良性",
+        }.get(args.data, str(args.data))
         meta_extra["dataset"] = (
             "上传良性数据（only）" if args.upload_mode == "only"
-            else "CSIC 2010 正常 + 上传良性（add）")
+            else f"{_base_label} + 上传良性（add）")
         meta_extra["upload_mode"] = args.upload_mode
         meta_extra["upload_benign_added"] = len(upload_train_rows)
 

@@ -69,11 +69,60 @@ class TaskPlanUploadTest(unittest.TestCase):
         plan = app_mod._task_plan(4, "train_realdata", None, None, "only", [3], "auto", None)
         self.assertNotIn("--hard-neg", plan["argv"])
 
-    def test_upload_not_supported_for_other_kinds(self):
-        with self.assertRaises(HTTPException):
-            app_mod._task_plan(5, "iforest_local", None, None, "add", [3], "auto", None)
+    def test_dataset_not_supported_for_other_kinds(self):
         with self.assertRaises(HTTPException):
             app_mod._task_plan(5, "p8_e2e", None, None, "add", [3], "auto", None)
+
+    def test_iforest_local_add_uses_dataset_as_baseline(self):
+        plan = app_mod._task_plan(6, "iforest_local", None, None, "add", [3], "auto", None)
+        argv = plan["argv"]
+        self.assertEqual(argv[argv.index("--data") + 1], "local")
+        self.assertEqual(argv[argv.index("--benign") + 1],
+                         _ds(3)["train_path"])
+        # 只有一个数据集：没有可增量的良性行，不能拼 manifest（脚本会报"没有良性行"）。
+        self.assertNotIn("--upload-manifest", argv)
+        self.assertEqual(plan["baseline_dataset"]["id"], 3)
+        self.assertTrue(plan.get("upload_manifest_skipped"))
+
+    def test_iforest_local_add_skips_baseline_in_manifest(self):
+        plan = app_mod._task_plan(7, "iforest_local", None, None, "add", [3, 4],
+                                  "auto", None)
+        argv = plan["argv"]
+        self.assertIn("--upload-manifest", argv)
+        # 基线已由 --benign 加载；manifest 必须跳过它，否则训练/留出重叠。
+        self.assertEqual(argv[argv.index("--upload-skip-id") + 1], "3")
+        self.assertEqual(plan["baseline_dataset"]["id"], 3)
+
+    def test_iforest_local_official_needs_local_baseline(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "local_lab_benign.jsonl"
+            p.write_text('{"method":"GET","path":"/","query":"","body":"","label":0}\n',
+                         encoding="utf-8")
+            with mock.patch.object(app_mod.config, "LOCAL_DIR", Path(d)):
+                plan = app_mod._task_plan(9, "iforest_local", None, None)
+        argv = plan["argv"]
+        self.assertEqual(argv[argv.index("--data") + 1], "local")
+        self.assertEqual(argv[argv.index("--benign") + 1], str(p))
+        self.assertNotIn("--upload-manifest", argv)
+
+    def test_iforest_local_official_without_baseline_rejected(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as d:
+            with mock.patch.object(app_mod.config, "LOCAL_DIR", Path(d)):
+                with self.assertRaises(HTTPException):
+                    app_mod._task_plan(10, "iforest_local", None, None)
+
+    def test_iforest_local_only_swaps_data_to_upload(self):
+        plan = app_mod._task_plan(8, "iforest_local", "warm_start", None,
+                                  "only", [3], "auto", None)
+        argv = plan["argv"]
+        self.assertEqual(argv[argv.index("--data") + 1], "upload")
+        self.assertNotIn("--benign", argv)
+        self.assertIn("--upload-manifest", argv)
+        self.assertEqual(plan["inherit_mode"], "lineage")
 
     def test_missing_dataset_id_rejected(self):
         with self.assertRaises(HTTPException):

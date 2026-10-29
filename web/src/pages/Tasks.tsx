@@ -90,7 +90,8 @@ export default function Tasks({ user }: { user: User }) {
   const datasetOptions = readyDatasets.map((d: any) => ({
     value: d.id,
     label:
-      `#${d.id} ${d.name} · ${d.role} · ${d.rows_kept ?? 0} 行` +
+      `#${d.id} ${d.name} · ${d.origin === 'events' ? '事件' : '上传'} · ${d.role} · ` +
+      `${d.rows_kept ?? 0} 行` +
       (d.sha256 ? ` · ${String(d.sha256).slice(0, 8)}` : ''),
   }))
   const calibOptions = datasetOptions
@@ -201,9 +202,9 @@ export default function Tasks({ user }: { user: User }) {
                 if (v === 'official') setDatasetIds([])
               }}
               options={[
-                { value: 'official', label: '数据来源：官方配方' },
-                { value: 'add', label: '官方 + 上传（增量）' },
-                { value: 'only', label: '仅上传（替换官方）' },
+                { value: 'official', label: '数据来源：内置基线' },
+                { value: 'add', label: '内置基线 + 数据集（增量）' },
+                { value: 'only', label: '仅数据集（替换基线）' },
               ]}
             />
             {dataMode !== 'official' ? (
@@ -213,7 +214,7 @@ export default function Tasks({ user }: { user: User }) {
                   style={{ minWidth: 320 }}
                   value={datasetIds}
                   onChange={setDatasetIds}
-                  placeholder="选择上传数据集（可多选）"
+                  placeholder="选择数据集（可多选）"
                   options={datasetOptions}
                 />
                 <Select
@@ -223,7 +224,7 @@ export default function Tasks({ user }: { user: User }) {
                   options={[
                     { value: 'auto', label: '校准池：自动' },
                     { value: 'official', label: '校准池：官方' },
-                    { value: 'upload', label: '校准池：上传留出' },
+                    { value: 'upload', label: '校准池：数据集留出' },
                   ]}
                 />
               </>
@@ -256,8 +257,17 @@ export default function Tasks({ user }: { user: User }) {
           type="warning"
           showIcon
           style={{ marginBottom: 12 }}
-          message="仅上传模式：官方训练集不参与，官方 test/lexical 仅作迁移评估"
-          description="only 模式会强制 lineage（不做 warm start）；零日通道要求上传数据 ≥400 条良性且能切出 ≥200 条校准留出。"
+          message="仅数据集模式：内置基线不参与，官方 test/lexical 仅作迁移评估"
+          description="only 模式会强制 lineage（不做 warm start）；零日通道要求数据集 ≥400 条良性且能切出 ≥200 条校准留出。"
+        />
+      ) : null}
+      {kind === 'iforest_local' && dataMode === 'add' ? (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="IForest（本地良性）增量训练"
+          description="第一个含良性样本的数据集会作为本地基线（--benign，训练/校准留出从它切）；其余数据集作为增量良性行合并进训练集，并写入训练指纹。"
         />
       ) : null}
       {err ? <Alert type="error" message={err} showIcon style={{ marginBottom: 12 }} /> : null}

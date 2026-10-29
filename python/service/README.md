@@ -430,29 +430,57 @@ path/trash 同时存在、symlink、stat 不匹配都不会自动删；连续 5 
 `inherit_mode=warm_start`、`auto_register=true`、`keep_curves=true`。
 双上限同时生效，但**现役模型永不清理**，实际保存数可能略超上限。
 
-### 3.2 上传训练数据
+### 3.2 训练数据（上传 / 事件选择）
 
-用户上传**原始 HTTP 请求**（不是预计算特征），由控制面落到独立目录并异步解析；
-训练任务可以「官方 + 上传」或「仅上传」。训练仍只写 staging，上线仍走 §3.1 的切换门禁。
+两种来源，**产物同形**：上传**原始 HTTP 请求**（不是预计算特征），或在「事件」页
+勾选/按筛选把 WAF 自己看到的事件固化成数据集。训练任务可以「内置基线 + 数据集」或
+「仅数据集」。训练仍只写 staging，上线仍走 §3.1 的切换门禁。
 
 **存储与状态**
 
-- 目录：`traindata/uploads/<uuid>/`，含 `original.<ext>`、`convert.log`、
-  `requests.jsonl`（全量）、`requests_train.jsonl`（剔除官方评估集重叠后的训练副本）、
-  `stats.json`。
-- 元数据：`uploaded_datasets` 表（角色 / 格式 / sha256 / 行列统计 / 状态 / 错误 / 来源说明）。
+- 目录：`traindata/uploads/<uuid>/`。上传含 `original.<ext>` + `convert.log`；
+  事件选择含 `selection.json`（筛选条件/事件 id 快照）。
+  两者都产出 `requests.jsonl`（全量归一化行）、`requests_train.jsonl`
+  （剔除官方评估集重叠后的训练副本）、`stats.json`。
+- 元数据：`uploaded_datasets` 表（来源 `origin` / 角色 / 格式 / sha256 / 行列统计 /
+  状态 / 错误 / 来源说明 / 选择快照 `selection_json`）。
 - 状态：`converting → ready | failed`；删除为软删除 `pruned`（元数据保留，目录删除）。
 - 启动时 `uploads.cleanup_stale()` 把上次进程遗留的 `converting` 标为失败（幂等）。
+
+**事件选择（`service/datasets_events.py`）**
+
+- **标签红线**：事件的 `attack_label` / `attack_type` 是模型预测，**不会**变成训练标签。
+  标签由操作者在创建时显式指定（统一标签：0 良性；1-4 攻击类型；未细分用 1），
+  每条行写 `label_why`，并随 `stats.selection` + 审计（`dataset_from_events` /
+  `dataset_ready`）留痕。
+- **快照**：创建时把行拷成文件；事件 90 天保留期清理 / raw 清理不影响已建数据集。
+- **body 两级回退**：`event_bodies` → raw JSONL（按 `src_file` 分组一次扫描，
+  `body` 文本或 `body_b64` 解出 UTF-8）→ 空；统计写在 `stats.body`
+  （`from_db` / `from_raw` / `missing` / `empty` / `truncated`）。
+  `missing` 只统计「本来有 body（`body_len>0`）却拿不到」，GET 这类
+  `body_len=0` 记 `empty`，不是告警项。二进制 body 不伪造。
+- **去重**：同一请求指纹 `method\\x1fpath\\x1fquery\\x1fbody` 只保留最新一条，
+  丢弃数写入 `stats.dedup`（扫描器重复命中不会放大成训练样本）。
+- **上限**：单次勾选 ≤ `WAF_EVENT_DATASET_MAX_IDS`（默认 5000）；
+  单个数据集 ≤ `WAF_EVENT_DATASET_MAX_ROWS`（默认 20000，超出截断并在
+  `selection.truncated` 标记）。
 
 **API**
 
 | 方法 | 路径 | 权限 | 说明 |
 | --- | --- | --- | --- |
 | POST | `/api/uploads` | analyst | multipart：`file`、`name`、`role`、`default_label`、`source_note` |
-| GET | `/api/uploads?limit=100&include_pruned=false` | viewer | 列表 `{items:[...]}` |
+| POST | `/api/uploads/from-events` | analyst | 从事件建数据集：`name`、`role`、`label`、`source_note`、`mode=ids\|filter`、`event_ids` / `filters`、`max_rows` |
+| POST | `/api/events/selection-preview` | analyst | 创建前预检（匹配数 / 抽查体量 / body 可得率 / 重复数），只读 |
+| GET | `/api/uploads?limit=100&include_pruned=false` | viewer | 列表 `{items:[...]}`（含 `origin` / `selection`） |
 | GET | `/api/uploads/{id}` | viewer | 详情（含 `label_stats` / `stats` / `exists`） |
 | GET | `/api/uploads/{id}/preview?n=20` | viewer | 预览前 N 条归一化请求 |
 | DELETE | `/api/uploads/{id}` | admin | 软删除；被运行中任务引用时拒绝 |
+
+事件选择的 `filters` 与 `/api/events` 同语义（`action` / `src_ip` / `path` / `q` /
+`min_score` / `from_ts` / `to_ts` / `rule_testing`），另支持 `attack_type`
+（按模型分类**筛事件**，不是标签）与 `verdict`（人工 feedback 结论）。
+`role=benign` 时 `label` 只能是 0；`supervised`/`benign` 必须填 `source_note`。
 
 - `role`：`supervised` / `benign` / `eval`；`eval` 只能看，不能进训练。
 - `default_label`：`0..4`，仅用于缺标签的行或 pcap 整份文件；CSV/JSON 行内 `label` /
@@ -461,7 +489,7 @@ path/trash 同时存在、symlink、stat 不匹配都不会自动删；连续 5 
 - 限制：单文件 256MB、20 万行、pcap 200 万包 / 5 万流、body 1MB、解析超时 600s；
   可用 `WAF_UPLOAD_*` 环境变量覆盖。
 
-**训练任务字段**（`POST /api/tasks`，仅 `train_realdata` / `iforest_csic`）
+**训练任务字段**（`POST /api/tasks`，`train_realdata` / `iforest_csic` / `iforest_local`）
 
 ```json
 {
@@ -474,9 +502,12 @@ path/trash 同时存在、symlink、stat 不匹配都不会自动删；连续 5 
 }
 ```
 
-- `data_mode`：`official`（默认，不带上传）/ `add`（官方 + 上传）/ `only`（仅上传）。
+- `data_mode`：`official`（默认，不带数据集）/ `add`（内置基线 + 数据集）/ `only`（仅数据集）。
 - `only` 强制 `inherit_mode=lineage`；监督通道移除官方 `--hard-neg`，零日通道把
-  `--data csic` 换成 `--data upload`。
+  `--data csic|local` 换成 `--data upload`。
+- `iforest_local` 的 `add`：第一个含良性样本的数据集作为**本地基线**（`--benign`，
+  训练/校准留出从它切），其余数据集增量合并；基线会通过 `--upload-skip-id` 从 manifest
+  里跳过，避免同一条请求同时进训练集和留出（只有基线一个数据集时不拼 manifest）。
 - 服务端校验：数据集必须 `ready`、文件存在、角色不是 `eval`；监督 `only` 至少 2 类标签且
   ≥500 行（`add` 允许纯良性/纯攻击增量，由官方数据补足类别）；零日训练至少 50 条良性，
   `only` 至少 400 条良性；`calib_mode=upload` 要求校准集 ≥400 条良性。
@@ -495,7 +526,9 @@ path/trash 同时存在、symlink、stat 不匹配都不会自动删；连续 5 
 
 **前端**
 
-「训练数据」页负责上传/列表/预览/删除；「训练任务」页在训练通道下增加
+「训练数据」页负责上传/列表/预览/删除（列表多一列「来源」：上传 / 事件选择）；
+「事件」页支持多选（跨页保留）与「加入训练数据」弹窗，可按勾选或按当前筛选全量创建，
+提交前可预检体量与 body 可得率；「训练任务」页在训练通道下增加
 「数据来源 / 数据集多选 / 校准池」；「模型与门禁」列表新增「训练数据」列展示出处。
 
 ### 3.3 审计保留（90 天）

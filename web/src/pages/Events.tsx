@@ -2,8 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Alert,
   Button,
+  Descriptions,
+  Form,
   Input,
   InputNumber,
+  Modal,
+  Radio,
   Select,
   Space,
   Switch,
@@ -11,13 +15,28 @@ import {
   Tag,
   Tooltip,
   Typography,
+  message,
 } from 'antd'
-import { ReloadOutlined, SearchOutlined } from '@ant-design/icons'
+import { DatabaseOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons'
 import { api, fmtNum, fmtTs } from '../api'
 import type { EventRow, User } from '../types'
 import EventDetailDrawer, { ActionTag } from '../components/EventDetailDrawer'
 
 const { Title, Text } = Typography
+
+const ROLE_OPTIONS = [
+  { value: 'supervised', label: '监督训练（逐行标签，XGBoost）' },
+  { value: 'benign', label: '良性样本（零日训练 / 阈值校准）' },
+  { value: 'eval', label: '仅评估（不参与训练）' },
+]
+
+const LABEL_OPTIONS = [
+  { value: 0, label: '0 · normal（良性）' },
+  { value: 1, label: '1 · sqli（未细分攻击也用 1）' },
+  { value: 2, label: '2 · xss' },
+  { value: 3, label: '3 · cmdi' },
+  { value: 4, label: '4 · traversal' },
+]
 
 /** keyset 游标：上一页最后一条的 (ts, id)。 */
 type Cursor = { ts: number; id: number }
@@ -42,6 +61,108 @@ export default function Events({ user }: { user: User }) {
   const [onlyTesting, setOnlyTesting] = useState(false)
 
   const [detailId, setDetailId] = useState<number | null>(null)
+
+  // 从事件建训练数据集：勾选（跨页保留）或按当前筛选全量。
+  const [selected, setSelected] = useState<number[]>([])
+  const [trainOpen, setTrainOpen] = useState(false)
+  const [scope, setScope] = useState<'ids' | 'filter'>('ids')
+  const [preview, setPreview] = useState<any>(null)
+  const [previewing, setPreviewing] = useState(false)
+  const [creating, setCreating] = useState(false)
+  const [roleSel, setRoleSel] = useState('supervised')
+  const [trainForm] = Form.useForm()
+  const canCurate = user.role !== 'viewer'
+
+  /** 当前工具栏筛选（与列表用的是同一组状态）。 */
+  const buildFilters = useCallback(() => {
+    const f: any = {}
+    if (action) f.action = action
+    if (srcIp) f.src_ip = srcIp
+    if (path) f.path = path
+    if (q) f.q = q
+    if (minScore !== undefined && minScore !== null) f.min_score = minScore
+    if (onlyTesting) f.rule_testing = true
+    return f
+  }, [action, srcIp, path, q, minScore, onlyTesting])
+
+  const openTrain = () => {
+    const hasFilters = Object.keys(buildFilters()).length > 0
+    const next = selected.length ? 'ids' : hasFilters ? 'filter' : 'ids'
+    setScope(next)
+    setPreview(null)
+    setRoleSel('supervised')
+    trainForm.setFieldsValue({
+      role: 'supervised',
+      label: 1,
+      name: `事件数据集 ${new Date().toLocaleString()}`,
+      source_note: '',
+      max_rows: undefined,
+    })
+    setTrainOpen(true)
+  }
+
+  const doPreview = useCallback(
+    async (nextScope = scope) => {
+      const body: any = { mode: nextScope }
+      if (nextScope === 'ids') {
+        if (!selected.length) {
+          message.warning('先勾选事件，或改用「按当前筛选」')
+          return
+        }
+        body.event_ids = selected
+      } else {
+        const f = buildFilters()
+        if (!Object.keys(f).length) {
+          message.warning('当前没有任何筛选条件，请先设置筛选')
+          return
+        }
+        body.filters = f
+      }
+      const maxRows = trainForm.getFieldValue('max_rows')
+      if (maxRows) body.max_rows = Number(maxRows)
+      setPreviewing(true)
+      setPreview(null)
+      try {
+        setPreview(await api<any>('/api/events/selection-preview', { method: 'POST', body }))
+      } catch (e: any) {
+        message.error(e?.message || '预检失败')
+      } finally {
+        setPreviewing(false)
+      }
+    },
+    [scope, selected, buildFilters, trainForm],
+  )
+
+  const submitTrain = async () => {
+    let v: any
+    try {
+      v = await trainForm.validateFields()
+    } catch {
+      return
+    }
+    const body: any = {
+      name: v.name || '',
+      role: v.role,
+      label: Number(v.label),
+      source_note: v.source_note || '',
+      mode: scope,
+    }
+    if (scope === 'ids') body.event_ids = selected
+    else body.filters = buildFilters()
+    if (v.max_rows) body.max_rows = Number(v.max_rows)
+    setCreating(true)
+    try {
+      const r = await api<any>('/api/uploads/from-events', { method: 'POST', body })
+      message.success(`数据集 #${r.id} 已创建（后台固化事件），可在「训练数据」页查看`)
+      setTrainOpen(false)
+      setSelected([])
+      setPreview(null)
+    } catch (e: any) {
+      message.error(e?.message || '创建失败')
+    } finally {
+      setCreating(false)
+    }
+  }
 
   const resetPaging = () => {
     cursorsRef.current = [null]
@@ -176,6 +297,17 @@ export default function Events({ user }: { user: User }) {
         >
           刷新
         </Button>
+        <Tooltip title="把勾选的事件（或按当前筛选）固化成训练数据集；标签必须人工指定，不会用模型预测当标签">
+          <Button
+            type="primary"
+            ghost
+            icon={<DatabaseOutlined />}
+            onClick={openTrain}
+            disabled={!canCurate}
+          >
+            加入训练数据{selected.length ? `（${selected.length}）` : ''}
+          </Button>
+        </Tooltip>
         <span className="muted">自动刷新 15s</span>
       </div>
 
@@ -186,7 +318,19 @@ export default function Events({ user }: { user: User }) {
         rowKey="id"
         loading={loading}
         dataSource={rows}
-        onRow={(r) => ({ onClick: () => setDetailId(r.id), style: { cursor: 'pointer' } })}
+        rowSelection={{
+          selectedRowKeys: selected,
+          preserveSelectedRowKeys: true,
+          onChange: (keys) => setSelected(keys as number[]),
+        }}
+        onRow={(r) => ({
+          onClick: (e) => {
+            // 点勾选框/全选不应打开事件详情抽屉。
+            if ((e.target as HTMLElement).closest('.ant-table-selection-column')) return
+            setDetailId(r.id)
+          },
+          style: { cursor: 'pointer' },
+        })}
         pagination={false}
         columns={[
           { title: '时间', dataIndex: 'ts', width: 165, render: (v) => fmtTs(v) },
@@ -285,6 +429,130 @@ export default function Events({ user }: { user: User }) {
           {total === null ? '按时间倒序 · 游标翻页' : `共 ${total} 条（第一页统计）`}
         </span>
       </Space>
+
+      <Modal
+        open={trainOpen}
+        width={760}
+        title="从事件生成训练数据集"
+        onCancel={() => setTrainOpen(false)}
+        footer={[
+          <Button key="preview" onClick={() => doPreview()} loading={previewing}>
+            预检
+          </Button>,
+          <Button key="ok" type="primary" loading={creating} onClick={submitTrain}>
+            创建数据集
+          </Button>,
+        ]}
+      >
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="标签必须由你指定"
+          description="事件的 attack_type 是模型预测，只作筛选/提示，绝不会自动变成训练标签。创建时会把选中的事件固化成快照（事件到期清理不影响数据集）。"
+        />
+        <Form form={trainForm} layout="vertical">
+          <Form.Item label="选择范围">
+            <Radio.Group
+              value={scope}
+              onChange={(e) => {
+                setScope(e.target.value)
+                setPreview(null)
+              }}
+            >
+              <Radio.Button value="ids" disabled={!selected.length}>
+                已勾选 {selected.length} 条
+              </Radio.Button>
+              <Radio.Button value="filter">按当前筛选全部</Radio.Button>
+            </Radio.Group>
+            {scope === 'filter' ? (
+              <div className="muted" style={{ marginTop: 6 }}>
+                当前筛选：
+                <Text code>{JSON.stringify(buildFilters())}</Text>
+              </div>
+            ) : null}
+          </Form.Item>
+          <Form.Item
+            name="name"
+            label="名称"
+            rules={[{ required: true, message: '给数据集起个名字' }]}
+          >
+            <Input placeholder="例如：sqlmap 扫描（确认为攻击）" />
+          </Form.Item>
+          <Form.Item name="role" label="角色" rules={[{ required: true }]}>
+            <Select
+              options={ROLE_OPTIONS}
+              onChange={(v) => {
+                setRoleSel(v)
+                if (v === 'benign') trainForm.setFieldsValue({ label: 0 })
+              }}
+            />
+          </Form.Item>
+          <Form.Item
+            name="label"
+            label="标签（人工指定）"
+            rules={[{ required: true }]}
+            extra="良性数据集只能选 0；攻击类型不确定时选 1（与本地在野攻击池的标注口径一致）。"
+          >
+            <Select options={LABEL_OPTIONS} disabled={roleSel === 'benign'} />
+          </Form.Item>
+          <Form.Item name="max_rows" label="条数上限">
+            <InputNumber min={1} max={20000} style={{ width: 200 }} placeholder="默认 20000" />
+          </Form.Item>
+          <Form.Item
+            name="source_note"
+            label="数据来源说明"
+            rules={[{ required: true, message: '监督/良性数据必须填写出处' }]}
+          >
+            <Input.TextArea
+              rows={2}
+              placeholder="例如：红队演练确认的 sqlmap 流量；或某业务路径的确认良性访问"
+            />
+          </Form.Item>
+        </Form>
+
+        {preview ? (
+          <div style={{ marginTop: 4 }}>
+            <Descriptions size="small" column={2} bordered>
+              <Descriptions.Item label="匹配事件">{preview.matched}</Descriptions.Item>
+              <Descriptions.Item label="上限 / 截断">
+                {preview.limit} / {preview.truncated ? '会截断' : '不截断'}
+              </Descriptions.Item>
+              <Descriptions.Item label="抽查">
+                {preview.checked} 条{preview.preview_capped ? '（预检抽样）' : ''}
+              </Descriptions.Item>
+              <Descriptions.Item label="去重后 / 重复">
+                {preview.unique_checked} / {preview.duplicates_checked}
+              </Descriptions.Item>
+              <Descriptions.Item label="body 来源（库 / raw）">
+                {preview.body?.from_db ?? 0} / {preview.body?.from_raw ?? 0}
+              </Descriptions.Item>
+              <Descriptions.Item label="body 缺失 / 截断">
+                {preview.body?.missing ?? 0} / {preview.body?.truncated ?? 0}
+              </Descriptions.Item>
+              <Descriptions.Item label="本来无 body（GET 等）">
+                {preview.body?.empty ?? 0}
+              </Descriptions.Item>
+            </Descriptions>
+            {Object.keys(preview.attack_type_hint || {}).length ? (
+              <div className="muted" style={{ marginTop: 6 }}>
+                模型分类提示（不是标签）：
+                {Object.entries(preview.attack_type_hint)
+                  .map(([k, v]) => ` ${k}:${v}`)
+                  .join(' ')}
+              </div>
+            ) : null}
+            {preview.body?.missing ? (
+              <Alert
+                type="warning"
+                showIcon
+                style={{ marginTop: 8 }}
+                message={`抽查里有 ${preview.body.missing} 条拿不到 body（raw 可能已清理）；这些行会以空 body 参与训练。`}
+              />
+            ) : null}
+          </div>
+        ) : null}
+      </Modal>
 
       <EventDetailDrawer
         eventId={detailId}

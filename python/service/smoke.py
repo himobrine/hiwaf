@@ -211,6 +211,12 @@ def main() -> int:
     st, up = call("GET", "/api/uploads?limit=20", token=token)
     ck("训练数据列表", st == 200 and "items" in up, f"{st} n={len(up.get('items') or [])}")
 
+    st, spv = call("POST", "/api/events/selection-preview",
+                   {"mode": "filter", "filters": {"path": "/"}}, token=token)
+    ck("事件选择预检（只读）", st == 200 and "matched" in spv,
+       f"{st} matched={spv.get('matched')} checked={spv.get('checked')} "
+       f"body={spv.get('body')}")
+
     st, cs = call("GET", "/api/collector/status", token=token)
     ck("采集面状态（可缺指标文件）", st == 200, f"{st} available={cs.get('available')}")
 

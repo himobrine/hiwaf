@@ -361,13 +361,18 @@ CREATE TABLE IF NOT EXISTS app_settings (
   actor      TEXT
 );
 
--- 用户上传的训练数据。文件在 traindata/uploads/<storage_dir>/；
--- 删除只做软删除（status='pruned'），已登记模型的快照不依赖这里。
+-- 训练数据集（上传文件 / 事件选择两种来源，见 origin）。文件在
+-- traindata/uploads/<storage_dir>/；删除只做软删除（status='pruned'），
+-- 已登记模型的快照不依赖这里。
 CREATE TABLE IF NOT EXISTS uploaded_datasets (
   id                INTEGER PRIMARY KEY AUTOINCREMENT,
   name              TEXT NOT NULL,
   role              TEXT NOT NULL CHECK (role IN ('supervised','benign','eval')),
   format            TEXT NOT NULL,
+  -- 来源：upload = 上传文件；events = 事件页人工选择（快照）。
+  origin            TEXT NOT NULL DEFAULT 'upload',
+  -- 事件选择的筛选条件 / 事件 id 快照（JSON；上传数据为 NULL）。
+  selection_json    TEXT,
   status            TEXT NOT NULL DEFAULT 'converting'
                     CHECK (status IN ('converting','ready','failed','pruned')),
   storage_dir       TEXT,
@@ -441,6 +446,9 @@ MIGRATIONS = (
     ("rule_breakers", "prev_action", "TEXT"),
     ("rule_breakers", "mode", "TEXT NOT NULL DEFAULT 'alert'"),
     ("rule_breakers", "prev_rule_json", "TEXT"),
+    # 数据集来源：上传 / 事件选择。
+    ("uploaded_datasets", "origin", "TEXT NOT NULL DEFAULT 'upload'"),
+    ("uploaded_datasets", "selection_json", "TEXT"),
 )
 
 

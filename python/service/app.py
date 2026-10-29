@@ -32,7 +32,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import (alerts as alerts_mod, audit_retention, audit_retention_scheduler,
-               auth, config, correlate, db,
+               auth, config, correlate, datasets_events, db,
                ingest as ingest_mod, ingest_scheduler, login_guard,
                model_registry, model_switch,
                packet as packet_mod, proxy_manager, retention, retention_scheduler,
@@ -347,11 +347,44 @@ class TaskIn(BaseModel):
     #: 训练任务专用：inherit = off | lineage | warm_start；parent_model_id 指定父代。
     inherit: Optional[str] = None
     parent_model_id: Optional[int] = None
-    #: 上传数据（仅训练任务）：data_mode = official | add | only。
+    #: 数据集（仅训练任务）：data_mode = official | add | only。
     data_mode: Optional[str] = None
     dataset_ids: Optional[List[int]] = None
     calib_mode: Optional[str] = None
     calib_dataset_id: Optional[int] = None
+
+
+class EventSelectionFilters(BaseModel):
+    """事件选择的筛选条件（与 /api/events 同语义 + 两个选择专用项）。
+
+    `attack_type` 只是**按模型分类筛事件**，不是标签；`verdict` 按人工 feedback
+    结论的存在性筛。真正写进数据的 `label` 在 FromEventsIn / SelectionPreviewIn 上。
+    """
+    action: Optional[str] = None
+    src_ip: Optional[str] = None
+    path: Optional[str] = None
+    q: Optional[str] = None
+    min_score: Optional[float] = None
+    from_ts: Optional[int] = None
+    to_ts: Optional[int] = None
+    rule_testing: Optional[bool] = None
+    attack_type: Optional[str] = None
+    verdict: Optional[str] = None
+
+
+class SelectionPreviewIn(BaseModel):
+    mode: str = "ids"                       # ids | filter
+    event_ids: Optional[List[int]] = None
+    filters: Optional[EventSelectionFilters] = None
+    max_rows: Optional[int] = None
+
+
+class FromEventsIn(SelectionPreviewIn):
+    """从事件建数据集：标签**必须**由调用方显式给出（红线：模型预测不是标签）。"""
+    name: str = ""
+    role: str = "supervised"
+    label: int = Field(..., ge=0, le=4)
+    source_note: str = ""
 
 
 class ModelPatchIn(BaseModel):
@@ -699,33 +732,11 @@ def _warnings(pol: dict, metrics: Optional[dict]) -> list:
 # --------------------------------------------------------------------------- 事件
 def _event_filter(action=None, src_ip=None, path=None, min_score=None,
                   from_ts=None, to_ts=None, q=None, rule_testing=None):
-    w = ["1=1"]
-    p = []
-    if action:
-        w.append("action=?")
-        p.append(action)
-    if src_ip:
-        w.append("src_ip=?")
-        p.append(src_ip)
-    if path:
-        w.append("path LIKE ?")
-        p.append(f"%{path}%")
-    if min_score is not None:
-        w.append("supervised_score>=?")
-        p.append(min_score)
-    if from_ts:
-        w.append("ts>=?")
-        p.append(from_ts)
-    if to_ts:
-        w.append("ts<=?")
-        p.append(to_ts)
-    if rule_testing is not None:
-        w.append("rule_testing=?")
-        p.append(1 if rule_testing else 0)
-    if q:
-        w.append("(path LIKE ? OR query LIKE ? OR ua LIKE ?)")
-        p += [f"%{q}%"] * 3
-    return " AND ".join(w), p
+    """事件过滤条件。实现放在 `datasets_events.event_where`（事件选择用的是
+    同一套语义），这里只保留调用点，避免两份 SQL 漂移。"""
+    return datasets_events.event_where(
+        action=action, src_ip=src_ip, path=path, min_score=min_score,
+        from_ts=from_ts, to_ts=to_ts, q=q, rule_testing=rule_testing)
 
 
 def _event_rule_hits(e: dict) -> list:
@@ -805,6 +816,23 @@ def list_events(
         it.pop("rule_hits_json", None)
     return {"total": total, "limit": limit, "offset": offset, "items": items,
             "has_more": has_more, "next_cursor": next_cursor}
+
+
+@app.post("/api/events/selection-preview")
+def events_selection_preview(body: SelectionPreviewIn,
+                             user: dict = Depends(auth.require_at_least("analyst"))):
+    """创建数据集前的体量/body 预估（只读，不落盘）。
+
+    必须声明在 `/api/events/{eid}` **之前**：`selection-preview` 也能匹配
+    `{eid}` 路径模板，先注册的先匹配。
+    """
+    try:
+        return datasets_events.preview_selection(
+            mode=body.mode, event_ids=body.event_ids,
+            filters=body.filters.model_dump(exclude_none=True) if body.filters else None,
+            max_rows=body.max_rows)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
 
 @app.get("/api/events/{eid}")
@@ -2050,6 +2078,33 @@ def upload_delete(uid: int, request: Request,
     return row
 
 
+@app.post("/api/uploads/from-events")
+def uploads_from_events(body: FromEventsIn, request: Request,
+                        user: dict = Depends(auth.require_at_least("analyst"))):
+    """从事件页选中的事件生成数据集（快照）。
+
+    标签由操作者显式指定（`label`），**绝不**取事件的模型预测；审计里记录完整的
+    选择条件与标签，便于日后追溯每个样本的标签来源。
+    """
+    try:
+        row = datasets_events.create_from_events(
+            name=body.name, role=body.role, label=body.label,
+            source_note=body.source_note, mode=body.mode,
+            event_ids=body.event_ids,
+            filters=body.filters.model_dump(exclude_none=True) if body.filters else None,
+            max_rows=body.max_rows, actor=user["username"])
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    audit(user["username"], "dataset_from_events", f"upload:{row.get('id')}",
+          json.dumps({"name": row.get("name"), "role": body.role, "label": body.label,
+                      "mode": body.mode,
+                      "event_ids": (body.event_ids or [])[:50],
+                      "filters": (body.filters.model_dump(exclude_none=True)
+                                  if body.filters else None)},
+                     ensure_ascii=False), _ip(request))
+    return row
+
+
 # --------------------------------------------------------------------------- 任务
 def _validate_upload_plan(kind: str, data_mode: str, dataset_ids: Optional[List[int]],
                           calib_mode: str, calib_dataset_id: Optional[int]) -> dict:
@@ -2059,12 +2114,13 @@ def _validate_upload_plan(kind: str, data_mode: str, dataset_ids: Optional[List[
         if ids:
             raise HTTPException(400, "data_mode=official 时不能指定 dataset_ids")
         return {"datasets": [], "calib_dataset_id": None, "calib_mode": "official"}
-    if kind not in ("train_realdata", "iforest_csic"):
-        raise HTTPException(400, f"{kind} 不支持上传数据（仅 train_realdata / iforest_csic）")
+    if kind not in ("train_realdata", "iforest_csic", "iforest_local"):
+        raise HTTPException(
+            400, f"{kind} 不支持数据集（仅 train_realdata / iforest_csic / iforest_local）")
     if data_mode not in ("add", "only"):
         raise HTTPException(400, "data_mode 只支持 official / add / only")
     if not ids:
-        raise HTTPException(400, "add/only 模式必须选择至少一个上传数据集")
+        raise HTTPException(400, "add/only 模式必须选择至少一个数据集")
     if calib_mode not in ("auto", "official", "upload"):
         raise HTTPException(400, "calib_mode 只支持 auto / official / upload")
 
@@ -2072,20 +2128,20 @@ def _validate_upload_plan(kind: str, data_mode: str, dataset_ids: Optional[List[
     for uid in ids:
         ds = uploads.get_upload(uid)
         if not ds:
-            raise HTTPException(400, f"上传数据集 #{uid} 不存在")
+            raise HTTPException(400, f"数据集 #{uid} 不存在")
         if ds.get("status") != "ready":
-            raise HTTPException(400, f"上传数据集 #{uid} 状态为 {ds.get('status')}，不可用")
+            raise HTTPException(400, f"数据集 #{uid} 状态为 {ds.get('status')}，不可用")
         if ds.get("role") == "eval":
             raise HTTPException(400, f"数据集 #{uid} 角色是 eval，不能用于训练")
         if not ds.get("exists") or not ds.get("train_path"):
-            raise HTTPException(400, f"上传数据集 #{uid} 文件缺失")
+            raise HTTPException(400, f"数据集 #{uid} 文件缺失")
         stats = ds.get("stats") or {}
         labels = ds.get("label_stats") or {}
         benign = int(stats.get("benign") or labels.get("0") or 0)
         attack = int(stats.get("attack") or 0)
         if kind == "train_realdata" and ds["role"] == "benign":
             pass  # 良性数据可作为监督训练的困难负样本/校准池
-        if kind == "iforest_csic" and ds["role"] == "supervised" and benign == 0:
+        if kind != "train_realdata" and ds["role"] == "supervised" and benign == 0:
             raise HTTPException(400, f"数据集 #{uid} 没有良性样本，不能用于零日通道")
         rows.append({
             "id": ds["id"], "name": ds["name"], "role": ds["role"],
@@ -2106,11 +2162,11 @@ def _validate_upload_plan(kind: str, data_mode: str, dataset_ids: Optional[List[
         present = [k for k, v in total_labels.items() if int(v) > 0]
         if data_mode == "only":
             if len(present) < 2:
-                raise HTTPException(400, "only 模式的上传数据至少要有 2 类标签（含正常）")
+                raise HTTPException(400, "only 模式的数据集至少要有 2 类标签（含正常）")
             if sum(total_labels.values()) < 500:
-                raise HTTPException(400, "only 模式的上传数据太少（<500 行），请用 add 或补充数据")
+                raise HTTPException(400, "only 模式的数据集太少（<500 行），请用 add 或补充数据")
         elif not present:
-            raise HTTPException(400, "上传数据没有可用标签")
+            raise HTTPException(400, "数据集没有可用标签")
     else:
         benign = sum(int(r.get("benign") or 0) for r in rows)
         if benign < 50:
@@ -2144,7 +2200,7 @@ def _task_plan(tid_hint: Optional[int], kind: str, inherit: Optional[str],
     base = list(config.TASKS[kind])
     if kind not in config.TRAIN_CHANNELS:
         if dataset_ids or (data_mode and data_mode != "official"):
-            raise HTTPException(400, f"{kind} 不支持上传数据")
+            raise HTTPException(400, f"{kind} 不支持数据集")
         return {"argv": base}
     channel, variant = config.TRAIN_CHANNELS[kind]
     settings = model_registry.get_settings()
@@ -2179,7 +2235,41 @@ def _task_plan(tid_hint: Optional[int], kind: str, inherit: Optional[str],
             base = ["iforest_lean_onnx.py", "--data", "upload", "--export"]
         base += ["--out-dir", str(staging), "--onnx-name", "model.onnx"]
 
-    if data_mode in ("add", "only"):
+    # `--data local` 需要本地良性基线文件。add 模式下用选中的良性数据集当基线
+    # （快照闭环，不依赖磁盘上的默认文件）；其余数据集仍走 manifest 增量。
+    # 基线会同时出现两次（--benign 与 manifest），所以必须让脚本把它从 manifest 里跳过，
+    # 否则训练集与校准留出会重叠。
+    use_manifest = data_mode in ("add", "only")
+    if kind == "iforest_local" and data_mode == "add":
+        base_ds = next((r for r in up["datasets"] if int(r.get("benign") or 0) > 0), None)
+        if base_ds is None:
+            raise HTTPException(
+                400, "iforest_local（add）需要至少一个含良性样本的数据集作为本地基线")
+        base += ["--benign", base_ds["train_path"]]
+        plan["baseline_dataset"] = {
+            "id": base_ds["id"], "name": base_ds["name"],
+            "train_path": base_ds["train_path"], "benign": base_ds["benign"]}
+        others = [r for r in up["datasets"]
+                  if int(r["id"]) != int(base_ds["id"]) and int(r.get("benign") or 0) > 0]
+        if others:
+            base += ["--upload-skip-id", str(base_ds["id"])]
+        else:
+            # 只有基线一个数据集：没有可增量的良性行，manifest 会因"没有良性行"报错。
+            use_manifest = False
+            plan["upload_manifest_skipped"] = "只有基线数据集，无需增量清单"
+    elif kind == "iforest_local" and data_mode == "official":
+        # `--data local` 必须给 --benign；官方模式用本机采集产出的默认良性池，
+        # 文件不存在就明确拒绝（而不是让脚本抛 SystemExit）。
+        p = config.LOCAL_DIR / "local_lab_benign.jsonl"
+        if not p.exists():
+            raise HTTPException(
+                400, "iforest_local 需要本地良性基线：请改用数据集（add/only），"
+                     f"或先跑 collect_http_log.py 产出 {p}")
+        base += ["--benign", str(p)]
+        plan["baseline_dataset"] = {"id": None, "name": "内置本地良性池",
+                                    "train_path": str(p), "benign": None}
+
+    if use_manifest:
         manifest = str(staging / "datasets.json")
         base += ["--upload-manifest", manifest, "--upload-mode", data_mode,
                  "--calib-mode", up["calib_mode"]]
@@ -2266,7 +2356,8 @@ def _run_task(tid: int, kind: str) -> None:
     staging = plan.get("staging")
     if staging:
         Path(staging).mkdir(parents=True, exist_ok=True)
-        if plan.get("datasets") is not None and plan.get("data_mode") in ("add", "only"):
+        if (plan.get("datasets") is not None and plan.get("data_mode") in ("add", "only")
+                and not plan.get("upload_manifest_skipped")):
             man = {"mode": plan.get("data_mode"), "datasets": plan.get("datasets") or [],
                    "calib_mode": plan.get("calib_mode"),
                    "calib_dataset_id": plan.get("calib_dataset_id")}

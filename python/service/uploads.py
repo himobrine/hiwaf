@@ -1,7 +1,10 @@
-"""用户上传训练数据的存储 / 转换 / 预览 / 软删除。
+"""训练数据集的存储 / 转换 / 预览 / 软删除（上传与事件选择共用）。
 
-控制面只做编排；真正的解析在 `python/upload_parse.py`（固定脚本、固定参数），
-以子进程运行，避免坏 pcap 把控制台拖死。所有路径由服务端生成，前端不能传路径。
+控制面只做编排；上传文件的解析在 `python/upload_parse.py`（固定脚本、固定参数），
+以子进程运行，避免坏 pcap 把控制台拖死。事件选择生成的数据集见
+`service/datasets_events.py`，但存储、`_split_train_copy`（反泄漏）、`_row`、
+预览、软删除全部走这里，保证两种来源产物同形。
+所有路径由服务端生成，前端不能传路径。
 """
 from __future__ import annotations
 
@@ -51,7 +54,7 @@ def _row(uid: int) -> Optional[dict]:
     if not r:
         return None
     out = dict(r)
-    for k in ("label_stats_json", "stats_json"):
+    for k in ("label_stats_json", "stats_json", "selection_json"):
         raw = out.pop(k, None)
         key = k.replace("_json", "")
         try:
