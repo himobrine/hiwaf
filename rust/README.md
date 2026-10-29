@@ -62,7 +62,8 @@ XGBoost 原生 `pred_contribs` **0.46ms**（1000 棵树口径）。
 ```
 rust/
 ├── Cargo.toml
-├── build.bat            # 构建包装：先 vcvars64 再调用 cargo（VS 在 D:\visual_studio）
+├── build.bat            # Windows 构建包装：自动找 vcvars64 + cargo
+├── build.sh             # Linux 构建包装（统一 CARGO_TARGET_DIR）
 └── src/
     ├── main.rs          # 加载模型 → 一致性校验（含阈值判定）→ 延迟基准
     ├── features.rs      # 80 维特征提取的 Rust 移植（对齐 python/features.py v2）
@@ -104,24 +105,30 @@ Python 侧配套产物（`../python/artifacts/`）：
 
 ## 3. 构建与运行
 
-Rust 工具链位于 `C:\Users\lenovo\.cargo\bin`，未加入当前 shell 的 PATH，因此用 `build.bat`：
+工具链不需要手工加 PATH：`build.bat` / `build.sh` 会依次尝试 `vswhere`、本机历史路径
+`D:\visual_studio`、VS 2022 默认安装目录，并把 `%USERPROFILE%\.cargo\bin` 补进 PATH。
 
 ```bat
 cd F:\waf\rust
 build.bat run --release
+build.bat test --release --lib
 ```
 
-`build.bat` 内容：
+Linux（需要 gcc/make/cmake/ninja）：
 
-```bat
-@echo off
-call "D:\visual_studio\VC\Auxiliary\Build\vcvars64.bat" >nul 2>&1
-set "PATH=C:\Users\lenovo\.cargo\bin;%PATH%"
-cargo %*
+```bash
+cd waf/rust
+./build.sh build --release
+./build.sh test --release --lib
 ```
 
-> 说明：本机 VS 安装在非默认路径 `D:\visual_studio`，`cc` crate 的自动探测不可靠，
-> 因此显式通过 `vcvars64.bat` 建立 MSVC + Windows SDK 环境后再链接。
+构建缓存由 `WAF_CARGO_TARGET` 控制，默认：
+
+- Windows：有 `E:\` 时用 `E:\waf-target`，否则 `%LOCALAPPDATA%\waf-cargo-target`；
+- Linux：`~/.cache/waf-cargo-target`。
+
+`proxy/` 与 `rust/` 必须共用这份缓存（ort/ONNX-Runtime 树很大，否则会编两遍）。
+一键安装的 `-WithRust` / `--with-rust` 会调用同一套脚本。
 
 ### 重新生成模型与参考数据
 

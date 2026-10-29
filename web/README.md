@@ -7,6 +7,9 @@ React 18 + TypeScript + Ant Design 5 + ECharts，Vite 构建。
 
 ## 运行
 
+前置：**Node.js 18+**（含 npm）。首次安装用 `npm ci`（依赖 `package-lock.json`；
+没有 lock 时才用 `npm install`）。一键安装脚本会自动执行 `ci → typecheck → build`。
+
 ```bash
 # 1) 后端
 cd F:\waf\python
@@ -14,10 +17,11 @@ py -3.10 -m service.run                 # 8090
 
 # 2) 前端（开发）
 cd F:\waf\web
-npm install
+npm ci
 npm run dev                             # 5173，/api 已代理到 8090
 
 # 3) 生产（单端口）
+npm run typecheck
 npm run build                           # 产物 web/dist
 # 之后访问 http://127.0.0.1:8090 即可，FastAPI 会托管 dist
 ```

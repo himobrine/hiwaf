@@ -6,6 +6,10 @@
 > 相关文档：`prd.md`（需求）、`ENGINEERING_PLAN.md`（工程计划）、
 > `REALDATA_EVALUATION.md`（真实数据评估，**所有数字与坑的唯一出处**）、
 > `rust/README.md`、`proxy/README.md`、`python/README.md`。
+>
+> **只想把控制台跑起来**：Windows 用 `install.bat`，Linux 用 `./install.sh`，
+> 见 **`INSTALL.md`**。脚本默认创建 `.venv`、只装控制面依赖（`requirements-service.txt`）、
+> 前台启动；训练/评估/改 Rust 仍按本文的手工步骤。
 
 ---
 
@@ -29,8 +33,9 @@ F:\waf\
     └─ local\                  真实采集流量（良性/攻击/unlabeled）
 ```
 
-构建缓存统一放 **`E:\waf-target`**（`F:` 盘接近满，且 ort/ONNX-Runtime 树很大，
-必须两个 crate 共用一份，否则 ort 会编两遍）。
+构建缓存统一由 `WAF_CARGO_TARGET` 控制（Windows 优先 `E:\waf-target`，否则
+`%LOCALAPPDATA%\waf-cargo-target`；Linux `~/.cache/waf-cargo-target`）。`rust/` 与
+`proxy/` 必须共用一份，否则 ort/ONNX-Runtime 会编两遍。
 
 ---
 
@@ -50,8 +55,9 @@ F:\waf\
 
 > 若 Rust 未装：`curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`（`prd.md` §451）。
 
-**为什么不用 PATH 上的 `cargo`**：本机 cargo 未加 PATH，且 `build.bat` 还要先
-`vcvars64.bat` 建立 MSVC 环境。所以**所有 Rust 命令都通过 `build.bat` 跑**，不要直接 `cargo`。
+**为什么用 `build.bat` / `build.sh`**：Rust 命令需要 MSVC（Windows）或
+cmake/ninja（Linux）环境。包装脚本会自动找 `vcvars64.bat`、补 `cargo` 的 PATH、
+统一 `CARGO_TARGET_DIR`，所以**不要直接 `cargo build`**（除非你已经自己配好环境）。
 
 ---
 
@@ -121,6 +127,15 @@ py -3.10 -m pip install -r requirements.txt
 ```bat
 py -3.10 -m pip install -r requirements-service.txt
 ```
+
+> **推荐用 venv**：一键安装默认建 `F:\waf\.venv`。手工安装也可以：
+>
+> ```bat
+> py -3.10 -m venv F:\waf\.venv
+> F:\waf\.venv\Scripts\python.exe -m pip install -r requirements-service.txt
+> ```
+>
+> 之后把本文所有 `py -3.10` 换成 `.venv\Scripts\python.exe` 即可（训练依赖同理）。
 
 `requirements.txt` 关键版本：numpy 2.1.3 / pandas 2.3.3 / scipy 1.15.3 /
 scikit-learn 1.7.2 / **xgboost 3.2.0** / onnx 1.23.2 / skl2onnx 1.20.0 /
@@ -500,21 +515,28 @@ py -3.10 export_testvec.py && cd ..\rust && call build.bat run --release
 定位是**安全运营业务层**（事件/告警/策略/反馈/规则/模型/任务/审计）；
 CPU/内存/QPS/延迟这类**基础设施运维指标仍归 Grafana + Prometheus**（PRD §4.9.2），不重复建设。
 
+> 一键安装（`INSTALL.md`）会建 `.venv` 并完成下面 1–3 步；手工安装也可以复用同一个
+> `.venv`：把 `py -3.10` 换成 `.venv\Scripts\python.exe` 即可。
+
 ```bat
 :: 1) 装控制面依赖（只需一次；版本与 requirements-service.txt 一致）
 py -3.10 -m pip install -r requirements-service.txt
 
 :: 2) 构建前端（产物 web\dist，由 FastAPI 单端口托管）
 cd F:\waf\web
-npm install
+npm ci
+npm run typecheck
 npm run build
 
-:: 3) 起后端（默认 8090；首次启动会创建 admin 并把初始密码写入 service\.admin_password）
+:: 3) 初始化 DB/admin（幂等；已有账号/密码不会覆盖）
 cd F:\waf\python
+py -3.10 -m service.bootstrap
+
+:: 4) 起后端（默认 8090；首次启动会创建 admin 并把初始密码写入 service\.admin_password）
 set PYTHONIOENCODING=utf-8
 py -3.10 -m service.run --port 8090
 
-:: 4) 浏览器打开 http://127.0.0.1:8090  （接口文档 /docs）
+:: 5) 浏览器打开 http://127.0.0.1:8090  （接口文档 /docs）
 ```
 
 开发前端时另开一个口：
@@ -527,7 +549,7 @@ cd F:\waf\web && npm run dev      :: 5173，/api 已代理到 8090；改代码�
 
 ```bat
 cd F:\waf\python
-py -3.10 -m service.smoke         :: 20 项 API 自检（需要服务已启动；含聚合下钻与代际树）
+py -3.10 -m service.smoke         :: 34 项 API 自检（需要服务已启动；含聚合下钻与代际树）
 py -3.10 -m service.demo_seed     :: 起假上游 + 采集器 + 判定，灌一批真实采集数据
 ```
 
@@ -652,7 +674,9 @@ py -3.10 smoke_test.py
 4. **`build.bat` 注释必须纯 ASCII**：中文 `REM` 行 + LF 行尾会被 cmd 当命令解析，
    静默跳过前面的 `set`（表现为假的 cmake/生成器报错，还会带上
    `'rapper:' 不是内部或外部命令` 噪声）。
-5. **`F:` 盘接近满**：构建缓存必须放 `E:\waf-target` 并**两个 crate 共用**，否则 ort 编两遍。
+5. **构建缓存必须两个 crate 共用**：默认 Windows 有 `E:\` 时用 `E:\waf-target`，
+   否则 `%LOCALAPPDATA%\waf-cargo-target`；Linux 用 `~/.cache/waf-cargo-target`。
+   `build.bat` / `build.sh` 已统一设置 `CARGO_TARGET_DIR`，不要各写各的。
 6. **Rust 侧 `Session::run` 需要 `&mut self`**；`response_body_filter` 在 Pingora 0.9 是
    **同步** `fn`（写成 `async` 会得到误导性的 `E0195` 生命周期/约束错误）。
 7. **Pingora 0.9 的 `PeerOptions` 字段是 pub**（`read_timeout`/`write_timeout`/
@@ -700,7 +724,7 @@ py -3.10 smoke_test.py
 - [ ] `rust: call build.bat test --release --lib` **18/18 PASS**（判定/熔断守卫）
 - [ ] `proxy: call build.bat build --release` 编译通过
 - [ ] `py -3.10 -X utf8 p8_proxy_e2e.py` **43/43 PASS**
-- [ ] `py -3.10 -m service.smoke` **17/17 PASS**（需服务已启动）
+- [ ] `py -3.10 -m service.smoke` **34/34 PASS**（需服务已启动）
 - [ ] 控制面 `PRAGMA user_version == 2`，且 `/api/rules` 的 `custom_state` 字段齐全
 - [ ] `py -3.10 p4_local.py` 数值与上次一致（或解释差异）
 

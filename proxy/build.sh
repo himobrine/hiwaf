@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Portable build wrapper for the collector data plane. Mirrors proxy/build.bat.
+#
+#   ./build.sh build --release
+#   ./build.sh run --release -- --listen 127.0.0.1:6188 --upstream 127.0.0.1:80
+#
+# Pingora -> flate2(zlib-ng) -> libz-ng-sys invokes cmake. Ninja is the
+# generator verified in this repo (cmake 4.x does not know VS 18/2026).
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")"
+
+if ! command -v cargo >/dev/null 2>&1; then
+    if [ -x "$HOME/.cargo/bin/cargo" ]; then
+        export PATH="$HOME/.cargo/bin:$PATH"
+    else
+        echo "[build] cargo not found. Install Rust from https://rustup.rs and retry." >&2
+        exit 1
+    fi
+fi
+
+for tool in cmake ninja; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+        echo "[build] $tool not found. Install it first (e.g. apt install cmake ninja-build)." >&2
+        exit 1
+    fi
+done
+
+export CMAKE_GENERATOR="${CMAKE_GENERATOR:-Ninja}"
+export CARGO_TARGET_DIR="${WAF_CARGO_TARGET:-$HOME/.cache/waf-cargo-target}"
+exec cargo "$@"

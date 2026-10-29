@@ -5,8 +5,13 @@ WAF 控制台的后端。**单机 + 账号 RBAC + 审计**，FastAPI + SQLite。
 ```bash
 cd F:\waf\python
 py -3.10 -m pip install -r requirements-service.txt   # 只需一次
-py -3.10 -m service.run                  # http://127.0.0.1:8090/docs
+py -3.10 -m service.bootstrap             # 幂等建库 + admin（不启动服务）
+py -3.10 -m service.run                   # http://127.0.0.1:8090/docs
 ```
+
+一键安装（`INSTALL.md`）会建仓库根 `.venv` 并完成上面三步；之后可用
+`.venv\Scripts\python.exe -m service.run`（Linux 为 `.venv/bin/python`）。
+`service.bootstrap` 与首次启动等价：只建缺失的表/索引，已有账号和密码不会被覆盖。
 
 首次启动会创建 `admin` 账号，初始密码写入 `service/.admin_password`（同时打印到控制台）。
 登录后立刻改密码：`POST /api/auth/password`（改密后旧 token 立即失效）。

@@ -161,9 +161,17 @@ PROXY_DEFAULTS = {
 
 _EXE = "waf-collector.exe" if os.name == "nt" else "waf-collector"
 #: 二进制只从这些固定位置解析（外加 `WAF_COLLECTOR_BIN` 覆盖），不接受请求传入。
-PROXY_BIN_CANDIDATES = [
-    ROOT / "proxy" / "target" / "release" / _EXE,
-    Path(os.environ.get("WAF_CARGO_TARGET", r"E:\waf-target")) / "release" / _EXE,
+#:
+#: 顺序：仓库内 target → `WAF_CARGO_TARGET` → 本机旧缓存 `E:\waf-target` →
+#: 一键安装的便携缓存（Windows `%LOCALAPPDATA%` / Linux `~/.cache`）→ 旧 `rust/target`。
+_CARGO_TARGET_ENV = os.environ.get("WAF_CARGO_TARGET", "").strip()
+PROXY_BIN_CANDIDATES = [ROOT / "proxy" / "target" / "release" / _EXE]
+if _CARGO_TARGET_ENV:
+    PROXY_BIN_CANDIDATES.append(Path(_CARGO_TARGET_ENV) / "release" / _EXE)
+PROXY_BIN_CANDIDATES += [
+    Path(r"E:\waf-target") / "release" / _EXE,
+    Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "waf-cargo-target" / "release" / _EXE,
+    Path.home() / ".cache" / "waf-cargo-target" / "release" / _EXE,
     ROOT / "rust" / "target" / "release" / _EXE,
 ]
 #: 托管进程的 PID 文件与日志（都在控制台日志目录下）。

@@ -39,7 +39,21 @@ Pingora 反向代理 + **HTTP/流级采集**。这是工作项 F 第一约束（
 ```bat
 cd F:\waf\proxy
 call build.bat build --release
+```
 
+Linux（需要 gcc/make/cmake/ninja）：
+
+```bash
+cd waf/proxy
+./build.sh build --release
+```
+
+`build.bat` / `build.sh` 会自动找 MSVC/cargo、设置 `CMAKE_GENERATOR=Ninja`，并把
+`CARGO_TARGET_DIR` 统一到共享缓存（Windows 优先 `E:\waf-target`，否则
+`%LOCALAPPDATA%\waf-cargo-target`；Linux `~/.cache/waf-cargo-target`）。
+一键安装的 `-WithRust` / `--with-rust` 会调用同一套脚本。
+
+```bat
 :: 本地靶场：上游先用 phpStudy/DVWA 或任意后端
 call build.bat run --release -- ^
     --listen 127.0.0.1:6188 ^

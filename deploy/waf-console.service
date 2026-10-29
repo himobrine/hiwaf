@@ -1,0 +1,19 @@
+[Unit]
+Description=WAF Console (FastAPI control plane)
+Documentation=file://@ROOT@/INSTALL.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@USER@
+WorkingDirectory=@ROOT@/python
+Environment=PYTHONIOENCODING=utf-8
+ExecStart=@PYTHON@ -m service.run --host @HOST@ --port @PORT@
+Restart=on-failure
+RestartSec=3
+KillMode=mixed
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target
