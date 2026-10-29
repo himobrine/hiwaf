@@ -179,14 +179,22 @@ pkg_install() {
     esac
 }
 
-install_base_deps() {
-    log "安装系统基础依赖（$PM）"
+install_python_deps() {
+    log "安装 Python 3.10（$PM）"
     case "$PM" in
-        apt)    pkg_install python3.10 python3.10-venv python3.10-dev nodejs npm curl ca-certificates ;;
-        dnf)    pkg_install python3.10 python3.10-devel nodejs npm curl ca-certificates ;;
-        yum)    pkg_install python3.10 python3.10-devel nodejs npm curl ca-certificates ;;
-        pacman) pkg_install python nodejs npm curl ca-certificates ;;
-        *)      die "未识别包管理器；请手动安装 Python 3.10、Node.js 18+、npm。" ;;
+        apt)    pkg_install python3.10 python3.10-venv python3.10-dev ;;
+        dnf)    pkg_install python3.10 python3.10-devel ;;
+        yum)    pkg_install python3.10 python3.10-devel ;;
+        pacman) pkg_install curl ca-certificates ;;
+        *)      die "未识别包管理器；请手动安装 Python 3.10。" ;;
+    esac
+}
+
+install_node_deps() {
+    log "安装 Node.js 18+ / npm（$PM）"
+    case "$PM" in
+        apt|dnf|yum|pacman) pkg_install nodejs npm ;;
+        *)                  die "未识别包管理器；请手动安装 Node.js 18+ 与 npm。" ;;
     esac
 }
 
@@ -282,10 +290,10 @@ if ! PY="$(find_python)"; then
         exit 1
     fi
     if [ "$DRY_RUN" -eq 1 ]; then
-        install_base_deps
+        install_python_deps
         PY="python3.10"
     else
-        install_base_deps
+        install_python_deps
         if ! PY="$(find_python)"; then
             python_hint
             exit 1
@@ -300,9 +308,9 @@ if ! node_ok; then
         die "请先安装 Node.js 18+（https://nodejs.org/ 或 NodeSource）后重试。"
     fi
     if [ "$DRY_RUN" -eq 1 ]; then
-        install_base_deps
+        install_node_deps
     else
-        install_base_deps
+        install_node_deps
         if ! node_ok; then
             die "Node.js 安装后仍不可用或版本 < 18；请用 NodeSource/官方二进制安装后重试。"
         fi
@@ -411,7 +419,7 @@ if [ "$build_rust" -eq 1 ]; then
     if [ ! -x "$WAF_CARGO_TARGET/release/waf-collector" ]; then
         warn "未找到采集器二进制；控制台「采集代理」页会提示缺失"
     fi
-else
+elif [ "$NO_RUST" -eq 0 ]; then
     warn "未找到完整 Rust 工具链，跳过 Rust/采集器构建；需要时用 --with-rust"
 fi
 
