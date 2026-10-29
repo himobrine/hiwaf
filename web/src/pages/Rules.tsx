@@ -242,6 +242,7 @@ export default function Rules({ user }: { user: User }) {
   const [qualifyForm] = Form.useForm()
   const [historyDays, setHistoryDays] = useState(30)
   const [historyBusy, setHistoryBusy] = useState(false)
+  const qualifyForce = Form.useWatch('force', qualifyForm)
 
   // 误报事件 / 紧急熔断
   const [incidents, setIncidents] = useState<RuleIncident[]>([])
@@ -1444,11 +1445,18 @@ export default function Rules({ user }: { user: User }) {
               ? { key: 'breaker', label: '熔断该规则', danger: true, disabled: !isAdmin }
               : { key: 'breaker', label: '熔断 / 移出现役', danger: true, disabled: !isAdmin },
             { key: 'evidence', label: '查看在线证据' },
-            { key: 'qualify', label: '确认合格', disabled: !isAdmin || !r.suggest_qualified },
+            { key: 'history', label: '用历史告警验证', disabled: !canWrite },
+            {
+              key: 'qualify',
+              // 不再要求「已有证据」才可点：证据不足时也要能打开弹窗去跑历史回放/强制确认。
+              label: r.suggest_qualified ? '确认合格' : '确认合格（证据不足）',
+              disabled: !isAdmin,
+            },
           ],
           onClick: ({ key }: any) => {
             if (key === 'breaker') applyBreaker('rule', r.id, 'manual')
             if (key === 'evidence') openEvidence(r)
+            if (key === 'history') openEvidence(r)
             if (key === 'qualify') openQualify(r)
           },
         }
@@ -2394,6 +2402,10 @@ export default function Rules({ user }: { user: User }) {
         open={!!qualify}
         title={`确认规则合格：${qualify?.id || ''}`}
         okText="确认合格"
+        okButtonProps={{
+          // 证据不够时必须显式勾「强制确认」，避免点了才报错。
+          disabled: !!qualify && !qualify.suggest_qualified && !qualifyForce,
+        }}
         confirmLoading={busy === qualify?.id}
         onCancel={() => setQualify(null)}
         onOk={doQualify}
@@ -2458,8 +2470,12 @@ export default function Rules({ user }: { user: User }) {
                   用历史告警验证
                 </Button>
                 {qualify.history ? (
-                  <Tag color={qualify.history_ok ? 'green' : 'gold'}>
-                    {qualify.history_ok ? '可合格（确认攻击 ≥1 / 确认良性 0）' : '历史证据不足'}
+                  <Tag color={qualify.history_ok ? 'green' : qualify.history.ok ? 'orange' : 'gold'}>
+                    {qualify.history_ok
+                      ? '可合格（确认攻击 ≥1 / 确认良性 0）'
+                      : qualify.history.ok
+                        ? '历史证据够，但 ② 真实良性校验未过'
+                        : '历史证据不足'}
                   </Tag>
                 ) : (
                   <span className="muted">尚未回放</span>
@@ -2495,6 +2511,14 @@ export default function Rules({ user }: { user: User }) {
                   showIcon
                   style={{ marginTop: 8 }}
                   message={`历史命中里有 ${fmtInt(qualify.history.confirmed_benign)} 条确认良性：不能用于合格，先修正则或排除该业务场景。`}
+                />
+              ) : null}
+              {qualify.history?.ok && !qualify.history_ok ? (
+                <Alert
+                  type="info"
+                  showIcon
+                  style={{ marginTop: 8 }}
+                  message="历史告警证据已够；还需先通过 ② 真实良性零误报（规则行「校验」）才能确认合格。"
                 />
               ) : null}
             </Card>
@@ -2555,7 +2579,7 @@ export default function Rules({ user }: { user: User }) {
             <Button size="small" icon={<ReloadOutlined />} loading={evidenceLoading} onClick={reloadEvidence}>
               刷新
             </Button>
-            {evidence?.view?.suggest_qualified ? (
+            {evidence && evidence.source !== 'mined' ? (
               <Button
                 size="small"
                 type="primary"
@@ -2695,8 +2719,12 @@ export default function Rules({ user }: { user: User }) {
                     用历史告警验证
                   </Button>
                   {evidence.history ? (
-                    <Tag color={evidence.history_ok ? 'green' : 'gold'}>
-                      {evidence.history_ok ? '可合格（确认攻击 ≥1 / 确认良性 0）' : '历史证据不足'}
+                    <Tag color={evidence.history_ok ? 'green' : evidence.history.ok ? 'orange' : 'gold'}>
+                      {evidence.history_ok
+                        ? '可合格（确认攻击 ≥1 / 确认良性 0）'
+                        : evidence.history.ok
+                          ? '历史证据够，但 ② 真实良性校验未过'
+                          : '历史证据不足'}
                     </Tag>
                   ) : (
                     <span className="muted">尚未回放</span>
