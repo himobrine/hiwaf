@@ -21,6 +21,7 @@ const Degradation = lazy(() => import('./pages/Degradation'))
 const Proxy = lazy(() => import('./pages/Proxy'))
 const Audit = lazy(() => import('./pages/Audit'))
 const Users = lazy(() => import('./pages/Users'))
+const IpLists = lazy(() => import('./pages/IpLists'))
 
 function loadUser(): User | null {
   try {
@@ -105,6 +106,7 @@ export default function App() {
           <Route path="/proxy" element={<Proxy user={user} />} />
           <Route path="/audit" element={<Audit />} />
           <Route path="/users" element={<Users user={user} />} />
+          <Route path="/ip-lists" element={<IpLists user={user} />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Suspense>

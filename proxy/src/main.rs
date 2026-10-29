@@ -34,6 +34,7 @@
 
 mod config;
 mod filters;
+mod iplist;
 mod reload;
 mod sink;
 
@@ -140,6 +141,33 @@ fn main() {
             },
         };
 
+    // ---- IP 黑白名单（人工维护，控制台写文件；热重载）----
+    let ip_path = cfg.artifacts.join(iplist::FILE);
+    let ip_list = match iplist::IpList::load(&ip_path) {
+        Ok((l, errs)) => {
+            eprintln!(
+                "[collector] IP 名单：白 {} 条 / 黑 {} 条（{}）{}",
+                l.n_white(),
+                l.n_black(),
+                ip_path.display(),
+                if errs.is_empty() {
+                    String::new()
+                } else {
+                    format!("；跳过 {} 条非法条目", errs.len())
+                }
+            );
+            l
+        }
+        Err(e) => {
+            eprintln!(
+                "[collector] IP 名单：未加载（{e}）；先按空名单运行，控制台保存后热重载"
+            );
+            iplist::IpList::default()
+        }
+    };
+    let ip_lists: Arc<RwLock<Arc<iplist::IpList>>> =
+        Arc::new(RwLock::new(Arc::new(ip_list)));
+
     // 进程内监控：把队列/丢弃计数与 dry-run 动作计数定期写 stderr（+ 可选指标文件）。
     // 采集端最怕的不是丢几条，而是**默默**丢（良性池被污染却不自知），所以计数必须可见。
     let score_errors = Arc::new(std::sync::atomic::AtomicU64::new(0));
@@ -150,6 +178,7 @@ fn main() {
         cfg: Arc::clone(&cfg),
         scorer: scorer.clone(),
         rules: rules.clone(),
+        ip_lists: Some(ip_lists.clone()),
         stats: sink.stats(),
         state: Mutex::new(reload::ReloadState::default()),
     });
@@ -193,6 +222,7 @@ fn main() {
             score_errors: Arc::clone(&score_errors),
             actions: Arc::clone(&actions),
             rules: rules.clone(),
+            ip_lists: Some(ip_lists.clone()),
         };
         let mut svc = http_proxy_service(&server.configuration, collector);
         svc.add_tcp(&route.listen);

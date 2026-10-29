@@ -660,6 +660,15 @@ py -3.10 upload_parse.py --input cap.pcap --out %TEMP%\up2 --role benign --defau
 **登录**：用户 `admin`，密码见 `python\service\.admin_password`（或在启动日志里打印）。
 登录后立刻改密码：网页右上角 → 退出前请先改（或 `POST /api/auth/password`）。
 
+**IP 黑白名单**（菜单「IP 黑白名单」）：支持单条添加、批量导入（JSON/CSV/文本行）、
+导出 CSV/JSON、启停/删除；IPv4/IPv6 与 CIDR。**白名单优先**：命中直接放行（跳过模型/
+规则，仍留事件）；黑名单在 `enforce` 下 403、`dry-run` 只记录、`off` 纯采集不应用。
+变更立即写 `python\artifacts\ip_lists.json`，采集器 ≤5s 热重载。
+
+**自动拉黑**（页面底部，admin）：同一源 IP 在窗口内「block + 有规则命中的 alert」达到
+阈值 → 自动加入黑名单（来源 `auto`，默认 24h 过期；`0` = 永久）。白名单 IP 永不自动
+拉黑，手工条目不会被自动覆盖；阈值/窗口/时长可改，也可手动「立即扫描」。
+
 **用户管理**（菜单「用户管理」，仅 admin）：新建用户 / 改角色 / 禁用 / 重置密码 / 删除。
 角色仍是 `viewer < analyst < admin`；**至少保留一个启用的 admin**，不能禁用/删除自己、
 不能改自己的角色；改密码 / 改角色 / 禁用会立即让该用户已签发的令牌失效（需重新登录）。

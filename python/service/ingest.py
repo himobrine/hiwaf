@@ -216,6 +216,11 @@ def _ingest_locked(with_body: bool = False) -> dict:
                     except (TypeError, ValueError):
                         lab_i = None
                     attack_type = labels.get(lab_i) if lab_i is not None else None
+                    ip_list = d.get("ip_list") or None
+                    if ip_list == "blacklist":
+                        attack_type = "ip_blacklist"
+                    elif ip_list == "whitelist":
+                        attack_type = "ip_whitelist"
 
                     cur = conn.execute(
                         """INSERT OR IGNORE INTO events(
@@ -226,8 +231,8 @@ def _ingest_locked(with_body: bool = False) -> dict:
                             zero_day_score, zero_day_threshold,
                             zero_day_score_crossed, zero_day_flagged, zero_day_enabled,
                             attack_label, attack_type, model_artifacts, dry_run, enforced,
-                            src_kind, src_file, src_line, policy_version
-                        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                            src_kind, src_file, src_line, policy_version, ip_list
+                        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                         (
                             ts,
                             db.now_ms(),
@@ -264,6 +269,7 @@ def _ingest_locked(with_body: bool = False) -> dict:
                             key,
                             n,
                             pver,
+                            ip_list,
                         ),
                     )
                     if not cur.rowcount:

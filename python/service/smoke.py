@@ -73,6 +73,10 @@ def main() -> int:
     ck("用户管理列表", st == 200 and "items" in us,
        f"{st} n={len(us.get('items') or [])}")
 
+    st, il = call("GET", "/api/ip-lists?limit=5", token=token)
+    ck("IP 黑白名单", st == 200 and "items" in il,
+       f"{st} counts={il.get('counts')}")
+
     st, ov = call("GET", "/api/overview/summary?window_hours=168", token=token)
     ck("总览", st == 200 and "totals" in ov,
        f"{st} events={((ov.get('totals') or {}).get('n'))} mode={ov.get('mode')}")

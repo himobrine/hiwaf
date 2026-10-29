@@ -17,6 +17,7 @@ import {
 } from 'antd'
 import {
   AlertOutlined,
+  BlockOutlined,
   CloudServerOutlined,
   DashboardOutlined,
   DatabaseOutlined,
@@ -194,6 +195,7 @@ export default function AppLayout({
     { key: '/events', icon: <UnorderedListOutlined />, label: '事件' },
     { key: '/alerts', icon: <AlertOutlined />, label: '告警' },
     { key: '/suppressions', icon: <StopOutlined />, label: '抑制策略' },
+    { key: '/ip-lists', icon: <BlockOutlined />, label: 'IP 黑白名单' },
     { key: '/policy', icon: <SafetyCertificateOutlined />, label: '策略中心' },
     { key: '/feedback', icon: <EditOutlined />, label: '反馈台账' },
     {

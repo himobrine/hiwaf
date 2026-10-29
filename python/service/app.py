@@ -33,7 +33,7 @@ from pydantic import BaseModel, Field
 
 from . import (alerts as alerts_mod, audit_retention, audit_retention_scheduler,
                auth, config, correlate, datasets_events, db,
-               ingest as ingest_mod, ingest_scheduler, login_guard,
+               ingest as ingest_mod, ingest_scheduler, ip_lists as ip_lists_mod, login_guard,
                model_registry, model_switch,
                packet as packet_mod, proxy_manager, retention, retention_scheduler,
                rule_spans, rules as rules_mod, rules_dsl, sites as sites_mod,
@@ -58,6 +58,13 @@ async def lifespan(_app: FastAPI):
     try:
         uploads.ensure_dirs()
         uploads.cleanup_stale()
+    except Exception:  # noqa: BLE001 - 不影响控制台启动
+        pass
+    # IP 黑白名单：清过期 + 写热重载产物 + 起自动拉黑线程。
+    try:
+        ip_lists_mod.cleanup_expired()
+        ip_lists_mod.write_artifact()
+        ip_lists_mod.scheduler_start()
     except Exception:  # noqa: BLE001 - 不影响控制台启动
         pass
     ingest_scheduler.start()
@@ -239,6 +246,48 @@ class UserPasswordIn(BaseModel):
     model_config = {"extra": "forbid"}
 
     password: str = Field(min_length=1, max_length=128)
+
+
+class IpListIn(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    ip: str
+    kind: str = "black"
+    reason: Optional[str] = None
+    note: Optional[str] = None
+    expires_at: Optional[int] = None
+
+
+class IpListPatchIn(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    enabled: Optional[bool] = None
+    reason: Optional[str] = None
+    note: Optional[str] = None
+    expires_at: Optional[int] = None
+
+
+class IpListImportIn(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    kind: str = "black"
+    text: str
+
+
+class IpListBulkDeleteIn(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    ids: List[int] = Field(min_length=1, max_length=5000)
+
+
+class IpAutoSettingsIn(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    enabled: Optional[bool] = None
+    threshold: Optional[int] = None
+    window_min: Optional[int] = None
+    duration_hours: Optional[int] = None
+    count_rule_alerts: Optional[bool] = None
 
 
 class FeedbackIn(BaseModel):
@@ -689,6 +738,135 @@ def user_delete(uid: int, request: Request,
     return {"ok": True, "user": row}
 
 
+# ---- IP 黑白名单 -----------------------------------------------------------
+@app.get("/api/ip-lists")
+def ip_list_list(kind: Optional[str] = None, q: Optional[str] = None,
+                 limit: int = Query(500, ge=1, le=5000),
+                 user: dict = Depends(auth.current_user)):
+    try:
+        items = ip_lists_mod.list_items(kind=kind, q=q, limit=limit)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"items": items, "counts": ip_lists_mod.counts(),
+            "artifact": ip_lists_mod.artifact_state(),
+            "settings": ip_lists_mod.auto_settings()}
+
+
+@app.post("/api/ip-lists")
+def ip_list_add(body: IpListIn, request: Request,
+                user: dict = Depends(auth.require_at_least("analyst"))):
+    try:
+        row = ip_lists_mod.add(body.ip, body.kind, reason=body.reason or "",
+                               note=body.note or "", expires_at=body.expires_at,
+                               actor=user["username"])
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    audit(user["username"], "ip_list_add", f"ip:{row['ip']}",
+          json.dumps({"kind": row["kind"], "source": row["source"],
+                      "reason": row["reason"], "expires_at": row["expires_at"]},
+                     ensure_ascii=False), _ip(request))
+    return {"item": row}
+
+
+@app.patch("/api/ip-lists/{uid}")
+def ip_list_update(uid: int, body: IpListPatchIn, request: Request,
+                   user: dict = Depends(auth.require_at_least("analyst"))):
+    try:
+        if body.enabled is not None:
+            ip_lists_mod.set_enabled(uid, body.enabled, actor=user["username"])
+        row = ip_lists_mod.update(uid, reason=body.reason, note=body.note,
+                                  expires_at=body.expires_at,
+                                  actor=user["username"])
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    audit(user["username"], "ip_list_update", f"ip:{row['ip']}",
+          json.dumps({"enabled": row["enabled"], "expires_at": row["expires_at"]},
+                     ensure_ascii=False), _ip(request))
+    return {"item": row}
+
+
+@app.delete("/api/ip-lists/{uid}")
+def ip_list_delete(uid: int, request: Request,
+                   user: dict = Depends(auth.require_at_least("admin"))):
+    try:
+        row = ip_lists_mod.delete(uid, actor=user["username"])
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+    audit(user["username"], "ip_list_delete", f"ip:{row['ip']}",
+          json.dumps({"kind": row["kind"], "source": row["source"]},
+                     ensure_ascii=False), _ip(request))
+    return {"ok": True, "item": row}
+
+
+@app.post("/api/ip-lists/bulk-delete")
+def ip_list_bulk_delete(body: IpListBulkDeleteIn, request: Request,
+                        user: dict = Depends(auth.require_at_least("admin"))):
+    out = ip_lists_mod.bulk_delete(body.ids, actor=user["username"])
+    audit(user["username"], "ip_list_bulk_delete", f"n={len(out['deleted'])}",
+          json.dumps({"ids": body.ids, "missing": out["missing"]},
+                     ensure_ascii=False), _ip(request))
+    return {"ok": True, **out}
+
+
+@app.post("/api/ip-lists/import")
+def ip_list_import(body: IpListImportIn, request: Request,
+                   user: dict = Depends(auth.require_at_least("analyst"))):
+    try:
+        out = ip_lists_mod.import_text(body.text, body.kind, actor=user["username"])
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    audit(user["username"], "ip_list_import", body.kind,
+          json.dumps({k: out.get(k) for k in ("total", "added", "updated")},
+                     ensure_ascii=False), _ip(request))
+    return out
+
+
+@app.get("/api/ip-lists/export")
+def ip_list_export(kind: Optional[str] = None,
+                   format: str = Query("csv", pattern="^(csv|json)$"),
+                   user: dict = Depends(auth.current_user)):
+    try:
+        if format == "json":
+            content, media = ip_lists_mod.export_json(kind), "application/json"
+        else:
+            content, media = ip_lists_mod.export_csv(kind), "text/csv"
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    fname = f"ip_lists_{kind or 'all'}.{format}"
+    return Response(content=content, media_type=f"{media}; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
+@app.get("/api/ip-lists/settings")
+def ip_auto_settings_get(user: dict = Depends(auth.current_user)):
+    return {"settings": ip_lists_mod.auto_settings()}
+
+
+@app.put("/api/ip-lists/settings")
+def ip_auto_settings_put(body: IpAutoSettingsIn, request: Request,
+                         user: dict = Depends(auth.require_at_least("admin"))):
+    patch = body.model_dump(exclude_none=True)
+    if not patch:
+        raise HTTPException(400, "没有要更新的设置")
+    try:
+        out = ip_lists_mod.update_auto_settings(patch, user["username"])
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    audit(user["username"], "ip_auto_settings", None,
+          json.dumps(patch, ensure_ascii=False), _ip(request))
+    return {"settings": out}
+
+
+@app.post("/api/ip-lists/auto/scan")
+def ip_auto_scan(request: Request,
+                 user: dict = Depends(auth.require_at_least("admin"))):
+    out = ip_lists_mod.auto_scan(actor=user["username"])
+    audit(user["username"], "ip_auto_scan", None,
+          json.dumps({"added": out.get("added"), "candidates": out.get("candidates")},
+                     ensure_ascii=False), _ip(request))
+    return out
+
+
 # --------------------------------------------------------------------------- 总览
 #: 事件聚合缓存：key = (DB 路径, window_hours)。15s 轮询下 5s 足够新；
 #: 多标签页同时打开时能省掉重复的 COUNT/分组扫描。
@@ -933,7 +1111,7 @@ def list_events(
                    zero_day_score, zero_day_threshold,
                    zero_day_score_crossed, zero_day_flagged, zero_day_enabled,
                    attack_label, attack_type, ua, dry_run, enforced, rule_testing,
-                   rule_set_sha1_16, rule_hits_json
+                   rule_set_sha1_16, rule_hits_json, ip_list
             FROM events WHERE {w} ORDER BY ts DESC, id DESC LIMIT ? OFFSET ?""",
         p + [limit + 1, offset],
     )

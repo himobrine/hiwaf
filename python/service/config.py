@@ -128,6 +128,19 @@ RULE_MONITOR_DEFAULTS = {
                       not in ("0", "false", "no", "off"),
 }
 
+#: IP 黑白名单产物：控制台维护，采集器按 `--reload-interval` 热重载。
+IP_LISTS = ARTIFACTS / "ip_lists.json"
+#: 自动拉黑默认值（控制台可改）：同一源 IP 在窗口内“告警/阻断”达到阈值
+#: 就加入黑名单；只统计有规则命中的 alert（模型单独的噪声不算）。
+IP_AUTO_DEFAULTS = {
+    "enabled": True,
+    "threshold": 20,
+    "window_min": 10,
+    "duration_hours": 24,      # 0 = 永久
+    "count_rule_alerts": True,  # 只统计命中规则的 alert（避免模型噪声误拉黑）
+}
+IP_AUTO_INTERVAL_SEC = int(os.environ.get("WAF_IP_AUTO_INTERVAL", "60"))
+
 #: 历史告警回放证据（自撰规则合格的可选证据源之一）。
 #: 手动触发，结果缓存到 `rule_history_evidence`；规则一改（指纹变）即失效。
 RULE_HISTORY_DAYS = int(os.environ.get("WAF_RULE_HISTORY_DAYS", "30"))

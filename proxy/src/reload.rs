@@ -34,6 +34,7 @@ use waf_ai_proto::hash::sha1_16_file;
 use waf_ai_proto::rules::RuleEngine;
 
 use crate::config::Config;
+use crate::iplist::{IpList, FILE as IP_LIST_FILE};
 use crate::sink::Stats;
 
 /// 热重载的当前状态（进指标文件，供控制台显示"采集器到底在用哪一版"）。
@@ -51,6 +52,13 @@ pub struct ReloadState {
     pub rules_active_sha1_16: Option<String>,
     /// 在用规则条数
     pub rules_active_n: Option<usize>,
+    /// 磁盘上 IP 名单的指纹
+    pub ip_list_sha1_16: Option<String>,
+    /// 在用 IP 名单的指纹
+    pub ip_list_active_sha1_16: Option<String>,
+    pub ip_blacklist_n: Option<usize>,
+    pub ip_whitelist_n: Option<usize>,
+    pub ip_list_last_err: Option<String>,
     pub last_ok_ts: i64,
     pub last_err_ts: i64,
     /// 最近一次失败原因（空 = 最近一次是成功的）
@@ -61,6 +69,8 @@ pub struct ReloadShared {
     pub cfg: Arc<Config>,
     pub scorer: Option<Arc<Mutex<Engine>>>,
     pub rules: Option<Arc<RwLock<Arc<RuleEngine>>>>,
+    /// IP 黑白名单（始终存在；空名单 = 不拦截）。
+    pub ip_lists: Option<Arc<RwLock<Arc<IpList>>>>,
     pub stats: Arc<Stats>,
     pub state: Mutex<ReloadState>,
 }
@@ -123,6 +133,17 @@ pub fn prime(shared: &ReloadShared) {
         st.rules_active_sha1_16 = Some(eng.sha1_16.clone());
         st.rules_active_n = Some(eng.n_rules());
     }
+    let ip_path = shared.cfg.artifacts.join(IP_LIST_FILE);
+    st.ip_list_sha1_16 = sha1_16_file(&ip_path);
+    if let Some(slot) = &shared.ip_lists {
+        let l = match slot.read() {
+            Ok(g) => g.clone(),
+            Err(p) => p.into_inner().clone(),
+        };
+        st.ip_list_active_sha1_16 = st.ip_list_sha1_16.clone();
+        st.ip_blacklist_n = Some(l.n_black());
+        st.ip_whitelist_n = Some(l.n_white());
+    }
 }
 
 /// 一次轮询：指纹变了才动作。
@@ -133,8 +154,10 @@ fn tick(shared: &Arc<ReloadShared>) -> Result<(), String> {
     let cfg = &shared.cfg;
     let disk_policy_sha = sha1_16_file(&policy_path(cfg));
     let disk_rules_sha = cfg.rules.as_ref().and_then(|p| sha1_16_file(p));
+    let ip_path = cfg.artifacts.join(IP_LIST_FILE);
+    let disk_ip_sha = sha1_16_file(&ip_path);
 
-    let (change_policy, change_rules) = {
+    let (change_policy, change_rules, change_ip) = {
         let st = match shared.state.lock() {
             Ok(g) => g,
             Err(p) => p.into_inner(),
@@ -142,9 +165,10 @@ fn tick(shared: &Arc<ReloadShared>) -> Result<(), String> {
         (
             disk_policy_sha != st.policy_sha1_16,
             disk_rules_sha != st.rules_sha1_16,
+            disk_ip_sha != st.ip_list_sha1_16,
         )
     };
-    if !change_policy && !change_rules {
+    if !change_policy && !change_rules && !change_ip {
         return Ok(());
     }
 
@@ -186,12 +210,46 @@ fn tick(shared: &Arc<ReloadShared>) -> Result<(), String> {
         }
     }
 
+    let mut new_ip: Option<Arc<IpList>> = None;
+    let mut ip_err: Option<String> = None;
+    if change_ip {
+        if !ip_path.exists() {
+            // 文件被删：保留正在用的名单，不静默变成"没有名单"。
+            ip_err = Some("IP 名单文件不存在：保留正在用的名单".to_string());
+        } else {
+            match IpList::load(&ip_path) {
+                Ok((l, errs)) => {
+                    if !errs.is_empty() {
+                        eprintln!(
+                            "[reload] IP 名单有 {} 条非法条目，已跳过：{:?}",
+                            errs.len(),
+                            &errs[..errs.len().min(3)]
+                        );
+                    }
+                    new_ip = Some(Arc::new(l));
+                }
+                Err(e) => ip_err = Some(format!("IP 名单重载被拒（继续用旧名单）：{e}")),
+            }
+        }
+    }
+    if ip_err.is_some() {
+        err = ip_err.clone();
+    }
+
     // ---- 2) 替换（只替换校验通过的那部分） ----
     if let Some(r) = new_rules {
         if let Some(slot) = &shared.rules {
             match slot.write() {
                 Ok(mut g) => *g = r,
                 Err(p) => *p.into_inner() = r,
+            }
+        }
+    }
+    if let Some(l) = new_ip {
+        if let Some(slot) = &shared.ip_lists {
+            match slot.write() {
+                Ok(mut g) => *g = l,
+                Err(p) => *p.into_inner() = l,
             }
         }
     }
@@ -218,6 +276,17 @@ fn tick(shared: &Arc<ReloadShared>) -> Result<(), String> {
         st.rules_active_sha1_16 = Some(eng.sha1_16.clone());
         st.rules_active_n = Some(eng.n_rules());
     }
+    st.ip_list_sha1_16 = disk_ip_sha;
+    if let Some(slot) = &shared.ip_lists {
+        let l = match slot.read() {
+            Ok(g) => g.clone(),
+            Err(p) => p.into_inner().clone(),
+        };
+        st.ip_list_active_sha1_16 = st.ip_list_sha1_16.clone();
+        st.ip_blacklist_n = Some(l.n_black());
+        st.ip_whitelist_n = Some(l.n_white());
+    }
+    st.ip_list_last_err = ip_err;
     match &err {
         None => {
             st.last_ok_ts = now_ms();

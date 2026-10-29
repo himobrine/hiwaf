@@ -46,6 +46,8 @@ python/artifacts/models/
 python/artifacts/staging/
 python/artifacts/switch_backup/
 python/artifacts/curves/
+# IP 黑白名单是运行期数据（真值在 console.db），不进仓库
+python/artifacts/ip_lists.json
 
 # 模型 / 数据集 / 抓包等二进制
 *.onnx

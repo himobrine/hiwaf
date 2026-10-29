@@ -35,6 +35,7 @@ use pingora::proxy::{FailToProxy, ProxyHttp, Session};
 use pingora::upstreams::peer::HttpPeer;
 
 use crate::config::{BlockMode, Config, RespBodyMode, Route};
+use crate::iplist::IpList;
 use crate::sink::{BodyOut, Pred, Record, ResponseOut, RulesOut, Sink};
 
 /// 拦截页（简短、不泄露规则细节）。
@@ -70,6 +71,8 @@ pub struct Ctx {
     referer: String,
     src_ip: String,
     src_port: u16,
+    /// IP 黑白名单命中：`whitelist` / `blacklist`（None = 未命中）。
+    ip_list: Option<String>,
     /// enforce 阶段提前算好的判定；`logging` 直接复用，避免二次评分。
     decision: Option<Decision>,
     /// 是否已经做过判定（请求头阶段或 body 结束）。
@@ -112,6 +115,7 @@ impl Default for Ctx {
             referer: String::new(),
             src_ip: String::new(),
             src_port: 0,
+            ip_list: None,
             decision: None,
             decided: false,
             blocked: false,
@@ -142,6 +146,33 @@ fn effective_action<'a>(action: &'a str, rules_flagged: bool, supervised_block: 
 }
 
 impl Decision {
+    /// IP 名单直接给出的动作：不经过模型/规则，分数/证据全部为空。
+    fn ip_list(action: &str, enforced: bool) -> Self {
+        let pred = Pred {
+            action: action.to_string(),
+            supervised_score: 0.0,
+            supervised_threshold: 0.0,
+            supervised_flagged: false,
+            zero_day_score: 0.0,
+            zero_day_threshold: 0.0,
+            zero_day_score_crossed: false,
+            zero_day_flagged: false,
+            zero_day_enabled: false,
+            artifacts: String::new(),
+            attack_label: 0,
+            shap_topk: Vec::new(),
+            rule_weight: 0.0,
+            rule_block_weight: 0.0,
+            rules_flagged: false,
+            dry_run: action == "block" && !enforced,
+            enforced,
+        };
+        Decision {
+            rules: None,
+            pred: Some(pred),
+        }
+    }
+
     fn action(&self) -> Option<&str> {
         self.pred.as_ref().map(|p| p.action.as_str())
     }
@@ -342,6 +373,8 @@ pub struct Collector {
     /// 要能并发；写路径只有热重载那一条，5 秒一次。热重载**校验通过才替换**这个 `Arc`，
     /// 所以正在处理的请求要么看到旧引擎、要么看到新引擎，**不会看到半个引擎**。
     pub rules: Option<Arc<RwLock<Arc<waf_ai_proto::rules::RuleEngine>>>>,
+    /// IP 黑白名单（人工维护；空名单 = 不拦截）。
+    pub ip_lists: Option<Arc<RwLock<Arc<IpList>>>>,
 }
 
 impl Collector {
@@ -531,6 +564,45 @@ impl ProxyHttp for Collector {
             if let Some(sa) = addr.as_inet() {
                 ctx.src_ip = sa.ip().to_string();
                 ctx.src_port = sa.port();
+            }
+        }
+
+        // ---- IP 黑白名单（人工维护，独立于模型/规则）----
+        // off = 纯采集，不应用名单；dry_run = 只记录；enforce 才真的 403。
+        if self.cfg.block_mode != BlockMode::Off {
+            if let Some(slot) = self.ip_lists.as_ref() {
+                let lists = match slot.read() {
+                    Ok(g) => g.clone(),
+                    Err(p) => p.into_inner().clone(),
+                };
+                let kind = if lists.is_whitelisted(&ctx.src_ip) {
+                    Some("whitelist")
+                } else if lists.is_blacklisted(&ctx.src_ip) {
+                    Some("blacklist")
+                } else {
+                    None
+                };
+                if let Some(k) = kind {
+                    ctx.ip_list = Some(k.to_string());
+                    ctx.decided = true;
+                    if k == "whitelist" {
+                        // 白名单：跳过模型/规则，直接放行（仍写事件）。
+                        ctx.decision = Some(Decision::ip_list("allow", false));
+                        return Ok(false);
+                    }
+                    let enforce = self.cfg.block_mode == BlockMode::Enforce;
+                    ctx.decision = Some(Decision::ip_list("block", enforce));
+                    if enforce {
+                        ctx.blocked = true;
+                        self.sink.stats.blocked.fetch_add(1, Ordering::Relaxed);
+                        session
+                            .respond_error_with_body(403, Bytes::from_static(BLOCK_BODY))
+                            .await?;
+                        return Ok(true);
+                    }
+                    // dry_run：只记录 block 证据，不拦截。
+                    return Ok(false);
+                }
             }
         }
 
@@ -874,6 +946,7 @@ impl ProxyHttp for Collector {
             ts: now_ms(),
             src_ip: ctx.src_ip.clone(),
             src_port: ctx.src_port,
+            ip_list: ctx.ip_list.take(),
             host: std::mem::take(&mut ctx.host),
             route: self.route.name.clone(),
             method,

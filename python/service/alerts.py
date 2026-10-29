@@ -86,7 +86,7 @@ def group_events(src_ip: str, action: str, bucket: int, bucket_min: int = 10,
                    zero_day_score, zero_day_threshold,
                    zero_day_score_crossed, zero_day_flagged, zero_day_enabled,
                    attack_label, attack_type, ua, dry_run, rule_testing,
-                   rule_set_sha1_16, rule_hits_json
+                   rule_set_sha1_16, rule_hits_json, ip_list
             FROM events WHERE {w} ORDER BY ts DESC LIMIT ? OFFSET ?""",
         p + [limit, offset],
     )

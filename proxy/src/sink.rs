@@ -59,6 +59,9 @@ pub struct Record {
     pub ts: i64,
     pub src_ip: String,
     pub src_port: u16,
+    /// IP 名单命中：`whitelist` / `blacklist`（None = 未命中）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ip_list: Option<String>,
     pub host: String,
     /// 命中的路由名（多端口单进程时用于区分站点）。
     pub route: String,

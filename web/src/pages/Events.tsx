@@ -345,6 +345,18 @@ export default function Events({ user }: { user: User }) {
             render: (v) => <ActionTag a={v} />,
           },
           {
+            title: '名单',
+            width: 90,
+            render: (_: any, r: EventRow) =>
+              r.ip_list === 'blacklist' ? (
+                <Tag color="red">黑名单</Tag>
+              ) : r.ip_list === 'whitelist' ? (
+                <Tag color="green">白名单</Tag>
+              ) : (
+                <span className="muted">-</span>
+              ),
+          },
+          {
             title: '规则',
             width: 96,
             render: (_: any, r: EventRow) =>

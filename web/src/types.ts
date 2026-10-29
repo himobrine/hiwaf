@@ -6,6 +6,30 @@ export interface User {
   role: Role
 }
 
+/** IP 黑白名单条目。 */
+export interface IpListRow {
+  id: number
+  ip: string
+  kind: 'black' | 'white'
+  source: 'manual' | 'auto' | string
+  reason?: string | null
+  note?: string | null
+  enabled: boolean
+  expires_at?: number | null
+  expired?: boolean
+  created_by?: string | null
+  created_at: number
+}
+
+/** 自动拉黑设置。 */
+export interface IpAutoSettings {
+  enabled: boolean
+  threshold: number
+  window_min: number
+  duration_hours: number
+  count_rule_alerts: boolean
+}
+
 /** 用户管理列表行（仅 admin 可见）。 */
 export interface UserRow {
   id: number
@@ -46,6 +70,8 @@ export interface EventRow {
   zero_day_enabled?: number
   attack_label?: number | null
   attack_type?: string | null
+  /** IP 名单命中：whitelist / blacklist（null = 未命中）。 */
+  ip_list?: 'blacklist' | 'whitelist' | null
   model_artifacts?: string
   dry_run?: number
   enforced?: number

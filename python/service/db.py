@@ -118,7 +118,9 @@ CREATE TABLE IF NOT EXISTS events (
   src_kind               TEXT,
   src_file               TEXT,
   src_line               INTEGER,
-  policy_version         INTEGER
+  policy_version         INTEGER,
+  -- IP 名单命中：whitelist / blacklist（NULL = 未命中）
+  ip_list                TEXT
 );
 CREATE UNIQUE INDEX IF NOT EXISTS ux_events_src ON events(src_file, src_line);
 CREATE INDEX IF NOT EXISTS ix_events_ts ON events(ts);
@@ -285,6 +287,24 @@ CREATE TABLE IF NOT EXISTS rule_history_evidence (
   actor            TEXT,
   created_at       INTEGER NOT NULL
 );
+
+-- IP 黑白名单（人工 / 自动）。产物 artifacts/ip_lists.json 由控制台原子写，
+-- 采集器热重载；过期条目由后台清理。
+CREATE TABLE IF NOT EXISTS ip_lists (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  ip          TEXT NOT NULL,
+  kind        TEXT NOT NULL CHECK (kind IN ('black','white')),
+  source      TEXT NOT NULL DEFAULT 'manual',
+  reason      TEXT,
+  note        TEXT,
+  enabled     INTEGER NOT NULL DEFAULT 1,
+  expires_at  INTEGER,
+  created_by  TEXT,
+  created_at  INTEGER NOT NULL,
+  updated_at  INTEGER,
+  UNIQUE(kind, ip)
+);
+CREATE INDEX IF NOT EXISTS ix_ip_lists_kind ON ip_lists(kind, enabled);
 
 -- 被熔断的规则（产物级覆盖；**不改** rules_custom.action / qualified_at）。
 -- build_authoritative 会把这些规则强制成 alert，恢复 = 删行 + 重新提升。
@@ -473,6 +493,8 @@ MIGRATIONS = (
     ("uploaded_datasets", "selection_json", "TEXT"),
     # 老用户：密码是否弱（登录时按明文现算并回填；1 = 强制先改密）。
     ("users", "pw_weak", "INTEGER NOT NULL DEFAULT 0"),
+    # IP 名单命中标记（老库补列）。
+    ("events", "ip_list", "TEXT"),
 )
 
 

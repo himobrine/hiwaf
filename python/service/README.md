@@ -235,6 +235,20 @@ py -3.10 -m service.run                   # http://127.0.0.1:8090/docs
 - `GET  /api/auth/me`
 - `POST /api/auth/logout`（写审计，并使该用户所有旧 token 立即失效）
 - `POST /api/auth/password`（写审计；改密后旧 token 失效，需重新登录）
+- **IP 黑白名单**（`service/ip_lists.py`，页面「IP 黑白名单」）：
+  - `GET /api/ip-lists?kind=black|white&q=&limit=`（viewer）；
+  - `POST /api/ip-lists`（analyst）`{ip, kind, reason?, note?, expires_at?}`；
+  - `PATCH /api/ip-lists/{id}`（analyst）`{enabled?, reason?, note?, expires_at?}`；
+  - `DELETE /api/ip-lists/{id}` / `POST /api/ip-lists/bulk-delete`（admin）；
+  - `POST /api/ip-lists/import`（analyst）`{kind, text}`：JSON / CSV / 纯文本行；
+  - `GET /api/ip-lists/export?kind=&format=csv|json`（viewer）；
+  - `GET|PUT /api/ip-lists/settings`（PUT=admin）：自动拉黑开关/阈值/窗口/时长；
+  - `POST /api/ip-lists/auto/scan`（admin）手动扫一轮。
+  - 支持 IPv4/IPv6 与 CIDR；白名单优先（跳过模型/规则，仍写事件），黑名单在
+    `enforce` 下 403、`dry_run` 只记录、`off` 纯采集不应用。
+  - 变更立即原子写 `artifacts/ip_lists.json`，采集器 ≤5s 热重载；过期条目由后台清理。
+  - 自动拉黑：同一源 IP 在窗口内「block + 有规则命中的 alert」达到阈值 → 加入黑名单
+    （`source=auto`，默认 24h 过期）；白名单永不自动拉黑，手工条目不会被自动覆盖。
 - **用户管理（仅 admin）**：
   - `GET /api/users` · `POST /api/users` `{username,password,role}`
   - `PATCH /api/users/{id}` `{role?, disabled?}` · `POST /api/users/{id}/password` `{password}`
