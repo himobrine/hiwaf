@@ -243,12 +243,95 @@ call build.bat run --release
 
 ---
 
-## 8. 第六步：构建采集数据面（Pingora Proxy）
+## 8. 第六步：采集数据面（Pingora Proxy）
+
+### 8.1 它是什么 / 不做什么
+
+Pingora 反向代理 + HTTP/流级采集。它把请求原样转发给真实后端，同时把请求/响应头体与
+流级字段写进 `traindata/proxy/raw-*.jsonl`（**无 label**）。
+
+**红线（不可越）**：
+
+- **只采集、不打 label、不阻断、不静默丢数据**。标签由 `collect_http_log.py` 按**出处**决定。
+- `pred`（模型输出）与 `label`（真值）**结构隔离**：`parse_jsonl` 只保留已知键，
+  模型输出永远不可能变成训练标签。
+- `--score` 现阶段只是 dry-run（阈值尚未在真实本地良性上重标定），**只记录、永不阻断**。
+
+### 8.2 让业务流量真正走代理（推荐：反向代理前置）
+
+```text
+客户端 ──► 采集器 127.0.0.1:6188 ──► 真实后端 127.0.0.1:80
+              │
+              └─► traindata/proxy/raw-*.jsonl ──► 控制台 ingest ──► 事件/告警
+```
+
+**最快接入（3 步）**：
+
+1. 确认后端端口（下面以 `127.0.0.1:80` 为例），采集器监听 `127.0.0.1:6188`；
+2. 启动采集器（控制台「采集代理 → 启动」，或命令行，见 §8.4）；
+3. 让客户端访问 **6188** 而不是后端端口，然后验证：
+
+```bat
+:: 请求应返回后端内容
+curl -i "http://127.0.0.1:6188/?x=1"
+
+:: 应看到 raw 文件；控制台「采集代理」页的 written 应 +1
+dir F:\waf\traindata\proxy\raw-*.jsonl
+```
+
+**nginx 前置（可选）**：客户端仍访问 80，nginx 把请求转给采集器，采集器再转给后端。
+
+```nginx
+server {
+    listen 80;
+    location / {
+        proxy_pass http://127.0.0.1:6188;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
+```
+
+**HTTPS 限制（必须知道）**：采集器监听侧是纯 TCP，**不做 TLS 终止、不处理 CONNECT 隧道**。
+因此：
+
+- HTTP 业务：反向代理前置即可完整采 body；
+- HTTPS 业务：在 nginx/Caddy **终止 TLS**，再把明文 HTTP 转给采集器；否则只能看到 CONNECT
+  元数据，拿不到 body。系统代理/PAC 同理，只适用于能解密的 HTTP。
+
+> `out_dir` 固定为 `traindata/proxy`：`ingest.py`/`ingest_scheduler` 只扫这个目录。界面上不提供
+> 修改入口，避免出现「代理在写、控制台没事件」的假故障。
+
+### 8.3 控制台「采集代理」页与控制面接口
+
+页面：`/proxy`（菜单「采集代理」）。viewer 只读，analyst 可看日志，admin 可改配置/启停。
+
+| 方法 | 路径 | 权限 | 作用 |
+|---|---|---|---|
+| GET | `/api/proxy/status` | viewer | 进程/PID/uptime、监听/上游、指标、输出目录、二进制、告警 |
+| GET | `/api/proxy/config` | viewer | 保存配置 + 实际生效值 + `restart_required` |
+| PUT | `/api/proxy/config` | admin | 白名单校验后落库；**启动/重启才生效** |
+| POST | `/api/proxy/start` | admin | 端口占用/已在跑/二进制缺失返回 409 |
+| POST | `/api/proxy/stop` | admin | body `{"force":true}` 用于 PID 复用/未托管进程 |
+| POST | `/api/proxy/restart` | admin | 停止后按保存配置重启 |
+| GET | `/api/proxy/log?tail=200` | analyst | 托管日志尾部 |
+
+约束：
+
+- 二进制只从 `WAF_COLLECTOR_BIN` 或固定候选（`proxy/target/release`、`E:\waf-target\release`、
+  `rust/target/release`）解析，**不接受请求传入**；
+- 参数逐项白名单校验，范围对齐 `proxy/src/config.rs`；`out_dir`/`stats_out` 固定；
+- 单实例 PID 文件 + 端口探测；服务重启后靠 PID 文件接管，PID 复用需显式 `force`；
+- 所有写操作写审计：`proxy_config_update` / `proxy_start` / `proxy_stop` /
+  `proxy_force_stop` / `proxy_restart`。
+
+### 8.4 构建与命令行运行
 
 ```bat
 cd F:\waf\proxy
 call build.bat build --release        :: 构建
-call build.bat run --release -- --listen 127.0.0.1:6188 --upstream 127.0.0.1:80 --out ..\traindata\proxy
+call build.bat run --release -- --listen 127.0.0.1:6188 --upstream 127.0.0.1:80 ^
+    --out ..\traindata\proxy --stats-out ..\traindata\proxy\collector-metrics.json
 ```
 
 `build.bat` 相比 rust 版**多设 `CMAKE_GENERATOR=Ninja`**（pingora → flate2 → zlib-ng 会调 cmake，
@@ -261,7 +344,7 @@ call build.bat run --release -- --listen 127.0.0.1:6188 --upstream 127.0.0.1:80 
 | `--listen <addr>` | `127.0.0.1:6188` | 客户端 → 本代理 |
 | `--upstream <addr>` | `127.0.0.1:8080` | 本代理 → 真实后端 |
 | `--upstream-tls` | off | 上游走 TLS |
-| `--out <dir>` | `../traindata/proxy` | 原始记录输出目录 |
+| `--out <dir>` | `../traindata/proxy` | 原始记录输出目录（控制台固定此项） |
 | `--body-keep <bytes>` | `65536` | 单请求**落盘** body 上限，超出即截断并置 `body_truncated=true` |
 | `--body-limit <bytes>` | `1048576` | 单请求**缓冲**硬上限（**防 OOM**），超过即停止累积 |
 | `--headers-keep <bytes>` | `8192` | 请求/响应头落盘上限（`name: value\r\n` 规范化字节） |
@@ -272,13 +355,14 @@ call build.bat run --release -- --listen 127.0.0.1:6188 --upstream 127.0.0.1:80 
 | `--no-body` | — | 隐私模式，body 恒空 |
 | `--score` | off | **dry-run** 加载上线模型，把判定写进 `pred` 字段 |
 | `--artifacts <dir>` | `../python/artifacts` | 模型产物目录 |
+| `--stats-out <file>` | 关 | 指标 JSON；控制台靠它显示 written/dropped/actions |
+| `--stats-interval <sec>` | `60` | 指标刷新周期 |
+| `--rules <file>` | 产物规则集 | 规则通道；文件不存在自动不启用 |
+| `--no-rules` | — | 不加载规则通道 |
+| `--reload-interval <s>` | `5` | 策略/规则热重载轮询；0=关 |
+| `--no-reload` | — | 关闭热重载（只用于排查） |
 
-**红线（不可越）**：
-
-- **只采集、不打 label、不阻断、不静默丢数据**。标签由 `collect_http_log.py` 按**出处**决定。
-- `pred`（模型输出）与 `label`（真值）**结构隔离**：`parse_jsonl` 只保留已知键，
-  模型输出永远不可能变成训练标签。
-- `--score` 现阶段只是 dry-run（阈值尚未在真实本地良性上重标定），**只记录、永不阻断**。
+### 8.5 验证与自检
 
 端到端自检（自起假上游 + 代理 + 标注 + dry-run 判定，**43 项断言**）：
 
@@ -289,7 +373,17 @@ py -3.10 -X utf8 p8_proxy_e2e.py
 
 应 **43/43 PASS**（含请求/响应头体、二进制请求体、阶段 C 规则融合）；产物 `artifacts\p8_proxy_e2e.json`。
 
-**取证包与保留**：控制台「事件 → 行 → ⑤ 原始请求包 / 原始响应包」读取 `/api/events/{id}/packet`，
+控制面托管链路自检（需要先构建采集器，默认跳过）：
+
+```bat
+set WAF_PROXY_LIVE_TEST=1
+cd F:\waf\python
+py -3.10 -m unittest service.test_proxy_live -v
+```
+
+### 8.6 取证包与保留
+
+控制台「事件 → 行 → ⑤ 原始请求包 / 原始响应包」读取 `/api/events/{id}/packet`，
 请求包和响应包直接展开为连续原始文本；请求中命中规则的字段/行标红。
 请求体保留训练兼容的文本 `body`，精确字节在 `body_b64`；二进制时 `body=""` 且只读 `body_b64`。
 响应状态/头/体默认按 `--resp-body alert` 采样，`all` 用于联调，`off` 关闭但 `--score` 下评分失败仍留证。
@@ -302,6 +396,17 @@ py -3.10 -X utf8 p8_proxy_e2e.py
 :: GET /api/retention/raw-cleanup?days=90   先看 eligible / skipped 原因
 :: POST /api/retention/raw-cleanup {"confirm":true,"note":"90d retention"}
 ```
+
+### 8.7 常见故障
+
+| 现象 | 排查 |
+|---|---|
+| 启动返回 409 | 端口已被占用 / 已有实例 / 二进制缺失；换 `listen` 或先停止 |
+| 502 / 连接失败 | `upstream` 写错或后端没起；采集器不负责拉起后端 |
+| 有请求但事件页没有 | 看 `/api/proxy/status` 的 `metrics.written`；确认 `out_dir` 是 `traindata/proxy`，ingest 在跑 |
+| HTTPS 拿不到 body | 监听侧不做 TLS 终止/CONNECT；用 nginx/Caddy 终止 TLS 后转 HTTP |
+| 指标 stale | 进程卡住或已退出；看「采集代理」页日志尾部，必要时重启 |
+| 改配置不生效 | 大多数项需重启；页面会列出 `restart_keys` |
 
 
 ---

@@ -66,6 +66,42 @@ call build.bat run --release -- ^
 | `--stats-out` | 关 | 运行指标 JSON（控制台轮询；含 written/dropped/actions/stale 判定依据） |
 | `--stats-interval` | 60 | 指标刷新周期（秒）；启动时立即写一次 |
 
+### 怎么让业务流量走代理（推荐：反向代理前置）
+
+```text
+客户端 ──► waf-collector:6188 ──► 真实后端:80
+              └─► traindata/proxy/raw-*.jsonl
+```
+
+1. 把客户端的访问地址改成采集器端口（或让 nginx 前置转发到采集器）；
+2. 用 `--upstream` 指向真实后端；
+3. 验证：`curl -i http://127.0.0.1:6188/` 返回后端内容，且 `raw-*.jsonl` 多一条记录。
+
+完整步骤、nginx 示例与故障排查见 `SETUP.md` §8.2 / §8.7。
+
+**HTTPS 限制**：监听侧是纯 TCP，**不做 TLS 终止、不处理 CONNECT**。HTTPS 业务必须在
+nginx/Caddy 终止 TLS 后转 HTTP 给采集器，否则只能看到 CONNECT 元数据、拿不到 body。
+系统代理/PAC 同理，只适用于能解密的 HTTP。
+
+### 控制面接口（`python/service`）
+
+控制台「采集代理」页（`/proxy`）通过以下接口管理采集器；配置存 `app_settings` 的
+`proxy.*` 键，**保存后需启动/重启才生效**：
+
+| 方法 | 路径 | 权限 | 作用 |
+|---|---|---|---|
+| GET | `/api/proxy/status` | viewer | 进程、指标、输出目录、二进制、告警 |
+| GET | `/api/proxy/config` | viewer | 保存值 + 生效值 + `restart_required` |
+| PUT | `/api/proxy/config` | admin | 白名单校验后落库 |
+| POST | `/api/proxy/start` | admin | 启动（端口占用/已在跑返回 409） |
+| POST | `/api/proxy/stop` | admin | 停止；`{"force":true}` 用于 PID 复用 |
+| POST | `/api/proxy/restart` | admin | 停止后重启 |
+| GET | `/api/proxy/log?tail=200` | analyst | 托管日志尾部 |
+
+安全边界：二进制只从 `WAF_COLLECTOR_BIN` 或固定候选路径解析，不接受请求传入；参数逐项
+白名单校验；`--out` 固定 `traindata/proxy`、`--stats-out` 固定控制台指标文件；所有写操作
+写审计。`out_dir` 不允许在界面改，是因为控制台 ingest 只扫固定目录。
+
 ### 请求/响应取证包落盘 schema
 
 每条 raw 记录在原有训练字段之外，增加**请求头/响应头/响应体**。约束是：**不能破坏

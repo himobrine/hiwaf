@@ -39,6 +39,7 @@ py -3.10 -m service.run                  # http://127.0.0.1:8090/docs
 | `alerts.py` | 告警（聚合）下钻：同公式复算时间桶 + 精确匹配，取某聚合组的原始事件（含分页）；`dedup_groups` 做同源同类去重 |
 | `correlate.py` | 同源攻击链：按 `(src_ip, ua)` + 间隔切链、阶段分类（探测/试探/利用）、扫描噪音降级、时序规则（`sequence/group_by/within`） |
 | `suppression.py` | 实体级误报抑制：草案/审批/TTL/撤销/惰性过期、AND 匹配、告警/攻击链折叠、误报草案生成 |
+| `proxy_manager.py` | 采集代理控制面：配置持久化/校验、二进制解析、受控启停、状态/日志、审计 |
 | `sites.py` | 站点（Host）→ 模型：按逐条判决留证 + 策略快照反查每站点实际在跑哪套模型，并与现役对比定状态 |
 | `audit_retention.py` | 审计保留：90 天 dry-run 预览、按时间分批清理、勾选删除、每次删除写 `audit_cleanup*` |
 | `audit_retention_scheduler.py` | 审计日志每日自动清理（0 条不写审计；异常尽力写 `audit_cleanup_failed`） |
@@ -55,6 +56,8 @@ py -3.10 -m service.run                  # http://127.0.0.1:8090/docs
 | `test_alerts_drilldown.py` | 聚合下钻：精确匹配（子串不混入）、桶边界左闭右开、NULL 字段、分页；`dedup=1` 同源同类合并 |
 | `test_correlate.py` | 攻击链：阶段分类、gap 切链、同毫秒稳定、噪音降级、时序窗口边界、规则 JSON 覆盖/回退、链下钻 |
 | `test_suppression.py` | 抑制：实体校验、草案/审批/撤销/删除、TTL 惰性过期、AND 匹配保守语义、折叠计数、误报草案去重与冷却 |
+| `test_proxy_api.py` | 采集代理：配置白名单/边界、地址注入、路径约束、argv、启停状态机、PID 复用保护、重启差异、日志尾部 |
+| `test_proxy_live.py` | 采集代理真实二进制自检（`WAF_PROXY_LIVE_TEST=1` 才跑）：启动→转发→指标→停止 |
 | `test_db_session.py` | 连接复用：`session()` 分组/嵌套、线程内长连接、换库自动重连、关池释放句柄 |
 | `test_overview_cache.py` | 总览聚合：SQL 分桶直方图、越界夹取、TTL 缓存命中/关闭 |
 | `test_events_paging.py` | 事件 keyset 分页：(ts,id) 游标不重不漏、`with_total=false` 跳过 COUNT、复合索引命中 |
@@ -111,6 +114,8 @@ py -3.10 -m service.run                  # http://127.0.0.1:8090/docs
 | `WAF_RAW_CLEANUP_ORPHAN_AGE_SEC` | `86400` | 孤儿 `.trash` 超过多久才登记/告警 |
 | `WAF_SENSITIVE_HEADERS` | Authorization, Cookie, Set-Cookie, X-Api-Key... | 默认逐字符 `*` 打码的头名（逗号分隔，大小写不敏感） |
 | `WAF_COLLECTOR_METRICS` | `traindata/proxy/collector-metrics.json` | 采集器 `--stats-out` 指标文件 |
+| `WAF_COLLECTOR_BIN` | 自动查找 | 采集器可执行文件；覆盖 `proxy/target/release` / `E:\waf-target\release` 等候选 |
+| `WAF_CARGO_TARGET` | `E:\waf-target` | 采集器/ Rust 共用构建缓存目录（影响二进制查找） |
 | `WAF_TEMPORAL_RULES` | `artifacts/temporal_rules.json` | 时序规则 JSON；缺失/非法时回退内置 3 条规则 |
 | `WAF_SUPPRESS_TTL_HOURS` | `168` | 抑制草案默认 TTL（小时，1–2160） |
 | `WAF_SUPPRESS_SUGGEST_DAYS` | `30` | 从误报生成草案的统计窗口（天，1–90） |
@@ -196,6 +201,26 @@ py -3.10 -m service.run                  # http://127.0.0.1:8090/docs
 - **审计**：创建/扫描/审批/撤销/删除分别写 `suppress_create` / `suppress_suggest`
   / `suppress_approve` / `suppress_revoke` / `suppress_delete`。
 
+## 2.5 采集代理控制面（`proxy_manager.py`）
+
+控制台「采集代理」页（`/proxy`）管理 `waf-collector`：配置持久化 + 受控启停 + 日志。
+
+- **配置**：存 `app_settings` 的 `proxy.*` 键；白名单字段，范围对齐
+  `proxy/src/config.rs`（`body_keep<=body_limit`、`headers_keep 1..8192`、
+  `resp_body_keep 1..65536`、`resp_body alert|all|off` 等）。保存只落库，
+  **启动/重启才生效**；`/api/proxy/config` 返回 `restart_required`/`restart_keys`。
+- **固定项**：`--out` 固定 `traindata/proxy`（ingest 只扫它），`--stats-out` 固定
+  `WAF_COLLECTOR_METRICS`（状态页只读它）。界面不提供修改入口，避免假故障。
+- **二进制**：只从 `WAF_COLLECTOR_BIN` 或固定候选路径解析，**不接受请求传入**；
+  参数逐项校验，不拼 shell。
+- **进程**：单实例 PID 文件（`logs/proxy.pid`）+ 端口探测；启动前探测端口占用；
+  Windows 用 `CREATE_NO_WINDOW`，停止先 `taskkill /T`、5s 后 `/F`；服务重启后靠
+  PID 文件接管，PID 复用需 `force=true`（二次确认 + 审计）。
+- **日志**：`logs/proxy_YYYYmmdd_HHMMSS.log`，保留最近 10 份；`/api/proxy/log` 只读尾部。
+- **审计**：`proxy_config_update` / `proxy_start` / `proxy_stop` /
+  `proxy_force_stop` / `proxy_restart`。
+- **权限**：状态/配置 viewer；日志 analyst；写操作 admin。
+
 ## 3. 接口
 
 ### 认证
@@ -216,6 +241,13 @@ py -3.10 -m service.run                  # http://127.0.0.1:8090/docs
     `unknown`（快照缺失或现役读不到）。另含 `total_hosts` / `shown`（Top 100）、逐版本明细、
     `artifact_dirs`（留证里的产物目录，多站点跑不同产物时可见）。**只读，不改任何状态。**
 - `GET  /api/collector/status` — 采集器 `--stats-out` 指标文件
+- `GET  /api/proxy/status` — 采集代理完整状态（进程/PID/uptime、指标、输出目录、二进制、warnings）
+- `GET  /api/proxy/config` — 保存配置 + 实际生效值 + `restart_required` / `restart_keys`
+- `PUT  /api/proxy/config`（admin）— 白名单校验后落库；启动/重启才生效
+- `POST /api/proxy/start`（admin）— 已在跑/端口占用/二进制缺失返回 409
+- `POST /api/proxy/stop`（admin）— body `{"force":true}` 用于 PID 复用/未托管进程
+- `POST /api/proxy/restart`（admin）
+- `GET  /api/proxy/log?tail=200`（analyst）— 托管日志尾部
 - `GET  /api/health/degradation` — 模式（dry_run/collect_only/unknown）、零日开关、阈值、warnings
 - `POST /api/ingest/scan`（analyst）body `{with_body:false}`
 - `GET  /api/ingest/state`
@@ -504,7 +536,7 @@ path/trash 同时存在、symlink、stat 不匹配都不会自动删；连续 5 
 ## 5. 自检
 
 ```bash
-py -3.10 -X utf8 -m service.smoke          # 需要服务已启动；30 项
+py -3.10 -X utf8 -m service.smoke          # 需要服务已启动；34 项
 py -3.10 -X utf8 -m unittest service.test_packet -v   # packet 纯函数测试
 py -3.10 -X utf8 -m service.test_rule_spans -v        # 规则命中精确标位测试
 py -3.10 -X utf8 -m service.test_rules_bulk -v        # 按 ID 批量规则操作测试
@@ -521,6 +553,8 @@ py -3.10 -X utf8 -m service.test_audit_retention -v   # 审计保留/勾选删�
 py -3.10 -X utf8 -m service.test_alerts_drilldown -v  # 告警聚合下钻：桶边界/精确匹配/分页/去重
 py -3.10 -X utf8 -m service.test_correlate -v         # 攻击链：阶段/gap 切链/噪音降级/时序规则
 py -3.10 -X utf8 -m service.test_suppression -v       # 实体级抑制：状态机/TTL/匹配/折叠/误报草案
+py -3.10 -X utf8 -m service.test_proxy_api -v         # 采集代理：配置校验/启停状态机/PID 保护
+set WAF_PROXY_LIVE_TEST=1 && py -3.10 -X utf8 -m service.test_proxy_live -v  # 真实采集器自检
 py -3.10 -X utf8 -m service.test_sites -v             # 站点→模型：归组/状态/快照反查
 py -3.10 -X utf8 -m service.test_db_session -v        # 连接复用：session/线程内长连接/换库
 py -3.10 -X utf8 -m service.test_overview_cache -v    # 总览：SQL 分桶直方图 + TTL 缓存
@@ -552,6 +586,9 @@ curl -s -X POST -H "Authorization: Bearer <admin-token>" -H "Content-Type: appli
       时序规则（`sequence/group_by/within`）；`/api/alerts?dedup=1` 做同源同类去重。
 - [x] **实体级误报抑制**：`suppression.py` 做草案/审批/TTL/撤销/惰性过期与 AND 匹配；
       告警/攻击链默认折叠已抑制项，误报统计可生成草案（见 §2.4）。
+- [x] **采集代理可操作性**：控制面 `proxy_manager.py` + `/api/proxy/*` + 前端「采集代理」页；
+      配置持久化、受控启停/重启、日志尾部、接入手册（反向代理前置）。`out_dir`/`stats_out`
+      固定，避免「代理在写、控制台没事件」。
 - [ ] **抑制生效范围可再收窄**：目前实体字段是精确匹配；若需要 CIDR / 路径前缀 /
       正则 UA，需要新增匹配类型并写清审计与回滚语义。
 - [ ] **用户管理页**：目前只有引导创建的 `admin`，没有增删改用户的接口。
