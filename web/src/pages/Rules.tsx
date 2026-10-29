@@ -242,7 +242,10 @@ export default function Rules({ user }: { user: User }) {
   const [qualifyForm] = Form.useForm()
   const [historyDays, setHistoryDays] = useState(30)
   const [historyBusy, setHistoryBusy] = useState(false)
-  const qualifyForce = Form.useWatch('force', qualifyForm)
+  // 强制确认用本地状态：不依赖 Form.useWatch（弹窗懒挂载时它可能拿不到值）。
+  const [qualifyForce, setQualifyForce] = useState(false)
+  // ① 未编译 / ② 良性池有误报时，force 也过不了（后端硬门禁），UI 直接说清楚。
+  const canForce = !!qualify && !!qualify.compiled && qualify.benign_ok !== false
 
   // 误报事件 / 紧急熔断
   const [incidents, setIncidents] = useState<RuleIncident[]>([])
@@ -665,8 +668,9 @@ export default function Rules({ user }: { user: User }) {
 
   const openQualify = (r: RuleRow) => {
     setQualify(r)
+    setQualifyForce(false)
     qualifyForm.resetFields()
-    qualifyForm.setFieldsValue({ note: r.qualification_note || '', force: false })
+    qualifyForm.setFieldsValue({ note: r.qualification_note || '' })
   }
 
   /** 用历史告警回放验证（只读 + 缓存证据；规则一改就失效）。 */
@@ -696,11 +700,12 @@ export default function Rules({ user }: { user: User }) {
   const doQualify = async () => {
     if (!qualify) return
     const v = await qualifyForm.validateFields()
+    const force = canForce && qualifyForce
     setBusy(qualify.id)
     try {
       await api(`/api/rules/${encodeURIComponent(qualify.id)}/qualify`, {
         method: 'POST',
-        body: { note: v.note || '', force: !!v.force, source: v.force ? 'admin_override' : 'manual' },
+        body: { note: v.note || '', force, source: force ? 'admin_override' : 'manual' },
       })
       message.success('已确认合格；现在可以逐条翻 block')
       setQualify(null)
@@ -2403,8 +2408,9 @@ export default function Rules({ user }: { user: User }) {
         title={`确认规则合格：${qualify?.id || ''}`}
         okText="确认合格"
         okButtonProps={{
-          // 证据不够时必须显式勾「强制确认」，避免点了才报错。
-          disabled: !!qualify && !qualify.suggest_qualified && !qualifyForce,
+          // 证据不够时必须显式打开「强制确认」；①/② 不过时 force 也不允许。
+          disabled: !!qualify && !qualify.suggest_qualified
+            && !(canForce && qualifyForce),
         }}
         confirmLoading={busy === qualify?.id}
         onCancel={() => setQualify(null)}
@@ -2555,12 +2561,31 @@ export default function Rules({ user }: { user: User }) {
                   }
                 />
               </Form.Item>
-              {!qualify.suggest_qualified ? (
-                <Form.Item name="force" valuePropName="checked">
-                  <Switch /> <span style={{ marginLeft: 8 }}>强制确认（证据不足，记 admin_override）</span>
-                </Form.Item>
-              ) : null}
-            </Form>
+              </Form>
+            {!qualify.suggest_qualified ? (
+              canForce ? (
+                <div style={{ marginBottom: 12 }}>
+                  <Switch checked={qualifyForce} onChange={setQualifyForce} />
+                  <span style={{ marginLeft: 8 }}>
+                    强制确认（证据不足，记 admin_override）
+                  </span>
+                  <div className="muted" style={{ marginTop: 4 }}>
+                    只有 ① 编译通过且 ② 真实良性零误报时才能强制；③ 攻击证据可以跳过。
+                  </div>
+                </div>
+              ) : (
+                <Alert
+                  type="warning"
+                  showIcon
+                  style={{ marginBottom: 12 }}
+                  message={
+                    !qualify.compiled
+                      ? '强制确认也不行：规则还没过 ① 正则编译。先在规则行点「启用」或「校验」。'
+                      : '强制确认也不行：真实良性池有实测误报（② 不能绕过）。先修正则并重新校验。'
+                  }
+                />
+              )
+            ) : null}
             <div className="muted">
               确认后只代表「允许逐条翻 block」；要真正拦截还要把 action 改成 block 并「提升到现役」。
             </div>

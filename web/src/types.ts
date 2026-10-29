@@ -257,6 +257,9 @@ export interface RuleRow {
   qualification_note?: string | null
   can_enable?: boolean
   can_block?: boolean
+  /** ② 真实良性池回放结论：true 通过 / false 有误报 / null 没跑过。 */
+  benign_ok?: boolean | null
+  attack_ok?: boolean | null
   suggest_qualified?: boolean
   blockers?: string[]
   online?: RuleOnline
