@@ -1,8 +1,8 @@
 {
   "schema": 2,
-  "version": 15,
-  "generated_by": "console:breaker",
-  "generated_at": 1793264378569,
+  "version": 16,
+  "generated_by": "thresholds.py",
+  "generated_at": "2026-10-29 17:58:19",
   "zero_day_enabled": false,
   "calibration_pool": {
     "name": "CSIC 2010 正常流量留出 6,000 条（seed=7 切分，与零日通道训练集互斥）",
@@ -63,8 +63,8 @@
   "rules": {
     "enabled": true,
     "ruleset_path": "artifacts/rules_authoritative.json",
-    "ruleset_sha1_16": "8049f81f5d5998ac",
-    "n_rules": 90,
+    "ruleset_sha1_16": "4759f6ff94329b25",
+    "n_rules": 91,
     "n_block_rules": 40,
     "min_weight_to_block": 1.0,
     "nominal_target_fpr": 0.01,
@@ -76,11 +76,11 @@
     "budget_method": "wilson95_upper_on_pool",
     "n_pool": 6000,
     "hits_by_block_rule": {},
-    "note": "规则通道熔断/恢复（控制台重新打开规则通道）：通道开启，阻断规则按当前产物执行。预算数字沿用旧值（偏保守）；后台重标定后会精确扣减。"
+    "note": "规则通道是**并列第三通道**（不是『规则→AI』串行管线）。只有 action=block 的命中消耗阻断预算；未被策略认可（总开关关 / 指纹不一致）时规则证据完全不影响动作。预算按实测从监督目标里扣，故融合阻断 FPR 目标不变。"
   },
   "fusion": {
     "policy": "supervised_block__zero_day_alert__rules_block",
-    "description": "监督通道命中 -> block；规则通道的 block 规则权重和 ≥ 阻断线 -> block；仅零日通道命中、或规则通道有命中（但不够阻断线）-> alert（需人工复核）；否则 allow。零日通道不单独阻断：其误报语义是\"没见过\"，而非\"确认是攻击\"。⚠️ 顶层 `zero_day_enabled=false` 时零日通道**不参与融合**（分数仍计算留证）。 ⚠️ 规则通道的误报预算已从监督通道的目标 FPR 里**扣掉**：监督目标 1% -> 0.936%（扣掉规则的阻断误报 0.06398%，90 条规则 / 40 条 block）。并且只有当**磁盘上的规则集指纹与策略记录一致**时规则通道才生效 —— 预算是对着特定规则集算出来的。",
+    "description": "监督通道命中 -> block；规则通道的 block 规则权重和 ≥ 阻断线 -> block；仅零日通道命中、或规则通道有命中（但不够阻断线）-> alert（需人工复核）；否则 allow。零日通道不单独阻断：其误报语义是\"没见过\"，而非\"确认是攻击\"。⚠️ 顶层 `zero_day_enabled=false` 时零日通道**不参与融合**（分数仍计算留证）。 ⚠️ 规则通道的误报预算已从监督通道的目标 FPR 里**扣掉**：监督目标 1% -> 0.936%（扣掉规则的阻断误报 0.06398%，91 条规则 / 40 条 block）。并且只有当**磁盘上的规则集指纹与策略记录一致**时规则通道才生效 —— 预算是对着特定规则集算出来的。",
     "actions": {
       "allow": "放行",
       "alert": "告警（零日通道 / 规则通道的非 block 命中；强制人工复核）",
