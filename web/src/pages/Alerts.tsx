@@ -1,10 +1,13 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import dayjs from 'dayjs'
 import {
   Alert,
   Button,
   Card,
+  DatePicker,
   Descriptions,
   Drawer,
+  Input,
   InputNumber,
   Select,
   Space,
@@ -16,7 +19,7 @@ import {
   Typography,
   message,
 } from 'antd'
-import { ReloadOutlined } from '@ant-design/icons'
+import { ReloadOutlined, SearchOutlined } from '@ant-design/icons'
 import { api, fmtNum, fmtTs } from '../api'
 import type { User } from '../types'
 import EventDetailDrawer from '../components/EventDetailDrawer'
@@ -39,6 +42,52 @@ const SEVERITY_COLOR: Record<string, string> = {
 const stageLabel = (s: string) =>
   ({ exploit: '利用', probe: '试探', recon: '探测', normal: '正常' } as Record<string, string>)[s] || s
 
+type AlertFilters = {
+  q: string
+  src_ip: string
+  action?: string
+  attack_type: string
+  method?: string
+  host: string
+  rule: string
+  min_score?: number
+  status?: string
+  /** 自定义时间范围（毫秒），与 RangePicker 同步持久化。 */
+  from_ts?: number
+  to_ts?: number
+}
+
+const EMPTY_FILTERS: AlertFilters = {
+  q: '', src_ip: '', attack_type: '', host: '', rule: '',
+}
+
+const FLT_KEY = 'waf_alert_filters'
+const REFRESH_KEY = 'waf_alerts_refresh_sec'
+
+function loadFilters(): AlertFilters {
+  try {
+    const raw = localStorage.getItem(FLT_KEY)
+    return raw ? { ...EMPTY_FILTERS, ...JSON.parse(raw) } : { ...EMPTY_FILTERS }
+  } catch {
+    return { ...EMPTY_FILTERS }
+  }
+}
+
+const REFRESH_PRESETS = [0, 5, 10, 15, 30, 60]
+
+function loadRefresh(): number {
+  const raw = localStorage.getItem(REFRESH_KEY)
+  const n = raw === null ? 15 : Number(raw)
+  if (n === 0) return 0
+  return Number.isFinite(n) && n >= 3 && n <= 3600 ? n : 15
+}
+
+function loadRange(): [any, any] | null {
+  const f = loadFilters()
+  if (typeof f.from_ts !== 'number' || typeof f.to_ts !== 'number') return null
+  return [dayjs(f.from_ts), dayjs(f.to_ts)]
+}
+
 export default function Alerts({ user }: { user: User }) {
   const canWrite = user.role !== 'viewer'
   const [tab, setTab] = useState<'groups' | 'chains'>('groups')
@@ -46,6 +95,19 @@ export default function Alerts({ user }: { user: User }) {
   // ---- 聚合告警 -----------------------------------------------------------
   const [hours, setHours] = useState(24)
   const [bucket, setBucket] = useState(10)
+
+  // ---- 筛选 / 搜索 / 刷新（两个页签共用）----
+  const [flt, setFlt] = useState<AlertFilters>(loadFilters)
+  const [texts, setTexts] = useState({
+    q: flt.q, src_ip: flt.src_ip, attack_type: flt.attack_type,
+    host: flt.host, rule: flt.rule,
+  })
+  const [range, setRange] = useState<[any, any] | null>(loadRange)
+  const [refreshSec, setRefreshSec] = useState<number>(loadRefresh)
+  const [customRefresh, setCustomRefresh] = useState<boolean>(
+    () => !REFRESH_PRESETS.includes(loadRefresh()),
+  )
+  const [truncated, setTruncated] = useState(false)
   // 同源同类去重：把同一源在同一时间桶内打不同路径的同类攻击合并成一行。
   const [dedup, setDedup] = useState(false)
   // 实体级抑制默认折叠；打开后仍显示，但带「已抑制」标签（只影响可见性）。
@@ -72,7 +134,6 @@ export default function Alerts({ user }: { user: User }) {
   const [detailId, setDetailId] = useState<number | null>(null)
 
   // ---- 攻击链 -------------------------------------------------------------
-  const [chainHours, setChainHours] = useState(24)
   const [gapMin, setGapMin] = useState(10)
   const [minEvents, setMinEvents] = useState(2)
   const [includeNoise, setIncludeNoise] = useState(false)
@@ -91,24 +152,81 @@ export default function Alerts({ user }: { user: User }) {
   const [cLoading, setCLoading] = useState(false)
   const [cErr, setCErr] = useState('')
 
+  // 文本筛选 400ms 防抖；下拉/数字/时间范围即时生效。
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setFlt((f) => {
+        if (
+          f.q === texts.q && f.src_ip === texts.src_ip &&
+          f.attack_type === texts.attack_type && f.host === texts.host &&
+          f.rule === texts.rule
+        ) {
+          return f
+        }
+        return {
+          ...f, q: texts.q, src_ip: texts.src_ip,
+          attack_type: texts.attack_type, host: texts.host, rule: texts.rule,
+        }
+      })
+    }, 400)
+    return () => clearTimeout(t)
+  }, [texts])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(FLT_KEY, JSON.stringify(flt))
+    } catch {
+      /* ignore */
+    }
+  }, [flt])
+  useEffect(() => {
+    try {
+      localStorage.setItem(REFRESH_KEY, String(refreshSec))
+    } catch {
+      /* ignore */
+    }
+  }, [refreshSec])
+
+  const buildQuery = useCallback(() => {
+    const p = new URLSearchParams()
+    p.set('window_hours', String(hours))
+    if (range) {
+      p.set('from_ts', String(range[0].valueOf()))
+      p.set('to_ts', String(range[1].valueOf()))
+    }
+    if (flt.q) p.set('q', flt.q)
+    if (flt.src_ip) p.set('src_ip', flt.src_ip)
+    if (flt.action) p.set('action', flt.action)
+    if (flt.attack_type) p.set('attack_type', flt.attack_type)
+    if (flt.method) p.set('method', flt.method)
+    if (flt.host) p.set('host', flt.host)
+    if (flt.rule) p.set('rule', flt.rule)
+    if (flt.min_score !== undefined) p.set('min_score', String(flt.min_score))
+    if (flt.status) p.set('status', flt.status)
+    return p
+  }, [hours, range, flt])
+
   const load = useCallback(
     async (silent = false) => {
       if (!silent) setLoading(true)
       setErr('')
       try {
-        const r = await api<any>(
-          `/api/alerts?window_hours=${hours}&bucket_min=${bucket}&dedup=${dedup ? 1 : 0}` +
-            `&include_suppressed=${includeSuppressed ? 1 : 0}`,
-        )
+        const p = buildQuery()
+        p.set('bucket_min', String(bucket))
+        p.set('dedup', dedup ? '1' : '0')
+        p.set('include_suppressed', includeSuppressed ? '1' : '0')
+        p.set('limit', '500')
+        const r = await api<any>(`/api/alerts?${p.toString()}`)
         setItems(r.items || [])
         setSuppressedHidden(r.suppressed_hidden || 0)
+        setTruncated(!!r.truncated)
       } catch (e: any) {
         setErr(e?.message || '加载失败')
       } finally {
         if (!silent) setLoading(false)
       }
     },
-    [hours, bucket, dedup, includeSuppressed],
+    [buildQuery, bucket, dedup, includeSuppressed],
   )
 
   const loadChains = useCallback(
@@ -116,8 +234,7 @@ export default function Alerts({ user }: { user: User }) {
       if (!silent) setChainLoading(true)
       setChainErr('')
       try {
-        const p = new URLSearchParams()
-        p.set('window_hours', String(chainHours))
+        const p = buildQuery()
         p.set('gap_min', String(gapMin))
         p.set('min_events', String(minEvents))
         p.set('include_noise', includeNoise ? '1' : '0')
@@ -132,22 +249,37 @@ export default function Alerts({ user }: { user: User }) {
         if (!silent) setChainLoading(false)
       }
     },
-    [chainHours, gapMin, minEvents, includeNoise, chainIncludeSuppressed],
+    [buildQuery, gapMin, minEvents, includeNoise, chainIncludeSuppressed],
   )
 
   useEffect(() => {
-    if (tab !== 'groups') return
-    load()
-    const timer = setInterval(() => load(true), 15000)
-    return () => clearInterval(timer)
+    if (tab === 'groups') load()
   }, [load, tab])
 
   useEffect(() => {
-    if (tab !== 'chains') return
-    loadChains()
-    const timer = setInterval(() => loadChains(true), 15000)
-    return () => clearInterval(timer)
+    if (tab === 'chains') loadChains()
   }, [loadChains, tab])
+
+  // 自动刷新：页面隐藏时跳过轮询，回到页面立即补一次。
+  useEffect(() => {
+    if (refreshSec <= 0) return
+    const id = setInterval(() => {
+      if (document.hidden) return
+      if (tab === 'groups') load(true)
+      else loadChains(true)
+    }, refreshSec * 1000)
+    return () => clearInterval(id)
+  }, [refreshSec, tab, load, loadChains])
+
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.hidden) return
+      if (tab === 'groups') load(true)
+      else loadChains(true)
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [tab, load, loadChains])
 
   const fetchGroup = async (
     row: any,
@@ -261,6 +393,17 @@ export default function Alerts({ user }: { user: User }) {
     }
   }
 
+  const filterCount = useMemo(() => {
+    let n = 0
+    for (const k of ['q', 'src_ip', 'action', 'attack_type', 'method', 'host', 'rule'] as const) {
+      if ((flt as any)[k]) n += 1
+    }
+    if (flt.min_score !== undefined) n += 1
+    if (flt.status) n += 1
+    if (range) n += 1
+    return n
+  }, [flt, range])
+
   const statusTag = (v: string) => (
     <Tag color={v === 'open' ? 'default' : v === 'closed' ? 'green' : 'blue'}>{v}</Tag>
   )
@@ -307,17 +450,6 @@ export default function Alerts({ user }: { user: User }) {
   const groupsTab = (
     <>
       <div className="toolbar">
-        <Select
-          value={hours}
-          onChange={setHours}
-          style={{ width: 140 }}
-          options={[
-            { value: 1, label: '近 1 小时' },
-            { value: 6, label: '近 6 小时' },
-            { value: 24, label: '近 24 小时' },
-            { value: 24 * 7, label: '近 7 天' },
-          ]}
-        />
         <span className="muted">聚合窗口（分钟）</span>
         <InputNumber min={1} max={1440} value={bucket} onChange={(v) => setBucket(Number(v || 10))} />
         <span className="muted">同源同类去重</span>
@@ -327,7 +459,9 @@ export default function Alerts({ user }: { user: User }) {
         <Button icon={<ReloadOutlined />} onClick={() => load()}>
           刷新
         </Button>
-        <span className="muted">自动刷新 15s</span>
+        <span className="muted">
+          自动刷新 {refreshSec > 0 ? `${refreshSec}s` : '已关闭'}
+        </span>
       </div>
 
       <Alert
@@ -345,6 +479,14 @@ export default function Alerts({ user }: { user: User }) {
             : undefined
         }
       />
+      {truncated ? (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="结果超过 500 条已截断：请缩小时间窗口或增加筛选条件。"
+        />
+      ) : null}
       {err ? <Alert type="error" message={err} showIcon style={{ marginBottom: 12 }} /> : null}
 
       <Card size="small">
@@ -436,17 +578,6 @@ export default function Alerts({ user }: { user: User }) {
   const chainsTab = (
     <>
       <div className="toolbar">
-        <Select
-          value={chainHours}
-          onChange={setChainHours}
-          style={{ width: 140 }}
-          options={[
-            { value: 1, label: '近 1 小时' },
-            { value: 6, label: '近 6 小时' },
-            { value: 24, label: '近 24 小时' },
-            { value: 24 * 7, label: '近 7 天' },
-          ]}
-        />
         <span className="muted">切链间隔（分钟）</span>
         <InputNumber min={1} max={1440} value={gapMin} onChange={(v) => setGapMin(Number(v || 10))} />
         <span className="muted">最少事件</span>
@@ -458,7 +589,9 @@ export default function Alerts({ user }: { user: User }) {
         <Button icon={<ReloadOutlined />} onClick={() => loadChains()}>
           刷新
         </Button>
-        <span className="muted">自动刷新 15s</span>
+        <span className="muted">
+          自动刷新 {refreshSec > 0 ? `${refreshSec}s` : '已关闭'}
+        </span>
       </div>
 
       <Alert
@@ -628,6 +761,170 @@ export default function Alerts({ user }: { user: User }) {
           告警
         </Title>
       </div>
+
+      <Card size="small" style={{ marginBottom: 12 }}>
+        <Space wrap>
+          <Input
+            allowClear
+            prefix={<SearchOutlined />}
+            placeholder="搜索 IP / 路径 / 类型 / UA / 规则"
+            style={{ width: 260 }}
+            value={texts.q}
+            onChange={(e) => setTexts((t) => ({ ...t, q: e.target.value }))}
+            onPressEnter={() => setFlt((f) => ({ ...f, ...texts }))}
+          />
+          <Input
+            allowClear
+            placeholder="源 IP"
+            style={{ width: 150 }}
+            value={texts.src_ip}
+            onChange={(e) => setTexts((t) => ({ ...t, src_ip: e.target.value }))}
+            onPressEnter={() => setFlt((f) => ({ ...f, ...texts }))}
+          />
+          <Select
+            allowClear
+            placeholder="动作"
+            style={{ width: 110 }}
+            value={flt.action}
+            onChange={(v) => setFlt((f) => ({ ...f, action: v }))}
+            options={[
+              { value: 'block', label: 'block' },
+              { value: 'alert', label: 'alert' },
+            ]}
+          />
+          <Input
+            allowClear
+            placeholder="攻击类型（精确）"
+            style={{ width: 150 }}
+            value={texts.attack_type}
+            onChange={(e) => setTexts((t) => ({ ...t, attack_type: e.target.value }))}
+            onPressEnter={() => setFlt((f) => ({ ...f, ...texts }))}
+          />
+          <Select
+            allowClear
+            placeholder="方法"
+            style={{ width: 115 }}
+            value={flt.method}
+            onChange={(v) => setFlt((f) => ({ ...f, method: v }))}
+            options={['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'].map(
+              (m) => ({ value: m, label: m }),
+            )}
+          />
+          <Input
+            allowClear
+            placeholder="Host"
+            style={{ width: 150 }}
+            value={texts.host}
+            onChange={(e) => setTexts((t) => ({ ...t, host: e.target.value }))}
+            onPressEnter={() => setFlt((f) => ({ ...f, ...texts }))}
+          />
+          <Input
+            allowClear
+            placeholder="规则 id / 名称"
+            style={{ width: 160 }}
+            value={texts.rule}
+            onChange={(e) => setTexts((t) => ({ ...t, rule: e.target.value }))}
+            onPressEnter={() => setFlt((f) => ({ ...f, ...texts }))}
+          />
+          <InputNumber
+            placeholder="最低监督分"
+            min={0}
+            max={1}
+            step={0.1}
+            style={{ width: 140 }}
+            value={flt.min_score}
+            onChange={(v) => setFlt((f) => ({
+              ...f, min_score: v === null || v === undefined ? undefined : Number(v),
+            }))}
+          />
+          <Select
+            allowClear
+            placeholder="状态"
+            style={{ width: 115 }}
+            value={flt.status}
+            onChange={(v) => setFlt((f) => ({ ...f, status: v }))}
+            options={[
+              { value: 'open', label: '未处理' },
+              { value: 'ack', label: '已阅' },
+              { value: 'closed', label: '已关闭' },
+              { value: 'pending', label: '待定' },
+            ]}
+          />
+          <Select
+            value={hours}
+            onChange={(v) => {
+              setHours(v)
+              // 选固定窗口即取消自定义范围，避免两个时间条件同时存在。
+              setRange(null)
+              setFlt((f) => ({ ...f, from_ts: undefined, to_ts: undefined }))
+            }}
+            style={{ width: 130 }}
+            options={[
+              { value: 1, label: '近 1 小时' },
+              { value: 6, label: '近 6 小时' },
+              { value: 24, label: '近 24 小时' },
+              { value: 24 * 7, label: '近 7 天' },
+            ]}
+          />
+          <DatePicker.RangePicker
+            showTime
+            value={range as any}
+            onChange={(v) => {
+              const r = v as any
+              setRange(r)
+              setFlt((f) => ({
+                ...f,
+                from_ts: r?.[0]?.valueOf(),
+                to_ts: r?.[1]?.valueOf(),
+              }))
+            }}
+          />
+          <Select
+            style={{ width: 170 }}
+            value={customRefresh ? -1 : refreshSec}
+            onChange={(v) => {
+              if (v === -1) {
+                setCustomRefresh(true)
+                if (refreshSec <= 0) setRefreshSec(15)
+              } else {
+                setCustomRefresh(false)
+                setRefreshSec(Number(v))
+              }
+            }}
+            options={[
+              { value: 0, label: '自动刷新：关闭' },
+              { value: 5, label: '自动刷新：5s' },
+              { value: 10, label: '自动刷新：10s' },
+              { value: 15, label: '自动刷新：15s' },
+              { value: 30, label: '自动刷新：30s' },
+              { value: 60, label: '自动刷新：60s' },
+              { value: -1, label: '自定义…' },
+            ]}
+          />
+          {customRefresh ? (
+            <InputNumber
+              min={3}
+              max={3600}
+              value={refreshSec || 15}
+              onChange={(v) => {
+                if (v !== null && v !== undefined) setRefreshSec(Number(v))
+              }}
+              addonAfter="秒"
+              style={{ width: 130 }}
+            />
+          ) : null}
+          <Button
+            onClick={() => {
+              setTexts({ q: '', src_ip: '', attack_type: '', host: '', rule: '' })
+              setFlt({ ...EMPTY_FILTERS })
+              setRange(null)
+            }}
+          >
+            重置筛选
+          </Button>
+          <span className="muted">筛选 {filterCount} 项</span>
+        </Space>
+      </Card>
 
       <Tabs
         activeKey={tab}

@@ -122,6 +122,12 @@ def main() -> int:
     ck("告警·抑制标注", st == 200 and "suppressed_hidden" in als,
        f"{st} hidden={als.get('suppressed_hidden')} n={len(als.get('items') or [])}")
 
+    st, af = call("GET", "/api/alerts?window_hours=168&status=open&min_score=0"
+                         "&q=&limit=5", token=token)
+    ck("告警筛选", st == 200 and "filters" in af and "truncated" in af
+       and all(r.get("status") == "open" for r in (af.get("items") or [])),
+       f"{st} total={af.get('total')} truncated={af.get('truncated')}")
+
     st, ch = call("GET", "/api/alerts/chains?window_hours=168&include_suppressed=1", token=token)
     ck("攻击链", st == 200 and "items" in ch and "noise_hidden" in ch
        and "suppressed_hidden" in ch,

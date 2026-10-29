@@ -41,7 +41,7 @@ py -3.10 -m service.run                   # http://127.0.0.1:8090/docs
 | `test_rules_bulk.py` | 按 ID 批量规则操作（候选/自撰、block 资格、部分失败、删除范围） |
 | `test_retention.py` | 聚合表裁剪与巡检快照/审计测试 |
 | `uploads.py` | 用户上传训练数据：存储/子进程解析/重叠剔除/预览/软删除（解析在 `../upload_parse.py`） |
-| `alerts.py` | 告警（聚合）下钻：同公式复算时间桶 + 精确匹配，取某聚合组的原始事件（含分页）；`dedup_groups` 做同源同类去重 |
+| `alerts.py` | 告警列表：`_where` 服务端筛选（搜索/源IP/动作/类型/方法/Host/规则/最低分/时间范围）、`list_groups` 普通与同源同类聚合、`truncated` 截断标记；下钻用同公式复算时间桶 + 精确匹配取原始事件（含分页） |
 | `correlate.py` | 同源攻击链：按 `(src_ip, ua)` + 间隔切链、阶段分类（探测/试探/利用）、扫描噪音降级、时序规则（`sequence/group_by/within`） |
 | `suppression.py` | 实体级误报抑制：草案/审批/TTL/撤销/惰性过期、AND 匹配、告警/攻击链折叠、误报草案生成 |
 | `proxy_manager.py` | 采集代理控制面：配置持久化/校验、二进制解析、受控启停、状态/日志、审计 |
@@ -59,6 +59,7 @@ py -3.10 -m service.run                   # http://127.0.0.1:8090/docs
 | `test_task_plan_upload.py` | 上传训练 argv：add/only、lineage、校准集、非法数据拒绝 |
 | `test_audit_retention.py` | 审计保留：dry-run、只删旧行、清理留痕、勾选删除、回滚、自动清理开关 |
 | `test_alerts_drilldown.py` | 聚合下钻：精确匹配（子串不混入）、桶边界左闭右开、NULL 字段、分页；`dedup=1` 同源同类合并 |
+| `test_alerts_filters.py` | 告警/攻击链筛选：各字段、`q` 覆盖 UA/规则/路径、`truncated`、时间范围、切链前过滤 |
 | `test_correlate.py` | 攻击链：阶段分类、gap 切链、同毫秒稳定、噪音降级、时序窗口边界、规则 JSON 覆盖/回退、链下钻 |
 | `test_suppression.py` | 抑制：实体校验、草案/审批/撤销/删除、TTL 惰性过期、AND 匹配保守语义、折叠计数、误报草案去重与冷却 |
 | `test_proxy_api.py` | 采集代理：配置白名单/边界、地址注入、路径约束、argv、启停状态机、PID 复用保护、重启差异、日志尾部 |
@@ -342,16 +343,30 @@ path/trash 同时存在、symlink、stat 不匹配都不会自动删；连续 5 
 **`feedback` 保留**（人工结论不随证据过期丢弃）。
 
 ### 告警
-- `GET  /api/alerts?window_hours&bucket_min&dedup&include_suppressed` — 默认按 **源IP + 动作 + 方法/路径 + 时间桶**
+- `GET  /api/alerts?window_hours&bucket_min&dedup&include_suppressed&limit`
+  `&q&src_ip&action&attack_type&method&host&rule&min_score&status&from_ts&to_ts`
+  — 默认按 **源IP + 动作 + 方法/路径 + 时间桶**
   聚合；`dedup=1` 改为 **源IP + 动作 + 攻击类型 + 时间桶**，返回 `path_count`。
   生效中的实体级抑制默认折叠，返回 `suppressed_hidden` 计数；`include_suppressed=1`
   保留行并附 `suppression` 摘要（用于「已抑制」标签）。
+  **筛选在事件级先过滤再聚合**（`alerts._where`，与攻击链共用）：`q` 子串匹配
+  IP/方法/路径/类型/UA/Host/规则命中 JSON；`src_ip`/`action`/`attack_type`/`method`/
+  `host` 精确匹配（`attack_type`/`method` 空串归一）；`rule` 匹配 `rule_hits_json`；
+  `min_score` 是最低监督分；`from_ts`/`to_ts` 覆盖 `window_hours`。
+  `status` 在聚合与抑制折叠**之后**按 `alert_state` 过滤（`open/ack/closed/pending`）。
+  返回 `total`（过滤后组数）、`truncated`（超过 `limit`）、`from_ts`/`to_ts` 与
+  `filters` 回显；`limit` 默认 500、上限 2000。
 - `GET  /api/alerts/events` — 下钻：`src_ip/action/bucket/bucket_min/method/path/limit/offset`，
   与聚合同公式复算时间桶（左闭右开）、method/path 精确匹配（NULL 归一空串），
   服务端分页；保证抽屉里的条数 = 聚合行的 n。`dedup=1&attack_type=...` 走下钻合并组。
 - `GET  /api/alerts/chains?window_hours&gap_min&min_events&only_suspicious&include_noise&include_suppressed&limit`
+  `&q&src_ip&attack_type&method&host&min_score&status&from_ts&to_ts`
   — 同源攻击链（见 §2.3），附带 `status/assignee`（同 `alert_state`）与 `sequences`；
-  同样返回 `suppressed_hidden`，`include_suppressed=1` 时保留被抑制链
+  同样返回 `suppressed_hidden`，`include_suppressed=1` 时保留被抑制链。
+  事件级筛选（`q`/源IP/类型/方法/Host/最低分/时间范围与 `/api/alerts` 共用 `_where`）
+  先过滤再切链，链计数按过滤后事件重算；**切链取数不限制 `action`**，保留探测/放行
+  事件做阶段分类。`status` 在切链/折叠后按 `alert_state` 过滤。
+  返回 `total`、`from_ts`/`to_ts` 与 `filters` 回显。
 - `GET  /api/alerts/chains/events?src_ip&ua&from_ts&to_ts&limit&offset`
   — 链下钻：同源 + 同 UA + 时间范围，返回 `stage` 阶段分类
 - `POST /api/alerts/ack` body `{group_key, status, assignee}`（链的 `chain_key` 同样走这里）
@@ -618,7 +633,7 @@ path/trash 同时存在、symlink、stat 不匹配都不会自动删；连续 5 
 ## 5. 自检
 
 ```bash
-py -3.10 -X utf8 -m service.smoke          # 需要服务已启动；34 项
+py -3.10 -X utf8 -m service.smoke          # 需要服务已启动；39 项
 py -3.10 -X utf8 -m unittest service.test_packet -v   # packet 纯函数测试
 py -3.10 -X utf8 -m service.test_rule_spans -v        # 规则命中精确标位测试
 py -3.10 -X utf8 -m service.test_rules_bulk -v        # 按 ID 批量规则操作测试
@@ -633,6 +648,7 @@ py -3.10 -X utf8 -m service.test_uploads -v           # 上传存储/转换/软�
 py -3.10 -X utf8 -m service.test_task_plan_upload -v  # 上传训练任务 argv 组装测试
 py -3.10 -X utf8 -m service.test_audit_retention -v   # 审计保留/勾选删除/自动清理测试
 py -3.10 -X utf8 -m service.test_alerts_drilldown -v  # 告警聚合下钻：桶边界/精确匹配/分页/去重
+py -3.10 -X utf8 -m service.test_alerts_filters -v    # 告警/攻击链筛选：字段/q/截断/时间范围
 py -3.10 -X utf8 -m service.test_correlate -v         # 攻击链：阶段/gap 切链/噪音降级/时序规则
 py -3.10 -X utf8 -m service.test_suppression -v       # 实体级抑制：状态机/TTL/匹配/折叠/误报草案
 py -3.10 -X utf8 -m service.test_proxy_api -v         # 采集代理：配置校验/启停状态机/PID 保护
@@ -675,4 +691,7 @@ curl -s -X POST -H "Authorization: Bearer <admin-token>" -H "Content-Type: appli
       正则 UA，需要新增匹配类型并写清审计与回滚语义。
 - [x] **用户管理**：`service/users.py` + `/api/users*` + 前端「用户管理」页；
       创建/改角色/禁用/重置密码/删除，至少保留一个启用 admin、不能操作自己。
+- [x] **告警搜索/筛选/刷新**：`alerts._where` 服务端事件级筛选（`q`/源IP/动作/类型/
+      方法/Host/规则/最低分/时间范围/状态），聚合与攻击链共用；前端筛选栏 + 持久化 +
+      可变自动刷新（页面隐藏暂停），`truncated` 提示（见 §2.2）。
 - [ ] **SQLite 迁移到 Postgres**（若要多人并发/多机）。

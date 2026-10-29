@@ -1262,40 +1262,41 @@ def list_alerts(
     bucket_min: int = Query(10, ge=1, le=1440),
     dedup: bool = False,
     include_suppressed: bool = False,
+    q: Optional[str] = None,
+    src_ip: Optional[str] = None,
+    action: Optional[str] = None,
+    attack_type: Optional[str] = None,
+    method: Optional[str] = None,
+    host: Optional[str] = None,
+    rule: Optional[str] = None,
+    min_score: Optional[float] = None,
+    status: Optional[str] = Query(None, pattern="^(open|ack|closed|pending)$"),
+    from_ts: Optional[int] = None,
+    to_ts: Optional[int] = None,
+    limit: int = Query(500, ge=1, le=2000),
     user: dict = Depends(auth.current_user),
 ):
-    """聚合告警。
+    """聚合告警（服务端筛选/搜索）。
 
     * 默认：`src_ip + action + method/path + 时间桶`，一条路径一组。
     * `dedup=1`：`src_ip + action + attack_type + 时间桶`，把同一源在同一桶内
       打不同路径的同类攻击合并成一行（`path_count` 是路径数），用于扫描风暴去重。
+    * 筛选条件在**事件级**先过滤再聚合（`q` 覆盖 IP/方法/路径/类型/UA/Host/规则）。
     * 生效中的实体级抑制默认折叠（`suppressed_hidden` 计数），
       `include_suppressed=1` 可显示并带 `suppression` 摘要。
     """
-    since = db.now_ms() - window_hours * 3600 * 1000
-    bucket_ms = bucket_min * 60 * 1000
-    if dedup:
-        items = alerts_mod.dedup_groups(since, bucket_min)
-    else:
-        items = db.rows(
-            """SELECT src_ip, action, method, path,
-                      CAST(ts / ? AS INTEGER) AS bucket,
-                      MIN(ts) AS first_ts, MAX(ts) AS last_ts, COUNT(*) AS n,
-                      MAX(supervised_score) AS max_score,
-                      MAX(attack_type) AS attack_type
-               FROM events
-               WHERE ts>=? AND action IN ('block','alert')
-               GROUP BY src_ip, action, method, path, bucket
-               ORDER BY last_ts DESC LIMIT 500""",
-            (bucket_ms, since),
-        )
-        for r in items:
-            key = f"{r['src_ip']}|{r['action']}|{r.get('method')} {r.get('path')}|{r['bucket']}"
-            r["group_key"] = key
-            r["severity"] = "P1" if r["action"] == "block" else "P2"
-            r["path_count"] = 1
+    now = db.now_ms()
+    until = int(to_ts) if to_ts is not None else now
+    since = int(from_ts) if from_ts is not None else (until - window_hours * 3600 * 1000)
+    if since > until:
+        raise HTTPException(400, "from_ts 不能大于 to_ts")
+    res = alerts_mod.list_groups(
+        since, until, bucket_min, dedup, src_ip=src_ip, action=action,
+        attack_type=attack_type, method=method, host=host, rule=rule,
+        min_score=min_score, q=q, limit=limit)
+    items = res["items"]
 
-    # 批量取确认状态，避免每行一次查询（最多 500 行）。
+    # 批量取确认状态，避免每行一次查询。
     states = {}
     keys = [r["group_key"] for r in items]
     if keys:
@@ -1313,9 +1314,18 @@ def list_alerts(
 
     items, suppressed_hidden = suppression.apply(
         items, include_suppressed=include_suppressed)
+    if status:
+        items = [r for r in items if r["status"] == status]
     return {"window_hours": window_hours, "bucket_min": bucket_min,
             "dedup": dedup, "include_suppressed": include_suppressed,
-            "suppressed_hidden": suppressed_hidden, "items": items}
+            "suppressed_hidden": suppressed_hidden,
+            "total": len(items), "truncated": res["truncated"],
+            "from_ts": since, "to_ts": until,
+            "filters": {"q": q, "src_ip": src_ip, "action": action,
+                        "attack_type": attack_type, "method": method,
+                        "host": host, "rule": rule, "min_score": min_score,
+                        "status": status},
+            "items": items}
 
 
 @app.get("/api/alerts/events")
@@ -1350,6 +1360,15 @@ def alert_chains(
     only_suspicious: bool = True,
     include_noise: bool = False,
     include_suppressed: bool = False,
+    q: Optional[str] = None,
+    src_ip: Optional[str] = None,
+    attack_type: Optional[str] = None,
+    method: Optional[str] = None,
+    host: Optional[str] = None,
+    min_score: Optional[float] = None,
+    status: Optional[str] = Query(None, pattern="^(open|ack|closed|pending)$"),
+    from_ts: Optional[int] = None,
+    to_ts: Optional[int] = None,
     limit: int = Query(200, ge=1, le=500),
     user: dict = Depends(auth.current_user),
 ):
@@ -1358,10 +1377,14 @@ def alert_chains(
     `chain_key` 与聚合告警共用 `alert_state.group_key`，所以确认/关闭走同一个
     `/api/alerts/ack`。扫描噪音（大量探测且无拦截）默认折叠，`include_noise=1` 可看。
     生效中的实体级抑制同样默认折叠（`suppressed_hidden` 计数）。
+    `q / src_ip / attack_type / method / host / min_score / from_ts / to_ts`
+    在事件级先过滤再切链；`status` 在聚合后按 `alert_state` 过滤。
     """
     res = correlate.collect(
         window_hours=window_hours, gap_min=gap_min, min_events=min_events,
-        only_suspicious=only_suspicious, include_noise=include_noise, limit=limit)
+        only_suspicious=only_suspicious, include_noise=include_noise, limit=limit,
+        src_ip=src_ip, attack_type=attack_type, method=method, host=host, q=q,
+        min_score=min_score, from_ts=from_ts, to_ts=to_ts)
 
     keys = [c["chain_key"] for c in res["items"]]
     states = {}
@@ -1380,7 +1403,13 @@ def alert_chains(
 
     res["items"], res["suppressed_hidden"] = suppression.apply(
         res["items"], include_suppressed=include_suppressed)
+    if status:
+        res["items"] = [c for c in res["items"] if c["status"] == status]
     res["include_suppressed"] = include_suppressed
+    res["total"] = len(res["items"])
+    res["filters"] = {"q": q, "src_ip": src_ip, "attack_type": attack_type,
+                      "method": method, "host": host, "min_score": min_score,
+                      "status": status}
     return res
 
 

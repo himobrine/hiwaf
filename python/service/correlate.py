@@ -291,32 +291,51 @@ def load_rules() -> list[dict]:
 
 def collect(window_hours: int = 24, gap_min: int = 10, min_events: int = 2,
             only_suspicious: bool = True, include_noise: bool = True,
-            limit: int = 200) -> dict:
+            limit: int = 200, *, src_ip: Optional[str] = None,
+            attack_type: Optional[str] = None, method: Optional[str] = None,
+            host: Optional[str] = None, q: Optional[str] = None,
+            min_score: Optional[float] = None,
+            from_ts: Optional[int] = None, to_ts: Optional[int] = None) -> dict:
     """取数 + 关联；只读，返回 `{items, sequences, scanned_rows, truncated, ...}`。
 
     `include_noise=False` 时把扫描噪音链（`noise=true`）过滤掉，并返回
     `noise_hidden` 计数供前端提示「另有 N 条扫描噪音已折叠」。
+    筛选条件在**事件级**先过滤再切链（与 `/api/alerts` 同一套语义）。
+
+    **选源**用 `block/alert` + 筛选条件；**切链取数**沿用同一套筛选但**不限制
+    动作**——探测/放行事件是阶段分类（探测→试探→利用）和噪音判定的输入，
+    不能因为「只看 block/alert」而丢掉。
     """
-    since = db.now_ms() - window_hours * 3600 * 1000
+    from .alerts import _where as event_where  # 同一套过滤条件，避免两处漂移
+
+    now = db.now_ms()
+    until = int(to_ts) if to_ts is not None else now
+    since = int(from_ts) if from_ts is not None else (
+        until - window_hours * 3600 * 1000)
+    kw = dict(src_ip=src_ip, attack_type=attack_type, method=method, host=host,
+              q=q, min_score=min_score)
+    w, p = event_where(since, until, **kw)
+    w_rows, p_rows = event_where(since, until, only_attack_actions=False, **kw)
     srcs = [r["src_ip"] for r in db.rows(
-        """SELECT src_ip, COUNT(*) AS n FROM events
-           WHERE ts>=? AND action IN ('block','alert') AND src_ip IS NOT NULL
-           GROUP BY src_ip ORDER BY n DESC LIMIT ?""",
-        (since, MAX_SOURCES),
+        f"""SELECT src_ip, COUNT(*) AS n FROM events
+             WHERE {w} AND src_ip IS NOT NULL
+             GROUP BY src_ip ORDER BY n DESC LIMIT ?""",
+        [*p, MAX_SOURCES],
     )]
     if not srcs:
         return {"window_hours": window_hours, "gap_min": gap_min,
                 "min_events": min_events, "scanned_rows": 0, "truncated": False,
-                "noise_hidden": 0, "items": [], "sequences": []}
+                "noise_hidden": 0, "items": [], "sequences": [],
+                "from_ts": since, "to_ts": until}
 
     ph = ",".join("?" * len(srcs))
     rows = db.rows(
         f"""SELECT id, ts, src_ip, ua, host, method, path, status, action,
                    attack_type, supervised_score, supervised_flagged
             FROM events
-            WHERE ts>=? AND src_ip IN ({ph})
+            WHERE {w_rows} AND src_ip IN ({ph})
             ORDER BY ts ASC, id ASC LIMIT ?""",
-        [since, *srcs, MAX_ROWS],
+        [*p_rows, *srcs, MAX_ROWS],
     )
     chains = build_chains(rows, gap_ms=gap_min * 60_000, min_events=min_events)
     sequences = detect_sequences(rows)
@@ -349,6 +368,8 @@ def collect(window_hours: int = 24, gap_min: int = 10, min_events: int = 2,
         "noise_hidden": noise_hidden,
         "items": chains[:limit],
         "sequences": sequences[:limit],
+        "from_ts": since,
+        "to_ts": until,
     }
 
 
