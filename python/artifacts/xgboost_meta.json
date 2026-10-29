@@ -89,12 +89,19 @@
     "4": "traversal"
   },
   "features_version": "v2",
+  "base_trees": 400,
+  "total_trees": 800,
+  "parent_model": "xgb_model.json",
+  "inherit_mode": "warm_start",
   "training_recipe": {
     "n_estimators": 400,
     "max_depth": 8,
     "lr": 0.1,
     "early_stopping_rounds": 0,
     "best_iteration": -1,
+    "base_trees": 400,
+    "total_trees": 800,
+    "inherit_mode": "warm_start",
     "class_weight": "balanced (inverse frequency)",
     "hard_neg": "lexical",
     "hard_neg_added": 500,
@@ -113,16 +120,19 @@
     "valid_frac": 0.0,
     "n_valid": 0,
     "n_train": 21212,
-    "dataset": "HTTP Params 2015 (payload_train/test) + lexical 正常一半"
+    "dataset": "HTTP Params 2015 (payload_train/test) + lexical 正常一半",
+    "upload_mode": null,
+    "upload_datasets": null,
+    "upload_calib": null
   },
   "decision_threshold": {
     "score_def": "1 - P(normal)",
     "calibration_pool": "CSIC 2010 正常流量留出一半（seed=7 随机切分，6000 条，与零日通道训练集互斥）",
     "n_pool": 6000,
     "thresholds": {
-      "0.001": 0.8144990801811218,
-      "0.01": 0.6997649669647217,
-      "0.03": 0.13753646612167358
+      "0.001": 0.8633766770362854,
+      "0.01": 0.7210041284561157,
+      "0.03": 0.1757892519235611
     },
     "actual_fpr": {
       "0.001": 0.0065,
@@ -137,7 +147,7 @@
     "test": {
       "n": 10355,
       "accuracy": 0.9992274263640754,
-      "auc_binary": 0.999993063184401,
+      "auc_binary": 0.9999893767623971,
       "per_class": {
         "normal": {
           "n": 6434,
@@ -180,31 +190,31 @@
           "fpr": 0.010102580043518807
         },
         "0.03": {
-          "detect": 1.0,
+          "detect": 0.9997449630196379,
           "fpr": 0.029996891513832762
         },
         "0.05": {
           "detect": 1.0,
-          "fpr": 0.05439850792663973
+          "fpr": 0.05004662729250855
         }
       }
     },
     "lexical": {
       "n": 606,
       "accuracy": 0.8663366336633663,
-      "auc_binary": 0.9423679245283019,
+      "auc_binary": 0.9461132075471698,
       "per_class": {
         "normal": {
           "n": 500,
-          "precision": 0.8872987477638641,
+          "precision": 0.8904847396768402,
           "recall": 0.992,
-          "f1": 0.9367327667610954
+          "f1": 0.9385052034058656
         },
         "sqli": {
           "n": 87,
-          "precision": 0.7941176470588235,
+          "precision": 0.75,
           "recall": 0.3103448275862069,
-          "f1": 0.44628099173553715
+          "f1": 0.4390243902439025
         },
         "xss": {
           "n": 19,
@@ -227,7 +237,7 @@
       },
       "budgets": {
         "0.001": {
-          "detect": 0.08490566037735849,
+          "detect": 0.09433962264150944,
           "fpr": 0.002
         },
         "0.01": {
@@ -235,18 +245,18 @@
           "fpr": 0.01
         },
         "0.03": {
-          "detect": 0.660377358490566,
+          "detect": 0.6886792452830188,
           "fpr": 0.03
         },
         "0.05": {
-          "detect": 0.7452830188679245,
+          "detect": 0.7641509433962265,
           "fpr": 0.05
         }
       }
     },
-    "n_trees": 2000,
-    "n_nodes": 18464,
-    "train_seconds": 3.62
+    "n_trees": 4000,
+    "n_nodes": 23664,
+    "train_seconds": 3.11
   },
-  "model": "xgboost_v20261015_001.onnx"
+  "model": "model.onnx"
 }
