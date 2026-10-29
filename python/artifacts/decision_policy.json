@@ -1,8 +1,8 @@
 {
   "schema": 2,
-  "version": 10,
+  "version": 11,
   "generated_by": "thresholds.py",
-  "generated_at": "2026-10-25 12:32:01",
+  "generated_at": "2026-10-29 12:21:03",
   "zero_day_enabled": false,
   "calibration_pool": {
     "name": "CSIC 2010 正常流量留出 6,000 条（seed=7 切分，与零日通道训练集互斥）",
@@ -11,7 +11,8 @@
     "n_overlap": 0,
     "overlap_rate": 0.0,
     "training_set": "hard_neg=lexical seed=11 lexical_split=random dict=off extra_benign=0 valid_frac=0.0",
-    "n_training": 21212
+    "n_training": 21212,
+    "n_upload_training": 0
   },
   "supervised": {
     "artifact": "xgboost_v20261015_001.onnx",
@@ -62,9 +63,9 @@
   "rules": {
     "enabled": true,
     "ruleset_path": "artifacts/rules_authoritative.json",
-    "ruleset_sha1_16": "1313bccdc0d80b8e",
-    "n_rules": 87,
-    "n_block_rules": 33,
+    "ruleset_sha1_16": "c751648fe6f88b3c",
+    "n_rules": 89,
+    "n_block_rules": 34,
     "min_weight_to_block": 1.0,
     "nominal_target_fpr": 0.01,
     "sup_target_fpr": 0.009360166512216883,
@@ -79,11 +80,11 @@
   },
   "fusion": {
     "policy": "supervised_block__zero_day_alert__rules_block",
-    "description": "监督通道命中 -> block；规则通道的 block 规则权重和 ≥ 阻断线 -> block；仅零日通道命中、或规则通道有命中（但不够阻断线）-> alert（需人工复核）；否则 allow。零日通道不单独阻断：其误报语义是\"没见过\"，而非\"确认是攻击\"。⚠️ 顶层 `zero_day_enabled=false` 时零日通道**不参与融合**（分数仍计算留证）。 ⚠️ 规则通道的误报预算已从监督通道的目标 FPR 里**扣掉**：监督目标 1% -> 0.936%（扣掉规则的阻断误报 0.06398%，87 条规则 / 33 条 block）。并且只有当**磁盘上的规则集指纹与策略记录一致**时规则通道才生效 —— 预算是对着特定规则集算出来的。",
+    "description": "监督通道命中 -> block；规则通道的 block 规则权重和 ≥ 阻断线 -> block；仅零日通道命中、或规则通道有命中（但不够阻断线）-> alert（需人工复核）；否则 allow。零日通道不单独阻断：其误报语义是\"没见过\"，而非\"确认是攻击\"。⚠️ 顶层 `zero_day_enabled=false` 时零日通道**不参与融合**（分数仍计算留证）。 ⚠️ 规则通道的误报预算已从监督通道的目标 FPR 里**扣掉**：监督目标 1% -> 0.936%（扣掉规则的阻断误报 0.06398%，89 条规则 / 34 条 block）。并且只有当**磁盘上的规则集指纹与策略记录一致**时规则通道才生效 —— 预算是对着特定规则集算出来的。",
     "actions": {
       "allow": "放行",
       "alert": "告警（零日通道 / 规则通道的非 block 命中；强制人工复核）",
-      "block": "阻断（监督通道 或 权重和≥阻断线的 block 规则；当前 33 条）"
+      "block": "阻断（监督通道 或 权重和≥阻断线的 block 规则；当前 34 条）"
     }
   },
   "union_fpr_on_pool": 0.019166666666666665,

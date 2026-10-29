@@ -122,8 +122,12 @@ call build.bat run --release -- ^
 业务可能系统性误报（实测本机 sqli-labs：任何 `?id=` 的 GET 都被判成 `cmdi` ≈ 0.999，阈值 0.6998）。
 关掉这个开关后，模型命中只写 `action=alert`（分数、穿阈、SHAP、规则证据都保留），
 **只有规则通道达到 `min_weight_to_block` 才 403**；规则命中时仍是 `block`。
-已知缺口：`sqli_comment_tail` 的 `(--|#|/\*)\s*$` 要求注释符在文本结尾，所以 POST 表单
-`id=1'--+&submit=Submit` 不命中（GET 的 `?id=1'--+` 命中）。
+
+注释注入（含 POST 表单体）：`sqli_comment_tail` 的 `(--|#|/\*)\s*$` 要求注释符在文本结尾，
+只覆盖 GET 的 `?id=1'--+`；POST `id=1'--+&submit=Submit` 由 `custom_sqli_quote_comment`
+（`(?i)['"]\s*(?:--|#|/\*)`，scope=`full`，`action=block`）覆盖。该规则经三关校验
+（良性池 0/6190、攻击池 724/25119）与人工确认后由 `rule_promote` 落盘，
+现役规则集 89 条 / 34 block，sha1_16 `c751648fe6f88b3c`。
 
 完整步骤、nginx 示例与故障排查见 `SETUP.md` §8.2 / §8.7。
 
