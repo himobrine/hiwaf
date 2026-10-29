@@ -1,23 +1,23 @@
 {
  "schema": 1,
- "ruleset_id": "authoritative-1793247658",
- "generated_at": 1793247658505,
+ "ruleset_id": "authoritative-1793264335",
+ "generated_at": 1793264335149,
  "decode": [
   "urlencoded",
   "unicode"
  ],
  "min_weight_to_block": 1.0,
  "counts": {
-  "total": 89,
-  "block": 34,
-  "alert": 55,
+  "total": 90,
+  "block": 40,
+  "alert": 50,
   "mined": 21,
-  "custom": 68,
+  "custom": 69,
   "crs": 0,
   "wafjson": 66,
-  "proven": 75,
+  "proven": 76,
   "user_override": 14,
-  "testing": 34,
+  "testing": 29,
   "breaker": 0,
   "by_verdict": {
    "insufficient_support": 2,
@@ -26,7 +26,7 @@
    "keep": 7
   },
   "by_kind": {
-   "detector": 85,
+   "detector": 86,
    "guard": 4
   }
  },
@@ -596,6 +596,407 @@
     "attack_n": 25213,
     "pool_support": 2,
     "decoding_gain": 0
+   }
+  },
+  {
+   "id": "custom_sqli_rlike_case",
+   "name": "sqli_rlike_case_probe",
+   "regex": "(?i)(?:\\brlike\\s*\\(|\\bcase\\s+when\\s*\\(?\\s*\\d+\\s*=\\s*\\d+)",
+   "scopes": [
+    "query",
+    "body"
+   ],
+   "severity": "high",
+   "weight": 1.0,
+   "action": "block",
+   "source": "manual",
+   "provenance": {
+    "kind": "detector",
+    "validation": {
+     "passed": false,
+     "kind": "detector",
+     "gates": {
+      "regex_safety": {
+       "passed": true,
+       "engine": "rust regex crate（线性时间；无 lookaround/反向引用）",
+       "exit_code": 0,
+       "stdout": "OK rules=1 ruleset=\"validate-custom_sqli_rlike_case\" sha1_16=9d632cb9167d4b9c decode=[\"urlencoded\", \"unicode\"] min_weight_to_block=1 block=0",
+       "stderr": ""
+      },
+      "benign_replay": {
+       "passed": true,
+       "name": "真实良性回放",
+       "benign_hits": 0,
+       "benign_n": 6190,
+       "benign_rate": 0.0,
+       "benign_sources": "csic_norm_holdout(6000) + local_benign(190)",
+       "caveat": "CSIC 留出集与 p7 的**筛选语料同源**（p7 用了全部 36,000 条正常流量）⇒ 挖出的规则在本池上的点估计系统性偏低。阻断预算一律用 Wilson 95% 上界。"
+      },
+      "attack_replay": {
+       "passed": false,
+       "name": "攻击回放",
+       "attack_hits": 0,
+       "attack_n": 25119,
+       "attack_rate": 0.0,
+       "attack_sources": "csic_anom(25065) + inwild_atk(12) + datacon_atk(42)"
+      }
+     },
+     "failed_at": "attack_replay",
+     "tool": "C:\\Users\\lenovo\\AppData\\Local\\Temp\\waf_rule_val_yrj5mmsb\\rules.json",
+     "calibration": {
+      "schema": 1,
+      "ruleset_sha1_16": null,
+      "pools": {
+       "unified": {
+        "benign_n": 6190,
+        "attack_n": 25119,
+        "benign_sources": "csic_norm_holdout(6000) + local_benign(190)",
+        "attack_sources": "csic_anom(25065) + inwild_atk(12) + datacon_atk(42)",
+        "benign_caveat": "CSIC 留出集与 p7 的**筛选语料同源**（p7 用了全部 36,000 条正常流量）⇒ 挖出的规则在本池上的点估计系统性偏低。阻断预算一律用 Wilson 95% 上界。"
+       }
+      },
+      "p7_anchor": {
+       "n_rules": 21,
+       "counts_exact_match": 21,
+       "verdicts_match": 21,
+       "yr_kept": 7,
+       "yr_reject_fp": 6,
+       "yr_unverifiable": 6,
+       "yr_insufficient": 2,
+       "yr_reject_no_hit": 0,
+       "decoding_gain_total": 3793,
+       "p7_decoding_gain_total": 3793,
+       "p7_benign_n": 37000,
+       "p7_attack_n": 25213,
+       "mismatches": [],
+       "rules": [
+        {
+         "id": "sqli_union_select",
+         "verdict": "insufficient_support",
+         "benign_hits": 0,
+         "benign_n": 37000,
+         "attack_hits": 0,
+         "attack_n": 25213,
+         "benign_hits_raw": 0,
+         "attack_hits_raw": 0,
+         "decoding_gain": 0,
+         "pool_support": 1,
+         "pool_support_raw": 1,
+         "matched_p7_counts": true,
+         "matched_p7_verdict": true
+        },
+        {
+         "id": "sqli_into_outfile",
+         "verdict": "unverifiable_by_pool",
+         "benign_hits": 0,
+         "benign_n": 37000,
+         "attack_hits": 0,
+         "attack_n": 25213,
+         "benign_hits_raw": 0,
+         "attack_hits_raw": 0,
+         "decoding_gain": 0,
+         "pool_support": 0,
+         "pool_support_raw": 0,
+         "matched_p7_counts": true,
+         "matched_p7_verdict": true
+        },
+        {
+         "id": "sqli_meta_table",
+         "verdict": "unverifiable_by_pool",
+         "benign_hits": 0,
+         "benign_n": 37000,
+         "attack_hits": 0,
+         "attack_n": 25213,
+         "benign_hits_raw": 0,
+         "attack_hits_raw": 0,
+         "decoding_gain": 0,
+         "pool_support": 0,
+         "pool_support_raw": 0,
+         "matched_p7_counts": true,
+         "matched_p7_verdict": true
+        },
+        {
+         "id": "sqli_file_func",
+         "verdict": "unverifiable_by_pool",
+         "benign_hits": 0,
+         "benign_n": 37000,
+         "attack_hits": 0,
+         "attack_n": 25213,
+         "benign_hits_raw": 0,
+         "attack_hits_raw": 0,
+         "decoding_gain": 0,
+         "pool_support": 0,
+         "pool_support_raw": 0,
+         "matched_p7_counts": true,
+         "matched_p7_verdict": true
+        },
+        {
+         "id": "sqli_time_delay",
+         "verdict": "reject_fp",
+         "benign_hits": 1,
+         "benign_n": 37000,
+         "attack_hits": 1104,
+         "attack_n": 25213,
+         "benign_hits_raw": 1,
+         "attack_hits_raw": 0,
+         "decoding_gain": 1104,
+         "pool_support": 1104,
+         "pool_support_raw": 1104,
+         "matched_p7_counts": true,
+         "matched_p7_verdict": true
+        },
+        {
+         "id": "sqli_tautology",
+         "verdict": "keep",
+         "benign_hits": 0,
+         "benign_n": 37000,
+         "attack_hits": 604,
+         "attack_n": 25213,
+         "benign_hits_raw": 0,
+         "attack_hits_raw": 0,
+         "decoding_gain": 604,
+         "pool_support": 19706,
+         "pool_support_raw": 19706,
+         "matched_p7_counts": true,
+         "matched_p7_verdict": true
+        },
+        {
+         "id": "sqli_comment_tail",
+         "verdict": "keep",
+         "benign_hits": 0,
+         "benign_n": 37000,
+         "attack_hits": 551,
+         "attack_n": 25213,
+         "benign_hits_raw": 0,
+         "attack_hits_raw": 551,
+         "decoding_gain": 0,
+         "pool_support": 1849,
+         "pool_support_raw": 1841,
+         "matched_p7_counts": true,
+         "matched_p7_verdict": true
+        },
+        {
+         "id": "sql_ddl_dml",
+         "verdict": "reject_fp",
+         "benign_hits": 6,
+         "benign_n": 37000,
+         "attack_hits": 225,
+         "attack_n": 25213,
+         "benign_hits_raw": 6,
+         "attack_hits_raw": 225,
+         "decoding_gain": 0,
+         "pool_support": 2797,
+         "pool_support_raw": 2797,
+         "matched_p7_counts": true,
+         "matched_p7_verdict": true
+        },
+        {
+         "id": "xss_script_tag",
+         "verdict": "keep",
+         "benign_hits": 0,
+         "benign_n": 37000,
+         "attack_hits": 1151,
+         "attack_n": 25213,
+         "benign_hits_raw": 0,
+         "attack_hits_raw": 1,
+         "decoding_gain": 1150,
+         "pool_support": 1151,
+         "pool_support_raw": 1,
+         "matched_p7_counts": true,
+         "matched_p7_verdict": true
+        },
+        {
+         "id": "xss_event_handler",
+         "verdict": "keep",
+         "benign_hits": 0,
+         "benign_n": 37000,
+         "attack_hits": 2,
+         "attack_n": 25213,
+         "benign_hits_raw": 0,
+         "attack_hits_raw": 2,
+         "decoding_gain": 0,
+         "pool_support": 500,
+         "pool_support_raw": 154,
+         "matched_p7_counts": true,
+         "matched_p7_verdict": true
+        },
+        {
+         "id": "xss_js_uri",
+         "verdict": "keep",
+         "benign_hits": 0,
+         "benign_n": 37000,
+         "attack_hits": 354,
+         "attack_n": 25213,
+         "benign_hits_raw": 0,
+         "attack_hits_raw": 0,
+         "decoding_gain": 354,
+         "pool_support": 354,
+         "pool_support_raw": 0,
+         "matched_p7_counts": true,
+         "matched_p7_verdict": true
+        },
+        {
+         "id": "xss_danger_tag",
+         "verdict": "unverifiable_by_pool",
+         "benign_hits": 0,
+         "benign_n": 37000,
+         "attack_hits": 0,
+         "attack_n": 25213,
+         "benign_hits_raw": 0,
+         "attack_hits_raw": 0,
+         "decoding_gain": 0,
+         "pool_support": 0,
+         "pool_support_raw": 0,
+         "matched_p7_counts": true,
+         "matched_p7_verdict": true
+        },
+        {
+         "id": "cmd_shell_bin",
+         "verdict": "reject_fp",
+         "benign_hits": 12,
+         "benign_n": 37000,
+         "attack_hits": 391,
+         "attack_n": 25213,
+         "benign_hits_raw": 12,
+         "attack_hits_raw": 4,
+         "decoding_gain": 387,
+         "pool_support": 969,
+         "pool_support_raw": 969,
+         "matched_p7_counts": true,
+         "matched_p7_verdict": true
+        },
+        {
+         "id": "cmd_subshell",
+         "verdict": "reject_fp",
+         "benign_hits": 129,
+         "benign_n": 37000,
+         "attack_hits": 1,
+         "attack_n": 25213,
+         "benign_hits_raw": 129,
+         "attack_hits_raw": 1,
+         "decoding_gain": 0,
+         "pool_support": 2330,
+         "pool_support_raw": 95,
+         "matched_p7_counts": true,
+         "matched_p7_verdict": true
+        },
+        {
+         "id": "php_webshell",
+         "verdict": "reject_fp",
+         "benign_hits": 2,
+         "benign_n": 37000,
+         "attack_hits": 5,
+         "attack_n": 25213,
+         "benign_hits_raw": 2,
+         "attack_hits_raw": 5,
+         "decoding_gain": 0,
+         "pool_support": 25,
+         "pool_support_raw": 25,
+         "matched_p7_counts": true,
+         "matched_p7_verdict": true
+        },
+        {
+         "id": "path_traversal",
+         "verdict": "reject_fp",
+         "benign_hits": 1,
+         "benign_n": 37000,
+         "attack_hits": 2,
+         "attack_n": 25213,
+         "benign_hits_raw": 1,
+         "attack_hits_raw": 2,
+         "decoding_gain": 0,
+         "pool_support": 13,
+         "pool_support_raw": 13,
+         "matched_p7_counts": true,
+         "matched_p7_verdict": true
+        },
+        {
+         "id": "path_sensitive_file",
+         "verdict": "keep",
+         "benign_hits": 0,
+         "benign_n": 37000,
+         "attack_hits": 196,
+         "attack_n": 25213,
+         "benign_hits_raw": 0,
+         "attack_hits_raw": 2,
+         "decoding_gain": 194,
+         "pool_support": 199,
+         "pool_support_raw": 199,
+         "matched_p7_counts": true,
+         "matched_p7_verdict": true
+        },
+        {
+         "id": "log4shell_jndi",
+         "verdict": "unverifiable_by_pool",
+         "benign_hits": 0,
+         "benign_n": 37000,
+         "attack_hits": 0,
+         "attack_n": 25213,
+         "benign_hits_raw": 0,
+         "attack_hits_raw": 0,
+         "decoding_gain": 0,
+         "pool_support": 0,
+         "pool_support_raw": 0,
+         "matched_p7_counts": true,
+         "matched_p7_verdict": true
+        },
+        {
+         "id": "log4shell_lookup",
+         "verdict": "insufficient_support",
+         "benign_hits": 0,
+         "benign_n": 37000,
+         "attack_hits": 0,
+         "attack_n": 25213,
+         "benign_hits_raw": 0,
+         "attack_hits_raw": 0,
+         "decoding_gain": 0,
+         "pool_support": 2,
+         "pool_support_raw": 0,
+         "matched_p7_counts": true,
+         "matched_p7_verdict": true
+        },
+        {
+         "id": "ssrf_meta_endpoint",
+         "verdict": "unverifiable_by_pool",
+         "benign_hits": 0,
+         "benign_n": 37000,
+         "attack_hits": 0,
+         "attack_n": 25213,
+         "benign_hits_raw": 0,
+         "attack_hits_raw": 0,
+         "decoding_gain": 0,
+         "pool_support": 0,
+         "pool_support_raw": 0,
+         "matched_p7_counts": true,
+         "matched_p7_verdict": true
+        },
+        {
+         "id": "rce_gateway_probe",
+         "verdict": "keep",
+         "benign_hits": 0,
+         "benign_n": 37000,
+         "attack_hits": 1,
+         "attack_n": 25213,
+         "benign_hits_raw": 0,
+         "attack_hits_raw": 1,
+         "decoding_gain": 0,
+         "pool_support": 2,
+         "pool_support_raw": 2,
+         "matched_p7_counts": true,
+         "matched_p7_verdict": true
+        }
+       ]
+      }
+     }
+    },
+    "qualification": "qualified",
+    "qualified_at": 1793264314236,
+    "qualified_by": "admin",
+    "qualification_source": "online_evidence",
+    "qualification_note": "重放实测：RLIKE/CASE 盲注命中已确认攻击事件，确认良性 0",
+    "action_requested": "block",
+    "action_forced": null,
+    "breaker": null
    }
   },
   {
@@ -23022,18 +23423,19 @@
    ],
    "severity": "medium",
    "weight": 3.0,
-   "action": "alert",
+   "action": "block",
    "source": "wafjson",
    "provenance": {
     "kind": "detector",
     "validation": {
      "passed": false,
+     "kind": "detector",
      "gates": {
       "regex_safety": {
        "passed": true,
        "engine": "rust regex crate（线性时间；无 lookaround/反向引用）",
        "exit_code": 0,
-       "stdout": "OK rules=1 ruleset=\"validate-custom_waf_sqli_012\" sha1_16=681064393f0192e7 decode=[\"urlencoded\", \"unicode\"] min_weight_to_block=1 block=0",
+       "stdout": "OK rules=1 ruleset=\"validate-custom_waf_sqli_012\" sha1_16=8b430ba297ee769b decode=[\"urlencoded\", \"unicode\"] min_weight_to_block=1 block=0",
        "stderr": ""
       },
       "benign_replay": {
@@ -23055,7 +23457,7 @@
       }
      },
      "failed_at": "attack_replay",
-     "tool": "C:\\Users\\lenovo\\AppData\\Local\\Temp\\waf_rule_val_f93suown\\rules.json",
+     "tool": "C:\\Users\\lenovo\\AppData\\Local\\Temp\\waf_rule_val_0bro8t_a\\rules.json",
      "calibration": {
       "schema": 1,
       "ruleset_sha1_16": null,
@@ -23402,13 +23804,13 @@
       }
      }
     },
-    "qualification": "testing",
-    "qualified_at": null,
-    "qualified_by": null,
-    "qualification_source": null,
-    "qualification_note": null,
-    "action_requested": "alert",
-    "action_forced": "alert",
+    "qualification": "qualified",
+    "qualified_at": 1793263917714,
+    "qualified_by": "admin",
+    "qualification_source": "online_evidence",
+    "qualification_note": "真实 sqlmap 流量：命中已确认攻击事件且确认良性 0（在线证据）",
+    "action_requested": "block",
+    "action_forced": null,
     "breaker": null
    }
   },
@@ -23822,18 +24224,19 @@
    ],
    "severity": "high",
    "weight": 4.0,
-   "action": "alert",
+   "action": "block",
    "source": "wafjson",
    "provenance": {
     "kind": "detector",
     "validation": {
      "passed": false,
+     "kind": "detector",
      "gates": {
       "regex_safety": {
        "passed": true,
        "engine": "rust regex crate（线性时间；无 lookaround/反向引用）",
        "exit_code": 0,
-       "stdout": "OK rules=1 ruleset=\"validate-custom_waf_sqli_010\" sha1_16=2ab28c12ae2fbbfe decode=[\"urlencoded\", \"unicode\"] min_weight_to_block=1 block=0",
+       "stdout": "OK rules=1 ruleset=\"validate-custom_waf_sqli_010\" sha1_16=9255cff6d15a1d8d decode=[\"urlencoded\", \"unicode\"] min_weight_to_block=1 block=0",
        "stderr": ""
       },
       "benign_replay": {
@@ -23855,7 +24258,7 @@
       }
      },
      "failed_at": "attack_replay",
-     "tool": "C:\\Users\\lenovo\\AppData\\Local\\Temp\\waf_rule_val_uherf7__\\rules.json",
+     "tool": "C:\\Users\\lenovo\\AppData\\Local\\Temp\\waf_rule_val__s_keic5\\rules.json",
      "calibration": {
       "schema": 1,
       "ruleset_sha1_16": null,
@@ -24202,13 +24605,13 @@
       }
      }
     },
-    "qualification": "testing",
-    "qualified_at": null,
-    "qualified_by": null,
-    "qualification_source": null,
-    "qualification_note": null,
-    "action_requested": "alert",
-    "action_forced": "alert",
+    "qualification": "qualified",
+    "qualified_at": 1793263917670,
+    "qualified_by": "admin",
+    "qualification_source": "online_evidence",
+    "qualification_note": "真实 sqlmap 流量：命中已确认攻击事件且确认良性 0（在线证据）",
+    "action_requested": "block",
+    "action_forced": null,
     "breaker": null
    }
   },
@@ -25422,18 +25825,19 @@
    ],
    "severity": "medium",
    "weight": 3.0,
-   "action": "alert",
+   "action": "block",
    "source": "wafjson",
    "provenance": {
     "kind": "detector",
     "validation": {
      "passed": false,
+     "kind": "detector",
      "gates": {
       "regex_safety": {
        "passed": true,
        "engine": "rust regex crate（线性时间；无 lookaround/反向引用）",
        "exit_code": 0,
-       "stdout": "OK rules=1 ruleset=\"validate-custom_waf_sqli_006\" sha1_16=9d4dce332b51f18e decode=[\"urlencoded\", \"unicode\"] min_weight_to_block=1 block=0",
+       "stdout": "OK rules=1 ruleset=\"validate-custom_waf_sqli_006\" sha1_16=bd627c8e16e3e830 decode=[\"urlencoded\", \"unicode\"] min_weight_to_block=1 block=0",
        "stderr": ""
       },
       "benign_replay": {
@@ -25455,7 +25859,7 @@
       }
      },
      "failed_at": "attack_replay",
-     "tool": "C:\\Users\\lenovo\\AppData\\Local\\Temp\\waf_rule_val_h7i2jjfm\\rules.json",
+     "tool": "C:\\Users\\lenovo\\AppData\\Local\\Temp\\waf_rule_val_2mspy1we\\rules.json",
      "calibration": {
       "schema": 1,
       "ruleset_sha1_16": null,
@@ -25802,13 +26206,13 @@
       }
      }
     },
-    "qualification": "testing",
-    "qualified_at": null,
-    "qualified_by": null,
-    "qualification_source": null,
-    "qualification_note": null,
-    "action_requested": "alert",
-    "action_forced": "alert",
+    "qualification": "qualified",
+    "qualified_at": 1793263917609,
+    "qualified_by": "admin",
+    "qualification_source": "online_evidence",
+    "qualification_note": "真实 sqlmap 流量：命中已确认攻击事件且确认良性 0（在线证据）",
+    "action_requested": "block",
+    "action_forced": null,
     "breaker": null
    }
   },
@@ -25822,18 +26226,19 @@
    ],
    "severity": "high",
    "weight": 4.0,
-   "action": "alert",
+   "action": "block",
    "source": "wafjson",
    "provenance": {
     "kind": "detector",
     "validation": {
      "passed": false,
+     "kind": "detector",
      "gates": {
       "regex_safety": {
        "passed": true,
        "engine": "rust regex crate（线性时间；无 lookaround/反向引用）",
        "exit_code": 0,
-       "stdout": "OK rules=1 ruleset=\"validate-custom_waf_sqli_005\" sha1_16=3e6787fae194ad35 decode=[\"urlencoded\", \"unicode\"] min_weight_to_block=1 block=0",
+       "stdout": "OK rules=1 ruleset=\"validate-custom_waf_sqli_005\" sha1_16=03d3af24609b1e5c decode=[\"urlencoded\", \"unicode\"] min_weight_to_block=1 block=0",
        "stderr": ""
       },
       "benign_replay": {
@@ -25855,7 +26260,7 @@
       }
      },
      "failed_at": "attack_replay",
-     "tool": "C:\\Users\\lenovo\\AppData\\Local\\Temp\\waf_rule_val_r5467932\\rules.json",
+     "tool": "C:\\Users\\lenovo\\AppData\\Local\\Temp\\waf_rule_val_t4cwpx9r\\rules.json",
      "calibration": {
       "schema": 1,
       "ruleset_sha1_16": null,
@@ -26202,13 +26607,13 @@
       }
      }
     },
-    "qualification": "testing",
-    "qualified_at": null,
-    "qualified_by": null,
-    "qualification_source": null,
-    "qualification_note": null,
-    "action_requested": "alert",
-    "action_forced": "alert",
+    "qualification": "qualified",
+    "qualified_at": 1793263917764,
+    "qualified_by": "admin",
+    "qualification_source": "online_evidence",
+    "qualification_note": "真实 sqlmap 流量：命中已确认攻击事件且确认良性 0（在线证据）",
+    "action_requested": "block",
+    "action_forced": null,
     "breaker": null
    }
   },
@@ -26222,18 +26627,19 @@
    ],
    "severity": "critical",
    "weight": 5.0,
-   "action": "alert",
+   "action": "block",
    "source": "wafjson",
    "provenance": {
     "kind": "detector",
     "validation": {
      "passed": false,
+     "kind": "detector",
      "gates": {
       "regex_safety": {
        "passed": true,
        "engine": "rust regex crate（线性时间；无 lookaround/反向引用）",
        "exit_code": 0,
-       "stdout": "OK rules=1 ruleset=\"validate-custom_waf_sqli_004\" sha1_16=c01f6f2a464069d9 decode=[\"urlencoded\", \"unicode\"] min_weight_to_block=1 block=0",
+       "stdout": "OK rules=1 ruleset=\"validate-custom_waf_sqli_004\" sha1_16=d8f0ef27a37007d0 decode=[\"urlencoded\", \"unicode\"] min_weight_to_block=1 block=0",
        "stderr": ""
       },
       "benign_replay": {
@@ -26255,7 +26661,7 @@
       }
      },
      "failed_at": "attack_replay",
-     "tool": "C:\\Users\\lenovo\\AppData\\Local\\Temp\\waf_rule_val_ciexbt1n\\rules.json",
+     "tool": "C:\\Users\\lenovo\\AppData\\Local\\Temp\\waf_rule_val_jw2pjrqb\\rules.json",
      "calibration": {
       "schema": 1,
       "ruleset_sha1_16": null,
@@ -26602,13 +27008,13 @@
       }
      }
     },
-    "qualification": "testing",
-    "qualified_at": null,
-    "qualified_by": null,
-    "qualification_source": null,
-    "qualification_note": null,
-    "action_requested": "alert",
-    "action_forced": "alert",
+    "qualification": "qualified",
+    "qualified_at": 1793263917558,
+    "qualified_by": "admin",
+    "qualification_source": "online_evidence",
+    "qualification_note": "真实 sqlmap 流量：命中已确认攻击事件且确认良性 0（在线证据）",
+    "action_requested": "block",
+    "action_forced": null,
     "breaker": null
    }
   },
