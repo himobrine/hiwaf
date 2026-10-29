@@ -48,6 +48,9 @@ export default function Alerts({ user }: { user: User }) {
   const [bucket, setBucket] = useState(10)
   // 同源同类去重：把同一源在同一时间桶内打不同路径的同类攻击合并成一行。
   const [dedup, setDedup] = useState(false)
+  // 实体级抑制默认折叠；打开后仍显示，但带「已抑制」标签（只影响可见性）。
+  const [includeSuppressed, setIncludeSuppressed] = useState(false)
+  const [suppressedHidden, setSuppressedHidden] = useState(0)
   const [items, setItems] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState('')
@@ -73,6 +76,7 @@ export default function Alerts({ user }: { user: User }) {
   const [gapMin, setGapMin] = useState(10)
   const [minEvents, setMinEvents] = useState(2)
   const [includeNoise, setIncludeNoise] = useState(false)
+  const [chainIncludeSuppressed, setChainIncludeSuppressed] = useState(false)
   const [chains, setChains] = useState<any[]>([])
   const [chainInfo, setChainInfo] = useState<any>({})
   const [chainLoading, setChainLoading] = useState(false)
@@ -93,16 +97,18 @@ export default function Alerts({ user }: { user: User }) {
       setErr('')
       try {
         const r = await api<any>(
-          `/api/alerts?window_hours=${hours}&bucket_min=${bucket}&dedup=${dedup ? 1 : 0}`,
+          `/api/alerts?window_hours=${hours}&bucket_min=${bucket}&dedup=${dedup ? 1 : 0}` +
+            `&include_suppressed=${includeSuppressed ? 1 : 0}`,
         )
         setItems(r.items || [])
+        setSuppressedHidden(r.suppressed_hidden || 0)
       } catch (e: any) {
         setErr(e?.message || '加载失败')
       } finally {
         if (!silent) setLoading(false)
       }
     },
-    [hours, bucket, dedup],
+    [hours, bucket, dedup, includeSuppressed],
   )
 
   const loadChains = useCallback(
@@ -115,6 +121,7 @@ export default function Alerts({ user }: { user: User }) {
         p.set('gap_min', String(gapMin))
         p.set('min_events', String(minEvents))
         p.set('include_noise', includeNoise ? '1' : '0')
+        p.set('include_suppressed', chainIncludeSuppressed ? '1' : '0')
         p.set('limit', '500')
         const r = await api<any>(`/api/alerts/chains?${p.toString()}`)
         setChains(r.items || [])
@@ -125,7 +132,7 @@ export default function Alerts({ user }: { user: User }) {
         if (!silent) setChainLoading(false)
       }
     },
-    [chainHours, gapMin, minEvents, includeNoise],
+    [chainHours, gapMin, minEvents, includeNoise, chainIncludeSuppressed],
   )
 
   useEffect(() => {
@@ -258,6 +265,19 @@ export default function Alerts({ user }: { user: User }) {
     <Tag color={v === 'open' ? 'default' : v === 'closed' ? 'green' : 'blue'}>{v}</Tag>
   )
 
+  const suppressionTag = (r: any) =>
+    r.suppression ? (
+      <Tooltip
+        title={`${r.suppression.reason}（审批 ${r.suppression.approved_by || '-'}，到期 ${fmtTs(
+          r.suppression.expires_at,
+        )}）`}
+      >
+        <Tag color="purple">已抑制</Tag>
+      </Tooltip>
+    ) : (
+      <span className="muted">-</span>
+    )
+
   const actionButtons = (row: any, key: 'group_key' | 'chain_key') =>
     canWrite ? (
       <Space>
@@ -302,6 +322,8 @@ export default function Alerts({ user }: { user: User }) {
         <InputNumber min={1} max={1440} value={bucket} onChange={(v) => setBucket(Number(v || 10))} />
         <span className="muted">同源同类去重</span>
         <Switch checked={dedup} onChange={setDedup} />
+        <span className="muted">显示已抑制</span>
+        <Switch checked={includeSuppressed} onChange={setIncludeSuppressed} />
         <Button icon={<ReloadOutlined />} onClick={() => load()}>
           刷新
         </Button>
@@ -317,6 +339,11 @@ export default function Alerts({ user }: { user: User }) {
             ? '已开启去重：按「源 IP + 动作 + 攻击类型 + 时间桶」合并，同一源在同一桶内打不同路径的同类攻击只占一行（看「路径数」）。点击行查看该合并组的全部原始流量。'
             : '按「源 IP + 动作 + 方法/路径 + 时间桶」聚合；点击任意行查看该聚合组的原始流量。扫描风暴刷屏时可打开「同源同类去重」。'
         }
+        description={
+          suppressedHidden
+            ? `另有 ${suppressedHidden} 组被实体级抑制折叠（只影响控制台可见性，数据面仍照常拦截/告警；打开上方开关查看）。`
+            : undefined
+        }
       />
       {err ? <Alert type="error" message={err} showIcon style={{ marginBottom: 12 }} /> : null}
 
@@ -326,7 +353,10 @@ export default function Alerts({ user }: { user: User }) {
           rowKey="group_key"
           loading={loading}
           dataSource={items}
-          onRow={(r) => ({ onClick: () => openGroup(r), style: { cursor: 'pointer' } })}
+          onRow={(r) => ({
+            onClick: () => openGroup(r),
+            style: { cursor: 'pointer', opacity: r.suppression ? 0.55 : 1 }
+          })}
           pagination={{
             pageSize,
             showSizeChanger: true,
@@ -388,6 +418,11 @@ export default function Alerts({ user }: { user: User }) {
               render: (v: string) => statusTag(v),
             },
             {
+              title: '抑制',
+              width: 90,
+              render: (_: any, r: any) => suppressionTag(r),
+            },
+            {
               title: '操作',
               width: 190,
               render: (_: any, r: any) => actionButtons(r, 'group_key'),
@@ -418,6 +453,8 @@ export default function Alerts({ user }: { user: User }) {
         <InputNumber min={1} max={1000} value={minEvents} onChange={(v) => setMinEvents(Number(v || 2))} />
         <span className="muted">显示扫描噪音</span>
         <Switch checked={includeNoise} onChange={setIncludeNoise} />
+        <span className="muted">显示已抑制</span>
+        <Switch checked={chainIncludeSuppressed} onChange={setChainIncludeSuppressed} />
         <Button icon={<ReloadOutlined />} onClick={() => loadChains()}>
           刷新
         </Button>
@@ -430,9 +467,17 @@ export default function Alerts({ user }: { user: User }) {
         style={{ marginBottom: 12 }}
         message="按「源 IP + UA」聚合窗口内事件，间隔超过切链阈值就分成新链；阶段按拦截→利用 / 告警→试探 / 失败请求→探测归类。大量探测且无拦截的扫描噪音默认折叠。"
         description={
-          chainInfo?.noise_hidden
-            ? `另有 ${chainInfo.noise_hidden} 条扫描噪音链已折叠（打开上方开关查看）。`
-            : undefined
+          chainInfo?.noise_hidden || chainInfo?.suppressed_hidden ? (
+            <span>
+              {chainInfo?.noise_hidden
+                ? `另有 ${chainInfo.noise_hidden} 条扫描噪音链已折叠（打开上方开关查看）。`
+                : null}
+              {chainInfo?.noise_hidden && chainInfo?.suppressed_hidden ? ' ' : null}
+              {chainInfo?.suppressed_hidden
+                ? `另有 ${chainInfo.suppressed_hidden} 条链被实体级抑制折叠（只影响可见性，数据面照常判定）。`
+                : null}
+            </span>
+          ) : undefined
         }
       />
       {chainInfo?.truncated ? (
@@ -451,7 +496,10 @@ export default function Alerts({ user }: { user: User }) {
           rowKey="chain_key"
           loading={chainLoading}
           dataSource={chains}
-          onRow={(r) => ({ onClick: () => openChain(r), style: { cursor: 'pointer' } })}
+          onRow={(r) => ({
+            onClick: () => openChain(r),
+            style: { cursor: 'pointer', opacity: r.suppression ? 0.55 : 1 },
+          })}
           pagination={{
             pageSize: chainPageSize,
             showSizeChanger: true,
@@ -556,6 +604,11 @@ export default function Alerts({ user }: { user: User }) {
               dataIndex: 'status',
               width: 90,
               render: (v: string) => statusTag(v),
+            },
+            {
+              title: '抑制',
+              width: 90,
+              render: (_: any, r: any) => suppressionTag(r),
             },
             {
               title: '操作',

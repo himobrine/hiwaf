@@ -43,6 +43,29 @@ export interface EventRow {
   rule_set_sha1_16?: string
 }
 
+/** 实体级误报抑制：只折叠控制台告警可见性，不改数据面判定。 */
+export interface Suppression {
+  id: number
+  src_ip?: string | null
+  path?: string | null
+  ua?: string | null
+  host?: string | null
+  attack_type?: string | null
+  reason: string
+  status: 'draft' | 'active' | 'revoked' | 'expired'
+  ttl_hours: number
+  expires_at?: number | null
+  created_by?: string | null
+  created_at: number
+  approved_by?: string | null
+  approved_at?: number | null
+  revoked_by?: string | null
+  revoked_at?: number | null
+  decision_note?: string | null
+  note?: string | null
+  updated_at?: number | null
+}
+
 export interface ShapItem {
   rank: number
   feature: string

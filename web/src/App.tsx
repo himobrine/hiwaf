@@ -10,6 +10,7 @@ import Login from './pages/Login'
 const Overview = lazy(() => import('./pages/Overview'))
 const Events = lazy(() => import('./pages/Events'))
 const Alerts = lazy(() => import('./pages/Alerts'))
+const Suppressions = lazy(() => import('./pages/Suppressions'))
 const Policy = lazy(() => import('./pages/Policy'))
 const Feedback = lazy(() => import('./pages/Feedback'))
 const Rules = lazy(() => import('./pages/Rules'))
@@ -72,6 +73,7 @@ export default function App() {
           <Route path="/" element={<Overview />} />
           <Route path="/events" element={<Events user={user} />} />
           <Route path="/alerts" element={<Alerts user={user} />} />
+          <Route path="/suppressions" element={<Suppressions user={user} />} />
           <Route path="/policy" element={<Policy user={user} />} />
           <Route path="/feedback" element={<Feedback user={user} />} />
           <Route path="/rules" element={<Rules user={user} />} />

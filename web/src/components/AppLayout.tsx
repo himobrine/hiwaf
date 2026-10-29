@@ -12,6 +12,7 @@ import {
   LogoutOutlined,
   PlayCircleOutlined,
   SafetyCertificateOutlined,
+  StopOutlined,
   UnorderedListOutlined,
   WarningOutlined,
 } from '@ant-design/icons'
@@ -147,6 +148,7 @@ export default function AppLayout({
     { key: '/', icon: <DashboardOutlined />, label: '总览' },
     { key: '/events', icon: <UnorderedListOutlined />, label: '事件' },
     { key: '/alerts', icon: <AlertOutlined />, label: '告警' },
+    { key: '/suppressions', icon: <StopOutlined />, label: '抑制策略' },
     { key: '/policy', icon: <SafetyCertificateOutlined />, label: '策略中心' },
     { key: '/feedback', icon: <EditOutlined />, label: '反馈台账' },
     {
