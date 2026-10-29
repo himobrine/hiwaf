@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { Spin } from 'antd'
-import { getToken, setToken } from './api'
+import { api, getToken, setToken } from './api'
 import type { User } from './types'
 import AppLayout from './components/AppLayout'
 import Login from './pages/Login'
@@ -40,6 +40,25 @@ export default function App() {
     const onUnauthorized = () => setUser(null)
     window.addEventListener('waf:unauthorized', onUnauthorized)
     return () => window.removeEventListener('waf:unauthorized', onUnauthorized)
+  }, [])
+
+  // 刷新页面时也检查一次：密码不合规的 token 后端只放行 /api/auth/*，
+  // 前端主动退回登录页，让用户走“登录 → 强制改密”流程。
+  useEffect(() => {
+    if (!user) return
+    let alive = true
+    api<any>('/api/auth/me')
+      .then((me) => {
+        if (alive && me?.must_change) {
+          setToken('')
+          localStorage.removeItem('waf_user')
+          setUser(null)
+        }
+      })
+      .catch(() => undefined)
+    return () => {
+      alive = false
+    }
   }, [])
 
   if (!user) {

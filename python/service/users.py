@@ -16,8 +16,6 @@ from typing import Any, Dict, List, Optional
 from . import auth, config, db
 
 USERNAME_RE = re.compile(r"^[A-Za-z0-9_.-]{3,32}$")
-MIN_PASSWORD = 8
-MAX_PASSWORD = 128
 _ROLES = ("viewer", "analyst", "admin")
 
 
@@ -49,13 +47,9 @@ def _validate_username(username: str) -> str:
     return username
 
 
-def _validate_password(password: str) -> str:
-    password = password or ""
-    if not (MIN_PASSWORD <= len(password) <= MAX_PASSWORD):
-        raise ValueError(f"密码长度需在 {MIN_PASSWORD}–{MAX_PASSWORD} 之间")
-    if password.strip() != password:
-        raise ValueError("密码首尾不能有空白字符")
-    return password
+def _validate_password(password: str, username: str | None = None) -> str:
+    # 强密码策略只有一份（auth.py），这里不重复实现。
+    return auth.validate_password(password or "", username)
 
 
 def _enabled_admins(exclude_id: Optional[int] = None) -> int:
@@ -78,7 +72,7 @@ def list_users() -> List[Dict[str, Any]]:
 
 def create_user(username: str, password: str, role: str) -> Dict[str, Any]:
     username = _validate_username(username)
-    password = _validate_password(password)
+    password = _validate_password(password, username)
     role = (role or "").strip()
     if role not in _ROLES:
         raise ValueError(f"role 只支持 {list(_ROLES)}")
@@ -134,9 +128,9 @@ def update_user(uid: int, *, actor_id: int,
 
 
 def reset_password(uid: int, password: str) -> Dict[str, Any]:
-    _get(uid)
-    password = _validate_password(password)
-    db.execute("UPDATE users SET pw=? WHERE id=?",
+    row = _get(uid)
+    password = _validate_password(password, row["username"])
+    db.execute("UPDATE users SET pw=?, pw_weak=0 WHERE id=?",
                (auth.hash_password(password), uid))
     _bump(uid)
     return _shape(_get(uid))

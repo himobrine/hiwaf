@@ -239,10 +239,16 @@ py -3.10 -m service.run                   # http://127.0.0.1:8090/docs
   - `GET /api/users` · `POST /api/users` `{username,password,role}`
   - `PATCH /api/users/{id}` `{role?, disabled?}` · `POST /api/users/{id}/password` `{password}`
   - `DELETE /api/users/{id}`
-  - 校验：用户名 3–32 位 `[A-Za-z0-9_.-]`，密码 8–128 位且首尾无空白；
+  - 校验：用户名 3–32 位 `[A-Za-z0-9_.-]`；**强密码固定策略**（`auth.password_error`）：
+    12–128 位、不能含空白、必须同时包含大写/小写/数字/特殊字符、至少 8 个不同字符、
+    不能包含用户名、不能是常见弱口令/连续序列；
     不能禁用/删除自己、不能改自己的角色；系统至少保留一个启用的 `admin`；
     改密码 / 改角色 / 禁用会把 `token_version + 1`，该用户旧 token 立即失效。
-    删除是硬删除；审计只记动作，不记密码。
+    删除是硬删除；审计只记动作，不记密码。改自己的密码走 `POST /api/auth/password`
+    （同样校验强密码，且不能与原密码相同）。
+  - **历史弱密码强制升级**：登录时按明文现算策略；不满足时 token 带 `mc`，
+    中间件只放行 `/api/auth/*`（其余 403），改密后 `token_version+1` 重新登录。
+    登录响应与 `/api/auth/me` 都会带 `must_change_password`。
 
 ### 总览 / 采集面
 - `GET  /api/overview/summary?window_hours=24` — 计数、分数直方图、Top 类型/路径、策略摘要、采集器指标、入库状态、**warnings**、**sites**

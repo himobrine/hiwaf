@@ -23,7 +23,30 @@ import {
   ReloadOutlined,
 } from '@ant-design/icons'
 import { api, fmtTs } from '../api'
+import { generateStrongPassword, passwordError, PASSWORD_MIN_LEN } from '../password'
 import type { User, UserRow } from '../types'
+
+/** 与后端共用同一套强密码规则；用户名在密码里出现也会被拒。 */
+function passwordRule(getUsername: () => string | undefined) {
+  return {
+    validator: async (_: any, value: string) => {
+      const err = passwordError(value || '', getUsername())
+      if (err) throw new Error(err)
+    },
+  }
+}
+
+function genButton(setValue: (v: string) => void) {
+  return (
+    <Button
+      size="small"
+      onClick={() => setValue(generateStrongPassword())}
+      style={{ marginTop: 6 }}
+    >
+      生成强密码
+    </Button>
+  )
+}
 
 const { Title, Text } = Typography
 
@@ -314,13 +337,20 @@ export default function Users({ user }: { user: User }) {
           </Form.Item>
           <Form.Item
             name="password"
-            label="初始密码"
+            label="初始密码（强密码）"
             rules={[
               { required: true, message: '请输入初始密码' },
-              { min: 8, message: '至少 8 位' },
+              passwordRule(() => createForm.getFieldValue('username')),
             ]}
+            extra={
+              <div>
+                至少 {PASSWORD_MIN_LEN} 位，且同时包含大写、小写、数字和特殊字符；
+                不能包含用户名 / 常见弱口令 / 连续序列。
+                {genButton((v) => createForm.setFieldsValue({ password: v }))}
+              </div>
+            }
           >
-            <Input.Password autoComplete="new-password" placeholder="至少 8 位；首尾不能有空格" />
+            <Input.Password autoComplete="new-password" placeholder="点击下方「生成强密码」也可以" />
           </Form.Item>
           <Form.Item name="role" label="角色" rules={[{ required: true }]}>
             <Select options={ROLE_OPTIONS} />
@@ -378,13 +408,19 @@ export default function Users({ user }: { user: User }) {
         <Form form={pwForm} layout="vertical" size="small">
           <Form.Item
             name="password"
-            label="新密码"
+            label="新密码（强密码）"
             rules={[
               { required: true, message: '请输入新密码' },
-              { min: 8, message: '至少 8 位' },
+              passwordRule(() => pwUser?.username),
             ]}
+            extra={
+              <div>
+                至少 {PASSWORD_MIN_LEN} 位，且同时包含大写、小写、数字和特殊字符。
+                {genButton((v) => pwForm.setFieldsValue({ password: v }))}
+              </div>
+            }
           >
-            <Input.Password autoComplete="new-password" placeholder="至少 8 位" />
+            <Input.Password autoComplete="new-password" placeholder="至少 12 位" />
           </Form.Item>
         </Form>
       </Modal>

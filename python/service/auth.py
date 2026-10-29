@@ -13,6 +13,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import secrets
 import time
 
@@ -21,6 +22,66 @@ from fastapi import Depends, Header, HTTPException
 from . import config, db
 
 PBKDF2_ITER = 120_000
+
+#: 强密码策略（固定，不提供“放宽”开关）：
+#:   * 12–128 位，不能含空白；
+#:   * 必须同时包含大写、小写、数字、特殊字符；
+#:   * 至少 8 个不同字符；不能包含用户名；不能是常见弱口令/连续序列。
+PASSWORD_MIN_LEN = 12
+PASSWORD_MAX_LEN = 128
+PASSWORD_MIN_DISTINCT = 8
+_WEAK_PASSWORDS = {
+    "password", "password1", "password123", "passw0rd", "p@ssw0rd",
+    "123456", "1234567", "12345678", "123456789", "1234567890",
+    "qwerty", "qwerty123", "abc123", "admin", "admin123", "administrator",
+    "letmein", "welcome", "welcome1", "iloveyou", "monkey", "dragon",
+    "changeme", "root", "toor", "guest", "test", "test123", "waf", "waf123",
+}
+_SEQUENCES = (
+    "0123", "1234", "2345", "3456", "4567", "5678", "6789", "7890",
+    "abcd", "bcde", "cdef", "qwer", "wert", "asdf", "sdfg", "zxcv", "xcvb",
+    "!@#$", "@#$%", "#$%^",
+)
+
+
+def password_error(pw: str, username: str | None = None) -> str | None:
+    """返回第一条不合规原因；None = 通过。前后端共用同一套规则（前端只做提示）。"""
+    if not isinstance(pw, str):
+        return "密码格式错误"
+    if len(pw) < PASSWORD_MIN_LEN:
+        return f"密码至少 {PASSWORD_MIN_LEN} 位"
+    if len(pw) > PASSWORD_MAX_LEN:
+        return f"密码最多 {PASSWORD_MAX_LEN} 位"
+    if any(c.isspace() for c in pw):
+        return "密码不能包含空格/制表符"
+    low = pw.lower()
+    if username and len(username) >= 3 and username.lower() in low:
+        return "密码不能包含用户名"
+    if low in _WEAK_PASSWORDS:
+        return "密码太常见，请换一个"
+    if len(set(pw)) < PASSWORD_MIN_DISTINCT:
+        return f"密码至少要有 {PASSWORD_MIN_DISTINCT} 个不同字符"
+    classes = (
+        any(c.islower() for c in pw),
+        any(c.isupper() for c in pw),
+        any(c.isdigit() for c in pw),
+        any(not c.isalnum() for c in pw),
+    )
+    if not all(classes):
+        return "密码必须同时包含大写字母、小写字母、数字和特殊字符"
+    if re.search(r"(.)\1{3,}", pw):
+        return "密码包含过长的重复字符"
+    for seq in _SEQUENCES:
+        if seq in low:
+            return "密码包含连续/键盘序列"
+    return None
+
+
+def validate_password(pw: str, username: str | None = None) -> str:
+    err = password_error(pw, username)
+    if err:
+        raise ValueError(err)
+    return pw
 
 
 # --------------------------------------------------------------------------- 密码
@@ -78,7 +139,7 @@ def _b64d(s: str) -> bytes:
 
 
 def make_token(username: str, role: str, ttl: int | None = None,
-               token_version: int = 0) -> str:
+               token_version: int = 0, must_change: bool = False) -> str:
     now = int(time.time())
     payload = {
         "sub": username,
@@ -87,6 +148,9 @@ def make_token(username: str, role: str, ttl: int | None = None,
         "exp": now + (ttl if ttl is not None else config.TOKEN_TTL_SEC),
         "ver": int(token_version),
     }
+    if must_change:
+        # 密码不合规：该 token 只能访问 /api/auth/*（改密/登出/me），其余接口 403。
+        payload["mc"] = True
     header = {"alg": "HS256", "typ": "JWT"}
     seg = [
         _b64e(json.dumps(header, separators=(",", ":")).encode()),
@@ -129,7 +193,8 @@ def current_user(authorization: str | None = Header(default=None)) -> dict:
         raise HTTPException(status_code=401, detail="用户不存在或已禁用")
     if int(payload.get("ver", 0)) != int(u["token_version"] or 0):
         raise HTTPException(status_code=401, detail="令牌已失效，请重新登录")
-    return {"id": u["id"], "username": u["username"], "role": u["role"]}
+    return {"id": u["id"], "username": u["username"], "role": u["role"],
+            "must_change": bool(payload.get("mc"))}
 
 
 def require_at_least(role: str):
@@ -147,14 +212,26 @@ def require_at_least(role: str):
 def ensure_admin() -> None:
     if db.scalar("SELECT COUNT(*) AS n FROM users", default=0):
         return
-    pw = os.environ.get("WAF_CONSOLE_ADMIN_PASSWORD")
+    pw = os.environ.get("WAF_CONSOLE_ADMIN_PASSWORD") or ""
     generated = False
-    if not pw:
-        pw = secrets.token_urlsafe(12)
+    if not pw.strip():
+        # 生成到满足强密码策略为止（token_urlsafe 偶尔缺某一类字符）。
+        while True:
+            cand = secrets.token_urlsafe(18)
+            if password_error(cand) is None:
+                pw = cand
+                break
         generated = True
+    else:
+        err = password_error(pw)
+        if err:
+            print(f"[auth] 警告：WAF_CONSOLE_ADMIN_PASSWORD 不满足强密码策略（{err}）；"
+                  "仍按该值创建，请登录后立即修改。")
+    weak = password_error(pw) is not None
     db.execute(
-        "INSERT INTO users(username, pw, role, disabled, created_at) VALUES(?,?,?,0,?)",
-        ("admin", hash_password(pw), "admin", db.now_ms()),
+        "INSERT INTO users(username, pw, role, disabled, pw_weak, created_at) "
+        "VALUES(?,?,?,0,?,?)",
+        ("admin", hash_password(pw), "admin", 1 if weak else 0, db.now_ms()),
     )
     print("[auth] 已创建 admin 账号")
     if generated:

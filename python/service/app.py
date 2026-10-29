@@ -27,7 +27,7 @@ from typing import List, Optional
 from fastapi import (Depends, FastAPI, File, Form, HTTPException, Query, Request,
                      Response, UploadFile)
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -83,6 +83,27 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def force_password_change(request: Request, call_next):
+    """密码不合规（登录时判定，token 带 `mc`）时，只放行 /api/auth/*。
+
+    真正的改密校验在后端；这里保证“不改密码就什么都干不了”，而不是只在
+    前端弹个可以关掉的提示。token 解码失败交给路由返回 401。
+    """
+    path = request.url.path
+    if path.startswith("/api/") and not path.startswith("/api/auth/"):
+        h = request.headers.get("authorization") or ""
+        if h.lower().startswith("bearer "):
+            try:
+                payload = auth.decode_token(h.split(" ", 1)[1].strip())
+            except Exception:  # noqa: BLE001
+                payload = None
+            if isinstance(payload, dict) and payload.get("mc"):
+                return JSONResponse(
+                    {"detail": "当前密码不符合强密码策略，请先修改密码"}, status_code=403)
+    return await call_next(request)
 
 
 # --------------------------------------------------------------------------- 工具
@@ -194,7 +215,8 @@ class LoginIn(BaseModel):
 
 class PasswordIn(BaseModel):
     old: str
-    new: str = Field(min_length=8)
+    # 长度/复杂度由 auth.validate_password 统一校验（返回可读的 400）。
+    new: str = Field(min_length=1, max_length=128)
 
 
 class UserCreateIn(BaseModel):
@@ -202,7 +224,7 @@ class UserCreateIn(BaseModel):
     model_config = {"extra": "forbid"}
 
     username: str = Field(min_length=3, max_length=32)
-    password: str = Field(min_length=8, max_length=128)
+    password: str = Field(min_length=1, max_length=128)
     role: str = "analyst"
 
 
@@ -216,7 +238,7 @@ class UserPatchIn(BaseModel):
 class UserPasswordIn(BaseModel):
     model_config = {"extra": "forbid"}
 
-    password: str = Field(min_length=8, max_length=128)
+    password: str = Field(min_length=1, max_length=128)
 
 
 class FeedbackIn(BaseModel):
@@ -557,10 +579,18 @@ def login(body: LoginIn, request: Request):
                                 headers={"Retry-After": str(wait)})
         raise HTTPException(401, "用户名或密码错误")
     login_guard.reset(body.username)
+    # 登录时按明文现算一次强密码策略：老账号也会被识别出来并强制先改密。
+    weak = auth.password_error(body.password, u["username"]) is not None
+    if bool(u.get("pw_weak")) != weak:
+        db.execute("UPDATE users SET pw_weak=? WHERE id=?",
+                   (1 if weak else 0, u["id"]))
     token = auth.make_token(u["username"], u["role"],
-                            token_version=u["token_version"])
+                            token_version=u["token_version"],
+                            must_change=weak)
     audit(u["username"], "login", ip=_ip(request))
-    return {"token": token, "user": {"username": u["username"], "role": u["role"]}}
+    return {"token": token,
+            "user": {"username": u["username"], "role": u["role"]},
+            "must_change_password": weak}
 
 
 @app.get("/api/auth/me")
@@ -583,8 +613,15 @@ def change_password(body: PasswordIn, request: Request,
     u = db.one("SELECT pw FROM users WHERE username=?", (user["username"],))
     if not u or not auth.verify_password(body.old, u["pw"]):
         raise HTTPException(400, "原密码错误")
+    if body.new == body.old:
+        raise HTTPException(400, "新密码不能与原密码相同")
+    try:
+        auth.validate_password(body.new, user["username"])
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     db.execute(
-        "UPDATE users SET pw=?, token_version=token_version+1 WHERE username=?",
+        "UPDATE users SET pw=?, pw_weak=0, token_version=token_version+1 "
+        "WHERE username=?",
         (auth.hash_password(body.new), user["username"]),
     )
     audit(user["username"], "change_password", ip=_ip(request))

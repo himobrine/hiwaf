@@ -109,13 +109,13 @@ class AuthHardeningTest(unittest.TestCase):
         token = self._token(0)
         user = auth.current_user("Bearer " + token)
         out = app_mod.change_password(
-            app_mod.PasswordIn(old="correct-password", new="new-password-123"),
+            app_mod.PasswordIn(old="correct-password", new="Fresh-Key-42!Z"),
             _request(), user,
         )
         self.assertTrue(out["relogin"])
         self._expect(401, auth.current_user, "Bearer " + token)
         self._expect(401, self._login, "admin", "correct-password")
-        self.assertTrue(self._login("admin", "new-password-123")["token"])
+        self.assertTrue(self._login("admin", "Fresh-Key-42!Z")["token"])
 
     def test_users_table_has_token_version(self):
         cols = {r["name"] for r in db.rows("PRAGMA table_info(users)")}

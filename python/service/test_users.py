@@ -23,8 +23,8 @@ class UsersTest(unittest.TestCase):
         for p in self.patches:
             p.start()
         db.init()
-        self.admin = users_mod.create_user("admin", "admin-pass-123", "admin")
-        self.analyst = users_mod.create_user("alice", "alice-pass-123", "analyst")
+        self.admin = users_mod.create_user("admin", "Str0ng-Key-9x!Q", "admin")
+        self.analyst = users_mod.create_user("alice", "Str0ng-Key-9x!Q", "analyst")
 
     def tearDown(self):
         for p in reversed(self.patches):
@@ -33,7 +33,7 @@ class UsersTest(unittest.TestCase):
 
     # ---------------------------------------------------------------- 创建
     def test_create_and_list(self):
-        users_mod.create_user("bob", "bob-pass-1234", "viewer")
+        users_mod.create_user("bob", "Str0ng-Key-9x!Q", "viewer")
         items = users_mod.list_users()
         self.assertEqual([u["username"] for u in items], ["admin", "alice", "bob"])
         bob = next(u for u in items if u["username"] == "bob")
@@ -51,9 +51,30 @@ class UsersTest(unittest.TestCase):
             users_mod.create_user("bob", "short", "viewer")            # 密码太短
         with self.assertRaises(ValueError):
             users_mod.create_user("bob", "12345678", "root")           # 非法角色
-        users_mod.create_user("bob", "12345678", "viewer")
+        users_mod.create_user("bob", "Str0ng-Key-9x!Q", "viewer")
         with self.assertRaises(ValueError):
-            users_mod.create_user("bob", "12345678", "viewer")         # 重名
+            users_mod.create_user("bob", "Str0ng-Key-9x!Q", "viewer")   # 重名
+
+    def test_password_policy(self):
+        ok = "Str0ng-Key-9x!Q"
+        self.assertIsNone(auth.password_error(ok))
+        cases = {
+            "short": "Ab1!x",                              # 太短
+            "no-upper": "str0ng-key-9x!q",                 # 缺大写
+            "no-lower": "STR0NG-KEY-9X!Q",                 # 缺小写
+            "no-digit": "Strong-Key-x!Qz",                 # 缺数字
+            "no-special": "StrongKey9xQz12",               # 缺特殊字符
+            "space": "Str0ng Key-9x!Q",                    # 含空格
+            "contain-user": "Admin-Str0ng-9x!Q",           # 含用户名（admin）
+            "distinct": "Aa1!Aa1!Aa1!Aa1!",                # 不同字符 <8
+            "repeat": "Str0ng-Key-9x!QQQQ",                # 连续重复
+            "sequence": "Str0ng-Key-1234!Q",               # 连续序列
+        }
+        for name, pw in cases.items():
+            with self.subTest(name):
+                self.assertIsNotNone(auth.password_error(pw, "admin"), name)
+        # 常见弱口令（不带用户名时）走弱口令分支
+        self.assertEqual(auth.password_error("administrator"), "密码太常见，请换一个")
 
     # ---------------------------------------------------------------- 角色 / 禁用
     def test_role_change_bumps_token_version(self):
@@ -98,10 +119,10 @@ class UsersTest(unittest.TestCase):
     # ---------------------------------------------------------------- 密码
     def test_reset_password_changes_hash_and_invalidates_token(self):
         tok = auth.make_token("alice", "analyst", token_version=0)
-        users_mod.reset_password(self.analyst["id"], "new-alice-pass-1")
+        users_mod.reset_password(self.analyst["id"], "Fresh-Key-42!Z")
         row = db.one("SELECT pw FROM users WHERE id=?", (self.analyst["id"],))
-        self.assertTrue(auth.verify_password("new-alice-pass-1", row["pw"]))
-        self.assertFalse(auth.verify_password("alice-pass-123", row["pw"]))
+        self.assertTrue(auth.verify_password("Fresh-Key-42!Z", row["pw"]))
+        self.assertFalse(auth.verify_password("Str0ng-Key-9x!Q", row["pw"]))
         with self.assertRaises(HTTPException):
             auth.current_user(f"Bearer {tok}")
         with self.assertRaises(ValueError):

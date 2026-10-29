@@ -1,6 +1,20 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { Badge, Button, Layout, Menu, Modal, Space, Tag, Tooltip, Typography, notification } from 'antd'
+import {
+  Badge,
+  Button,
+  Form,
+  Input,
+  Layout,
+  Menu,
+  Modal,
+  Space,
+  Tag,
+  Tooltip,
+  Typography,
+  message,
+  notification,
+} from 'antd'
 import {
   AlertOutlined,
   CloudServerOutlined,
@@ -10,6 +24,7 @@ import {
   ExperimentOutlined,
   FileSearchOutlined,
   FilterOutlined,
+  KeyOutlined,
   LogoutOutlined,
   PlayCircleOutlined,
   SafetyCertificateOutlined,
@@ -19,6 +34,7 @@ import {
   WarningOutlined,
 } from '@ant-design/icons'
 import { api } from '../api'
+import { generateStrongPassword, passwordError, PASSWORD_MIN_LEN } from '../password'
 import type { RuleIncident, User } from '../types'
 
 const REASON_LABEL: Record<string, string> = {
@@ -62,6 +78,9 @@ export default function AppLayout({
   const [collapsed, setCollapsed] = useState(false)
   const [mode, setMode] = useState<string>('unknown')
   const [incidents, setIncidents] = useState<RuleIncident[]>([])
+  const [pwOpen, setPwOpen] = useState(false)
+  const [pwBusy, setPwBusy] = useState(false)
+  const [pwForm] = Form.useForm()
 
   /** 规则误报/熔断事件：有 open 时 5s 轮询，没有时 10s。
    *
@@ -145,6 +164,30 @@ export default function AppLayout({
       clearInterval(t)
     }
   }, [])
+
+  const changePassword = async () => {
+    let v: any
+    try {
+      v = await pwForm.validateFields()
+    } catch {
+      return
+    }
+    setPwBusy(true)
+    try {
+      await api('/api/auth/password', {
+        method: 'POST',
+        body: { old: v.old, new: v.new },
+      })
+      message.success('密码已修改，请用新密码重新登录')
+      setPwOpen(false)
+      pwForm.resetFields()
+      onLogout()
+    } catch (e: any) {
+      message.error(e?.message || '修改失败')
+    } finally {
+      setPwBusy(false)
+    }
+  }
 
   const items: any[] = [
     { key: '/', icon: <DashboardOutlined />, label: '总览' },
@@ -249,6 +292,18 @@ export default function AppLayout({
                 {user.role}
               </Tag>
             </Text>
+            <Tooltip title="修改自己的登录密码（强密码策略）">
+              <Button
+                icon={<KeyOutlined />}
+                size="small"
+                onClick={() => {
+                  pwForm.resetFields()
+                  setPwOpen(true)
+                }}
+              >
+                修改密码
+              </Button>
+            </Tooltip>
             <Button icon={<LogoutOutlined />} onClick={onLogout} size="small">
               退出
             </Button>
@@ -256,6 +311,67 @@ export default function AppLayout({
         </Header>
         <Content style={{ padding: 20, overflow: 'auto' }}>{children}</Content>
       </Layout>
+
+      <Modal
+        open={pwOpen}
+        title="修改密码"
+        okText="修改并重新登录"
+        confirmLoading={pwBusy}
+        onCancel={() => setPwOpen(false)}
+        onOk={changePassword}
+        destroyOnClose
+      >
+        <Form form={pwForm} layout="vertical" size="small">
+          <Form.Item name="old" label="原密码" rules={[{ required: true, message: '请输入原密码' }]}>
+            <Input.Password autoComplete="current-password" />
+          </Form.Item>
+          <Form.Item
+            name="new"
+            label="新密码（强密码）"
+            rules={[
+              { required: true, message: '请输入新密码' },
+              {
+                validator: async (_: any, value: string) => {
+                  const err = passwordError(value || '', user.username)
+                  if (err) throw new Error(err)
+                },
+              },
+            ]}
+            extra={
+              <div>
+                至少 {PASSWORD_MIN_LEN} 位，且同时包含大写、小写、数字和特殊字符；
+                不能包含用户名 / 常见弱口令 / 连续序列。
+                <Button
+                  size="small"
+                  style={{ marginTop: 6 }}
+                  onClick={() => pwForm.setFieldsValue({ new: generateStrongPassword() })}
+                >
+                  生成强密码
+                </Button>
+              </div>
+            }
+          >
+            <Input.Password autoComplete="new-password" />
+          </Form.Item>
+          <Form.Item
+            name="confirm"
+            label="确认新密码"
+            dependencies={['new']}
+            rules={[
+              { required: true, message: '请再次输入新密码' },
+              {
+                validator: async (_: any, value: string) => {
+                  if (value !== pwForm.getFieldValue('new')) {
+                    throw new Error('两次输入的密码不一致')
+                  }
+                },
+              },
+            ]}
+          >
+            <Input.Password autoComplete="new-password" />
+          </Form.Item>
+        </Form>
+      </Modal>
     </Layout>
   )
 }

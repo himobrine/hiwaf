@@ -41,6 +41,8 @@ CREATE TABLE IF NOT EXISTS users (
   disabled   INTEGER NOT NULL DEFAULT 0,
   -- 令牌版本：改密/登出时 +1，旧 token 立即失效（auth.current_user 校验）。
   token_version INTEGER NOT NULL DEFAULT 0,
+  -- 当前密码是否不满足强密码策略（登录时按明文现算；1 = 下次登录先改密）。
+  pw_weak    INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL
 );
 
@@ -469,6 +471,8 @@ MIGRATIONS = (
     # 数据集来源：上传 / 事件选择。
     ("uploaded_datasets", "origin", "TEXT NOT NULL DEFAULT 'upload'"),
     ("uploaded_datasets", "selection_json", "TEXT"),
+    # 老用户：密码是否弱（登录时按明文现算并回填；1 = 强制先改密）。
+    ("users", "pw_weak", "INTEGER NOT NULL DEFAULT 0"),
 )
 
 
