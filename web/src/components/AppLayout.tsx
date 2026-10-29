@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { Badge, Button, Layout, Menu, Modal, Space, Tag, Tooltip, Typography, notification } from 'antd'
 import {
   AlertOutlined,
+  CloudServerOutlined,
   DashboardOutlined,
   DatabaseOutlined,
   EditOutlined,
@@ -167,6 +168,7 @@ export default function AppLayout({
     { key: '/datasets', icon: <DatabaseOutlined />, label: '训练数据' },
     { key: '/tasks', icon: <PlayCircleOutlined />, label: '训练任务' },
     { key: '/degradation', icon: <WarningOutlined />, label: '降级状态' },
+    { key: '/proxy', icon: <CloudServerOutlined />, label: '采集代理' },
   ]
   if (user.role === 'admin') {
     items.push({ key: '/audit', icon: <FileSearchOutlined />, label: '审计' })

@@ -98,3 +98,18 @@ body {
   color: #8c8c8c;
   font-size: 12px;
 }
+
+/* 采集代理页：日志 / 接入命令。深色块，避免长命令把页面撑宽。 */
+.log-pre {
+  margin: 0;
+  max-height: 360px;
+  overflow: auto;
+  padding: 10px 12px;
+  background: #0f1419;
+  color: #d7e0ea;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-all;
+}

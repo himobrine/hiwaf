@@ -18,6 +18,7 @@ const Models = lazy(() => import('./pages/Models'))
 const Datasets = lazy(() => import('./pages/Datasets'))
 const Tasks = lazy(() => import('./pages/Tasks'))
 const Degradation = lazy(() => import('./pages/Degradation'))
+const Proxy = lazy(() => import('./pages/Proxy'))
 const Audit = lazy(() => import('./pages/Audit'))
 
 function loadUser(): User | null {
@@ -81,6 +82,7 @@ export default function App() {
           <Route path="/datasets" element={<Datasets user={user} />} />
           <Route path="/tasks" element={<Tasks user={user} />} />
           <Route path="/degradation" element={<Degradation />} />
+          <Route path="/proxy" element={<Proxy user={user} />} />
           <Route path="/audit" element={<Audit />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
