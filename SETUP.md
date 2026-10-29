@@ -779,7 +779,8 @@ py -3.10 smoke_test.py
 19. **规则必须先 URL 解码再匹配**（`unquote_plus` 两次，多 3,793 命中）。
 20. **规则「启用」≠「合格」**（2026-10-21 起）：`enabled=1` 只表示**参与在线测试**，
     数据面强制 `action=alert`（`action_forced='alert'`），**不产生阻断**。合格必须人工确认：
-    `kind=detector` 要池内 ③>0，或在线人工确认攻击 ≥1 且确认良性 = 0；
+    `kind=detector` 要池内 ③>0，或在线人工确认攻击 ≥1 且确认良性 = 0，
+    或用历史告警回放拿到同样的结论（≥1 确认攻击 + 0 确认良性，且 ② 已过）；
     `kind=guard` 要真实良性 0 误报 + 管理员填写政策理由（③ 不适用）。
     只有已合格（或 `verdict=keep`）+ 人工把 `action` 翻成 `block` 才真拦；
     任何编辑都会清空 `compiled_at/validated_at/qualified_at` 并强制回到 alert。
@@ -834,8 +835,9 @@ py -3.10 smoke_test.py
 ### 16.1 规则生命周期（四层状态，别跳步）
 
 ```
-草稿 --① 编译--> 已编译/可启用 --启用--> 测试中（强制 alert） --在线证据 + 人工确认--> 合格 --提升--> 现役
+草稿 --① 编译--> 已编译/可启用 --启用--> 测试中（强制 alert） --人工确认--> 合格 --提升--> 现役
                                   \-- ② 良性回放 / ③ 攻击回放（detector）--/
+                                  \-- 在线证据（7 天）/ 历史告警回放（30 天）--/
 ```
 
 | 状态 | 判定依据（DB 字段） | 数据面动作 |
@@ -855,7 +857,8 @@ py -3.10 smoke_test.py
   ③ 攻击池回放 >0（池 = `unified_attack` 25,119）。
   `kind=guard` 跳过 ③，但 ② 不通过就永远不能合格。
 - **合格判据**（`POST /api/rules/{rid}/qualify`，**必须人工点**）：
-  - `kind=detector`：三关全过，**或**在线 `confirmed_attack ≥ 1` 且 `confirmed_benign = 0`（`hits > 0`）。
+  - `kind=detector`：三关全过，**或**在线 `confirmed_attack ≥ 1` 且 `confirmed_benign = 0`（`hits > 0`），
+    **或**历史告警回放得到同样结论（且 ② 真实良性零误报已通过）。
   - `kind=guard`：② 真实良性 0 误报 + 管理员在 `note` 里填写政策理由（如“管理入口探测”）。
   - 真实良性池有误报（`benign_ok=false`）的规则**一律拒绝合格**，强制确认也不行。
 - **在线证据分桶**（`GET /api/rules/{rid}/evidence`）：
@@ -864,7 +867,14 @@ py -3.10 smoke_test.py
   - `suspected_attack`：没人标，但监督/零日也报了 —— **模型辅助，只提示，不能单独定罪**；
   - `unlabeled`：其余（只看样本）。
   “模型说良性”**不**算良性证据：规则与监督是并列通道，模型漏掉的正是规则该抓的。
-  在线证据只统计 `enabled_at` 之后的命中。
+  在线证据只统计 `enabled_at` 之后、最近 7 天的命中。
+- **历史告警回放**（`POST /api/rules/custom/{rid}/history-evidence`，手动触发）：
+  把规则拿到过去 N 天（默认 30，上限 90）**已经发生的事件**上重放（Rust 同一份引擎），
+  再用事件上已有的人工 feedback 分桶。适用于「先有攻击、后补规则」：
+  - `confirmed_attack ≥ 1` 且 `confirmed_benign = 0`，并且 ② 真实良性零误报已通过 → 可作为合格证据；
+  - 无标签命中、模型「疑似」都不算；
+  - 结果缓存到 `rule_history_evidence`（带规则内容指纹），规则一改即失效；
+  - 默认最多回放 2 万条（`WAF_RULE_HISTORY_MAX_EVENTS`），超出标记 `truncated`。
 - **动作锁**：`build_authoritative()` 是唯一出口，未合格/熔断中的规则一律被改写成 `action=alert`，
   并在产物里留 `provenance.action_forced`；只有 `qualified_at` 非空 + 人工翻 `action=block` 才进阻断预算。
   拦截预算按“实测扣减 + Wilson 95% 上界”计算（`thresholds.py` 读 `rule_fpr`），**alert 命中不扣预算**。

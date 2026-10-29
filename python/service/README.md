@@ -362,7 +362,12 @@ path/trash 同时存在、symlink、stat 不匹配都不会自动删；连续 5 
     → 逐条翻 `block` → `POST /api/rules/promote` 提升到现役。
     `kind=guard`（管理入口、`.git` 探测等）只需 ② + 管理员政策理由；有良性命中时**拒绝合格**。
   - `GET /api/rules/{id}/evidence?days=7`：在线证据分桶（`confirmed_attack` / `confirmed_benign` /
-    `suspected_attack` / `unlabeled`）+ 离线三关 + 样本。
+    `suspected_attack` / `unlabeled`）+ 离线三关 + 样本；自撰规则还会带 `history` / `history_ok`。
+  - `POST /api/rules/custom/{id}/history-evidence` body `{days?, max_events?}`（analyst）：
+    把规则拿到过去 N 天（默认 30 / 上限 90）的事件上重放，用事件已有的人工标签判定。
+    `confirmed_attack ≥ 1` 且 `confirmed_benign = 0`、并且 ② 真实良性零误报已通过，
+    才能作为合格证据；结果缓存到 `rule_history_evidence`（带规则内容指纹，规则一改即失效）。
+    适用于「先有攻击、后补规则」，不用先重放攻击制造在线命中。
   - 批量启用测试：`POST /api/rules/custom/bulk-enable`；确认/撤销合格：`POST /api/rules/{id}/qualify` / `unqualify`。
   - 规则页支持关键词搜索、各状态列筛选、行选择批量启用/停用/改动作/删除（admin）。
 - **熔断 / incident**：

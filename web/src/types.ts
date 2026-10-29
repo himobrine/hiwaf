@@ -170,6 +170,27 @@ export interface EventPacket {
 
 /* ------------------------------------------------------------------ 规则通道 */
 
+/** 历史告警回放证据（仅自撰规则；手动触发，规则一改即失效）。 */
+export interface RuleHistory {
+  rule: string
+  rule_sha?: string
+  days: number
+  scanned: number
+  truncated: number | boolean
+  matched: number
+  confirmed_attack: number
+  confirmed_benign: number
+  suspected_attack: number
+  unlabeled: number
+  samples: number[]
+  last_ts?: number | null
+  body?: any
+  ok: boolean
+  reason?: string
+  actor?: string
+  created_at?: number
+}
+
 /** 在线证据（真实运行数据，按来源分桶；模型只做「疑似」提示）。 */
 export interface RuleOnline {
   rule: string
@@ -239,6 +260,9 @@ export interface RuleRow {
   suggest_qualified?: boolean
   blockers?: string[]
   online?: RuleOnline
+  /** 历史告警回放证据（仅自撰规则；null/缺失 = 没跑过或规则已改）。 */
+  history?: RuleHistory | null
+  history_ok?: boolean
   breaker?: RuleBreaker | null
   /* 挖出的候选独有 */
   verdict?: string
@@ -328,6 +352,8 @@ export interface RuleEvidence {
   view?: any
   offline: any
   online: RuleOnline
+  history?: RuleHistory | null
+  history_ok?: boolean
   samples: RuleSample[]
   incidents: RuleIncident[]
   qualified_at?: number | null

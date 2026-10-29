@@ -26,6 +26,7 @@
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 from typing import Any, Dict, List, Optional
@@ -36,6 +37,8 @@ DEFAULT_MIN_WEIGHT_TO_BLOCK = 1.0
 
 #: 合格判据里"在线确认攻击"的最小条数（人工确认的才算）。
 MIN_ONLINE_CONFIRMED_ATTACKS = 1
+#: 历史告警回放证据的合格门槛（与在线证据一致：≥1 条确认攻击 + 0 条确认良性）。
+MIN_HISTORY_CONFIRMED_ATTACKS = 1
 
 #: 挖出的候选规则没有 severity 字段，按规则名前缀给一个展示用等级
 #: （**只影响展示**，不参与记分；记分只认 `weight`）。
@@ -137,6 +140,72 @@ def is_verified(row: Dict[str, Any]) -> bool:
     return prov.get("qualification") in ("proven", "qualified")
 
 
+# --------------------------------------------------------------------------- 历史告警证据
+def _fingerprint(regex: Any, scopes: Any, kind: Any) -> str:
+    """规则内容指纹：regex + scopes + kind。任何一项变了旧证据就失效。"""
+    if isinstance(scopes, str):
+        try:
+            scopes = json.loads(scopes or "[]")
+        except (TypeError, ValueError):
+            scopes = ["full"]
+    payload = json.dumps([regex or "", list(scopes or []), kind or "detector"],
+                         ensure_ascii=False, sort_keys=True)
+    return hashlib.sha1(payload.encode("utf-8", "replace")).hexdigest()[:16]
+
+
+def rule_fingerprint(row: Dict[str, Any]) -> str:
+    return _fingerprint(row.get("regex"), row.get("scopes"), row.get("kind"))
+
+
+def _history_row(row: Dict[str, Any]) -> Dict[str, Any]:
+    out = dict(row)
+    try:
+        out["samples"] = json.loads(out.pop("samples_json", None) or "[]")
+    except (TypeError, ValueError):
+        out["samples"] = []
+    try:
+        out["body"] = json.loads(out.pop("body_json", None) or "{}")
+    except (TypeError, ValueError):
+        out["body"] = {}
+    attack = int(out.get("confirmed_attack") or 0)
+    benign = int(out.get("confirmed_benign") or 0)
+    matched = int(out.get("matched") or 0)
+    out["ok"] = bool(matched > 0 and attack >= MIN_HISTORY_CONFIRMED_ATTACKS and benign == 0)
+    return out
+
+
+def history_evidence(rid: str) -> Optional[Dict[str, Any]]:
+    """该规则最新的历史告警证据；指纹不符（规则改过）返回 None。"""
+    row = db.one("SELECT * FROM rule_history_evidence WHERE rule=?", (rid,))
+    if not row:
+        return None
+    cur = db.one("SELECT regex, scopes, kind FROM rules_custom WHERE id=?", (rid,))
+    if not cur:
+        return None
+    if str(row.get("rule_sha") or "") != rule_fingerprint(dict(cur)):
+        return None
+    return _history_row(row)
+
+
+def history_map() -> Dict[str, Dict[str, Any]]:
+    """批量读取（`/api/rules` 用），避免每条规则一次查询。"""
+    rows = db.rows(
+        """SELECT h.*, rc.regex AS cur_regex, rc.scopes AS cur_scopes,
+                  rc.kind AS cur_kind
+             FROM rule_history_evidence h
+             JOIN rules_custom rc ON rc.id = h.rule""")
+    out: Dict[str, Dict[str, Any]] = {}
+    for r in rows:
+        if str(r.get("rule_sha") or "") != _fingerprint(
+                r.get("cur_regex"), r.get("cur_scopes"), r.get("cur_kind")):
+            continue
+        d = _history_row(r)
+        for k in ("cur_regex", "cur_scopes", "cur_kind"):
+            d.pop(k, None)
+        out[str(d["rule"])] = d
+    return out
+
+
 # --------------------------------------------------------------------------- 在线证据
 def online_stats(days: int = 7,
                  rule_ids: Optional[List[str]] = None) -> Dict[str, Dict[str, Any]]:
@@ -215,7 +284,8 @@ def _gates(row: Dict[str, Any]) -> Dict[str, Any]:
 
 def custom_view(row: Dict[str, Any],
                 online: Optional[Dict[str, Any]] = None,
-                breaker: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+                breaker: Optional[Dict[str, Any]] = None,
+                history: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """把一行 `rules_custom` 翻译成 UI/判定都能用的状态。
 
     返回的 `state` 是派生状态，不落库：
@@ -242,6 +312,10 @@ def custom_view(row: Dict[str, Any],
     attack_required = kind != "guard"
     offline_ok = bool(compiled and benign_ok is True and (attack_ok is True or not attack_required))
     online_ok = bool(on_hits > 0 and on_attack >= MIN_ONLINE_CONFIRMED_ATTACKS and on_benign == 0)
+    # 历史告警证据：命中事件里 ≥1 条确认攻击、0 条确认良性。
+    # 硬门禁：② 真实良性零误报仍必须先通过（历史证据不能绕过 ②）。
+    hist = history or None
+    history_ok = bool(hist and hist.get("ok") and benign_ok is True)
     qualified = bool(row.get("qualified_at"))
     breaker_hit = bool(breaker)
 
@@ -251,7 +325,7 @@ def custom_view(row: Dict[str, Any],
         state = "noisy"
     elif qualified:
         state = "qualified"
-    elif offline_ok or online_ok:
+    elif offline_ok or online_ok or history_ok:
         state = "suggest"
     elif not row.get("enabled"):
         state = "ready"
@@ -266,9 +340,15 @@ def custom_view(row: Dict[str, Any],
         blockers = ["防御型规则仍需先过 ② 真实良性零误报"]
     elif kind == "guard" and not qualified:
         blockers = ["良性 0 误报已满足；等管理员填写政策理由并确认合格"]
-    elif attack_required and not offline_ok and not online_ok:
-        blockers = ["池里没有这类攻击样本；等真实流量出现 ≥1 条人工确认攻击，"
-                    "且确认良性为 0"]
+    elif hist and int(hist.get("confirmed_benign") or 0) > 0:
+        blockers = [f"历史告警里确认良性 {int(hist.get('confirmed_benign') or 0)} 条，不能合格"
+                    "（先修正则或排除该业务场景）"]
+    elif attack_required and not offline_ok and not online_ok and not history_ok:
+        if hist and hist.get("ok") and benign_ok is not True:
+            blockers = ["历史告警证据够，但还没过 ② 真实良性零误报：先跑三关校验"]
+        else:
+            blockers = ["池里没有这类攻击样本；等真实流量出现 ≥1 条人工确认攻击，"
+                        "或点「用历史告警验证」用已确认的历史事件佐证（确认良性必须为 0）"]
     elif state == "suggest":
         blockers = ["证据已够；等管理员点「确认合格」"]
     else:
@@ -283,7 +363,9 @@ def custom_view(row: Dict[str, Any],
         "attack_required": attack_required,
         "offline_ok": offline_ok,
         "online_ok": online_ok,
-        "suggest_qualified": bool(offline_ok or online_ok) and not qualified,
+        "history_ok": history_ok,
+        "history": hist,
+        "suggest_qualified": bool(offline_ok or online_ok or history_ok) and not qualified,
         "is_qualified": qualified,
         "can_enable": compiled,
         "can_block": bool(qualified and not breaker_hit and benign_ok is not False),
@@ -355,10 +437,12 @@ def merged(with_online: bool = True) -> Dict[str, Any]:
     doc = mined_doc()
     online = online_stats(7) if with_online else {}
     breakers = breaker_map()
+    hist = history_map()
     mined = mined_merged(online=online, breakers=breakers)
     custom = []
     for r in custom_rows():
-        v = custom_view(r, online.get(str(r["id"])), breakers.get(str(r["id"])))
+        v = custom_view(r, online.get(str(r["id"])), breakers.get(str(r["id"])),
+                        hist.get(str(r["id"])))
         custom.append({**r, **v})
 
     counts: Dict[str, int] = {}
@@ -494,6 +578,8 @@ def update_custom(rid: str, payload: Dict[str, Any], actor: str) -> Dict[str, An
         (rule["name"], rule["regex"], json.dumps(rule["scopes"]), rule["severity"],
          rule["weight"], rule["action"], rule["kind"], rule["notes"], now, actor, rid),
     )
+    # 内容变了，历史告警回放证据也一起作废（指纹对不上，但删掉更干净）。
+    db.execute("DELETE FROM rule_history_evidence WHERE rule=?", (rid,))
     return {"rule": _get_custom(rid),
             "warnings": rules_dsl.warn_spec(rule),
             "note": "已保存；因为内容变了，上一轮的验证/合格结论作废（enabled 已复位为草稿）。"}
@@ -503,6 +589,7 @@ def delete_custom(rid: str) -> None:
     if not db.one("SELECT 1 AS x FROM rules_custom WHERE id=?", (rid,)):
         raise ValueError(f"规则不存在：{rid}")
     db.execute("DELETE FROM rules_custom WHERE id=?", (rid,))
+    db.execute("DELETE FROM rule_history_evidence WHERE rule=?", (rid,))
 
 
 def _get_mined(rid: str) -> Optional[Dict[str, Any]]:
@@ -642,7 +729,8 @@ def _get_custom(rid: str) -> Optional[Dict[str, Any]]:
     for r in custom_rows():
         if r["id"] == rid:
             on = online_stats(7, [rid]).get(rid) or _def_online(rid)
-            return {**r, **custom_view(r, on, breaker_map().get(rid))}
+            return {**r, **custom_view(r, on, breaker_map().get(rid),
+                                       history_evidence(rid))}
     return None
 
 
@@ -746,7 +834,8 @@ def set_custom_qualified(rid: str, *, actor: str, note: str = "",
         raise ValueError(f"规则不存在：{rid}")
     row = {**dict(cur), "validation": _parse_json(cur.get("validation"))}
     on = online_stats(7, [rid]).get(rid) or _def_online(rid)
-    view = custom_view(row, on, breaker_map().get(rid))
+    hist = history_evidence(rid)
+    view = custom_view(row, on, breaker_map().get(rid), hist)
     if not view["compiled"]:
         raise ValueError("还没过 ① 正则编译：先点「校验」或直接打开启用开关")
     if view["benign_ok"] is False:
@@ -758,9 +847,13 @@ def set_custom_qualified(rid: str, *, actor: str, note: str = "",
                 raise ValueError("防御型规则要合格，必须先过 ② 真实良性回放且零误报")
             if not (note or cur.get("notes") or "").strip():
                 raise ValueError("防御型规则必须填写政策理由（为什么这个入口必须拒绝）")
-        elif not (view["offline_ok"] or view["online_ok"]):
-            raise ValueError("证据还不够：池内 ③ 无样本时，需要真实流量里 ≥1 条人工确认攻击，"
-                             "且确认良性为 0")
+        elif not (view["offline_ok"] or view["online_ok"] or view["history_ok"]):
+            raise ValueError(
+                "证据还不够：池内 ③ 无样本、真实流量没有确认攻击、也没有可用的历史告警证据。"
+                "历史告警证据需要 ≥1 条人工确认攻击且确认良性为 0，且 ② 真实良性零误报已通过。")
+    if view["history_ok"] and not view["offline_ok"] and not view["online_ok"] \
+            and source == "manual":
+        source = "history_replay"
     if force and source == "manual":
         source = "admin_override"
     db.execute(

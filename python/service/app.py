@@ -342,6 +342,14 @@ class RuleMonitorSettingsIn(BaseModel):
     breaker_alerts: Optional[bool] = None
 
 
+class HistoryReplayIn(BaseModel):
+    """历史告警回放：窗口天数 / 最多回放条数（都有服务端硬上限）。"""
+    model_config = {"extra": "forbid"}
+
+    days: Optional[int] = None
+    max_events: Optional[int] = None
+
+
 class RulesPromoteIn(BaseModel):
     min_weight_to_block: Optional[float] = None
     decode: Optional[List[str]] = None
@@ -1638,13 +1646,15 @@ def rule_evidence(rid: str, days: int = Query(7, ge=1, le=90),
             row["validation"] = json.loads(row.get("validation") or "null")
         except Exception:
             row["validation"] = None
-        view = rules_mod.custom_view(row, online, rules_mod.breaker_map().get(rid))
+        history = rules_mod.history_evidence(rid)
+        view = rules_mod.custom_view(row, online, rules_mod.breaker_map().get(rid), history)
         return {
             "rule": rid, "source": row.get("source") or "custom",
             "name": row.get("name"), "kind": row.get("kind") or "detector",
             "state": view["state"], "view": view,
             "offline": (row.get("validation") or {}).get("gates") or {},
-            "online": online, "samples": samples, "incidents": incidents,
+            "online": online, "history": history, "history_ok": view["history_ok"],
+            "samples": samples, "incidents": incidents,
             "qualified_at": row.get("qualified_at"),
             "qualified_by": row.get("qualified_by"),
             "qualification_source": row.get("qualification_source"),
@@ -1665,7 +1675,26 @@ def rule_evidence(rid: str, days: int = Query(7, ge=1, le=90),
                               "attack_n": mined.get("attack_n")},
         },
         "online": online, "samples": samples, "incidents": incidents,
+        "history": None, "history_ok": False,
     }
+
+
+@app.post("/api/rules/custom/{rid}/history-evidence")
+def rule_history_evidence(rid: str, body: HistoryReplayIn, request: Request,
+                          user: dict = Depends(auth.require_at_least("analyst"))):
+    """用历史告警回放验证规则（只读 + 缓存证据，不改规则集）。"""
+    from . import rule_history
+    try:
+        out = rule_history.run(rid, days=body.days, max_events=body.max_events,
+                               actor=user["username"])
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    audit(user["username"], "rule_history_replay", rid,
+          json.dumps({k: out.get(k) for k in
+                      ("days", "scanned", "truncated", "matched",
+                       "confirmed_attack", "confirmed_benign", "unlabeled", "ok")},
+                     ensure_ascii=False), _ip(request))
+    return out
 
 
 @app.post("/api/rules/{rid}/qualify")

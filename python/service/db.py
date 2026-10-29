@@ -264,6 +264,26 @@ CREATE TABLE IF NOT EXISTS rule_incidents (
 );
 CREATE INDEX IF NOT EXISTS ix_rule_incidents_status ON rule_incidents(status, opened_at);
 
+-- 历史告警回放证据（自撰规则）：把规则拿到过去事件上重放，用已有**人工标签**
+-- 判定「能不能合格」。规则一改（rule_sha 指纹变）即失效；手动触发、结果缓存。
+CREATE TABLE IF NOT EXISTS rule_history_evidence (
+  rule             TEXT PRIMARY KEY,
+  rule_sha         TEXT NOT NULL,
+  days             INTEGER NOT NULL,
+  scanned          INTEGER NOT NULL DEFAULT 0,
+  truncated        INTEGER NOT NULL DEFAULT 0,
+  matched          INTEGER NOT NULL DEFAULT 0,
+  confirmed_attack INTEGER NOT NULL DEFAULT 0,
+  confirmed_benign INTEGER NOT NULL DEFAULT 0,
+  suspected_attack INTEGER NOT NULL DEFAULT 0,
+  unlabeled        INTEGER NOT NULL DEFAULT 0,
+  samples_json     TEXT,
+  last_ts          INTEGER,
+  body_json        TEXT,
+  actor            TEXT,
+  created_at       INTEGER NOT NULL
+);
+
 -- 被熔断的规则（产物级覆盖；**不改** rules_custom.action / qualified_at）。
 -- build_authoritative 会把这些规则强制成 alert，恢复 = 删行 + 重新提升。
 CREATE TABLE IF NOT EXISTS rule_breakers (

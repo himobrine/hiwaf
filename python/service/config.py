@@ -127,6 +127,14 @@ RULE_MONITOR_DEFAULTS = {
     "breaker_alerts": os.environ.get("WAF_RULE_BREAKER_ALERTS", "1").strip().lower()
                       not in ("0", "false", "no", "off"),
 }
+
+#: 历史告警回放证据（自撰规则合格的可选证据源之一）。
+#: 手动触发，结果缓存到 `rule_history_evidence`；规则一改（指纹变）即失效。
+RULE_HISTORY_DAYS = int(os.environ.get("WAF_RULE_HISTORY_DAYS", "30"))
+RULE_HISTORY_MAX_EVENTS = int(os.environ.get("WAF_RULE_HISTORY_MAX_EVENTS", "20000"))
+#: 硬上限：窗口不能超过事件保留期，条数防止大站点上把控制台拖死。
+RULE_HISTORY_HARD_DAYS = 90
+RULE_HISTORY_HARD_EVENTS = 50000
 UPLOAD_FORMATS = {
     ".csv": "csv", ".tsv": "csv",
     ".json": "json", ".jsonl": "json", ".ndjson": "json",

@@ -240,6 +240,8 @@ export default function Rules({ user }: { user: User }) {
   // 合格确认
   const [qualify, setQualify] = useState<RuleRow | null>(null)
   const [qualifyForm] = Form.useForm()
+  const [historyDays, setHistoryDays] = useState(30)
+  const [historyBusy, setHistoryBusy] = useState(false)
 
   // 误报事件 / 紧急熔断
   const [incidents, setIncidents] = useState<RuleIncident[]>([])
@@ -664,6 +666,30 @@ export default function Rules({ user }: { user: User }) {
     setQualify(r)
     qualifyForm.resetFields()
     qualifyForm.setFieldsValue({ note: r.qualification_note || '', force: false })
+  }
+
+  /** 用历史告警回放验证（只读 + 缓存证据；规则一改就失效）。 */
+  const runHistory = async (rid: string) => {
+    setHistoryBusy(true)
+    try {
+      const out = await api<any>(
+        `/api/rules/custom/${encodeURIComponent(rid)}/history-evidence`,
+        { method: 'POST', body: { days: historyDays } },
+      )
+      if (out.ok) message.success(`历史回放：${out.reason}`)
+      else message.warning(`历史回放：${out.reason}`)
+      const fresh = await api<RulesPayload>('/api/rules')
+      setData(fresh)
+      const r = (fresh.custom || []).find((x) => x.id === rid)
+      if (r) {
+        if (qualify && qualify.id === rid) setQualify(r)
+        if (evidenceOpen) await reloadEvidence()
+      }
+    } catch (e: any) {
+      message.error(e?.message || '历史回放失败')
+    } finally {
+      setHistoryBusy(false)
+    }
   }
 
   const doQualify = async () => {
@@ -2405,6 +2431,74 @@ export default function Rules({ user }: { user: User }) {
                 </Tag>
               </Descriptions.Item>
             </Descriptions>
+
+            <Card
+              size="small"
+              title="历史告警回放（可选证据；只认人工标签，规则一改即失效）"
+              style={{ marginBottom: 12 }}
+            >
+              <Space wrap style={{ marginBottom: 8 }}>
+                <Select
+                  size="small"
+                  value={historyDays}
+                  onChange={setHistoryDays}
+                  disabled={historyBusy}
+                  options={[
+                    { value: 7, label: '最近 7 天' },
+                    { value: 30, label: '最近 30 天' },
+                    { value: 90, label: '最近 90 天' },
+                  ]}
+                />
+                <Button
+                  size="small"
+                  loading={historyBusy}
+                  disabled={!isAdmin}
+                  onClick={() => runHistory(qualify.id)}
+                >
+                  用历史告警验证
+                </Button>
+                {qualify.history ? (
+                  <Tag color={qualify.history_ok ? 'green' : 'gold'}>
+                    {qualify.history_ok ? '可合格（确认攻击 ≥1 / 确认良性 0）' : '历史证据不足'}
+                  </Tag>
+                ) : (
+                  <span className="muted">尚未回放</span>
+                )}
+              </Space>
+              {qualify.history ? (
+                <Descriptions size="small" bordered column={4}>
+                  <Descriptions.Item label="扫描">
+                    {fmtInt(qualify.history.scanned)}
+                    {qualify.history.truncated ? '（已截断）' : ''}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="命中">{fmtInt(qualify.history.matched)}</Descriptions.Item>
+                  <Descriptions.Item label="确认攻击">
+                    <Tag color={qualify.history.confirmed_attack ? 'red' : 'default'}>
+                      {fmtInt(qualify.history.confirmed_attack)}
+                    </Tag>
+                  </Descriptions.Item>
+                  <Descriptions.Item label="确认良性">
+                    <Tag color={qualify.history.confirmed_benign ? 'green' : 'default'}>
+                      {fmtInt(qualify.history.confirmed_benign)}
+                    </Tag>
+                  </Descriptions.Item>
+                  <Descriptions.Item label="未标注">{fmtInt(qualify.history.unlabeled)}</Descriptions.Item>
+                  <Descriptions.Item label="窗口">{qualify.history.days} 天</Descriptions.Item>
+                  <Descriptions.Item label="回放时间" span={2}>
+                    {qualify.history.created_at ? fmtTs(qualify.history.created_at) : '-'}
+                  </Descriptions.Item>
+                </Descriptions>
+              ) : null}
+              {qualify.history?.confirmed_benign ? (
+                <Alert
+                  type="warning"
+                  showIcon
+                  style={{ marginTop: 8 }}
+                  message={`历史命中里有 ${fmtInt(qualify.history.confirmed_benign)} 条确认良性：不能用于合格，先修正则或排除该业务场景。`}
+                />
+              ) : null}
+            </Card>
+
             {qualify.kind === 'guard' ? (
               <Alert
                 type="info"
@@ -2417,8 +2511,8 @@ export default function Rules({ user }: { user: User }) {
                 type="warning"
                 showIcon
                 style={{ marginBottom: 12 }}
-                message="证据还不够：池内 ③ 无样本，且真实流量里还没有「人工确认攻击」。"
-                description="可以继续测试等样本；如果坚持确认，勾选下面的「强制确认」并写清理由（会记 admin_override）。"
+                message="证据还不够：池内 ③ 无样本、真实流量没有「人工确认攻击」、也没有可用的历史告警证据。"
+                description="可以继续测试等样本，或点上面的「用历史告警验证」用已确认的历史事件佐证；如果坚持确认，勾选下面的「强制确认」并写清理由（会记 admin_override）。"
               />
             ) : null}
             <Form form={qualifyForm} layout="vertical" size="small">
@@ -2574,9 +2668,70 @@ export default function Rules({ user }: { user: User }) {
               </div>
             </Card>
 
+            {evidence.source === 'custom' ? (
+              <Card
+                size="small"
+                title="③ 历史告警回放（手动触发；只认人工标签，规则一改即失效）"
+                style={{ marginTop: 12 }}
+              >
+                <Space wrap style={{ marginBottom: 8 }}>
+                  <Select
+                    size="small"
+                    value={historyDays}
+                    onChange={setHistoryDays}
+                    disabled={historyBusy}
+                    options={[
+                      { value: 7, label: '最近 7 天' },
+                      { value: 30, label: '最近 30 天' },
+                      { value: 90, label: '最近 90 天' },
+                    ]}
+                  />
+                  <Button
+                    size="small"
+                    loading={historyBusy}
+                    disabled={!isAdmin}
+                    onClick={() => runHistory(evidence.rule)}
+                  >
+                    用历史告警验证
+                  </Button>
+                  {evidence.history ? (
+                    <Tag color={evidence.history_ok ? 'green' : 'gold'}>
+                      {evidence.history_ok ? '可合格（确认攻击 ≥1 / 确认良性 0）' : '历史证据不足'}
+                    </Tag>
+                  ) : (
+                    <span className="muted">尚未回放</span>
+                  )}
+                </Space>
+                {evidence.history ? (
+                  <Descriptions size="small" bordered column={4}>
+                    <Descriptions.Item label="扫描">
+                      {fmtInt(evidence.history.scanned)}
+                      {evidence.history.truncated ? '（已截断）' : ''}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="命中">{fmtInt(evidence.history.matched)}</Descriptions.Item>
+                    <Descriptions.Item label="确认攻击">
+                      <Tag color={evidence.history.confirmed_attack ? 'red' : 'default'}>
+                        {fmtInt(evidence.history.confirmed_attack)}
+                      </Tag>
+                    </Descriptions.Item>
+                    <Descriptions.Item label="确认良性">
+                      <Tag color={evidence.history.confirmed_benign ? 'green' : 'default'}>
+                        {fmtInt(evidence.history.confirmed_benign)}
+                      </Tag>
+                    </Descriptions.Item>
+                    <Descriptions.Item label="未标注">{fmtInt(evidence.history.unlabeled)}</Descriptions.Item>
+                    <Descriptions.Item label="窗口">{evidence.history.days} 天</Descriptions.Item>
+                    <Descriptions.Item label="回放时间" span={2}>
+                      {evidence.history.created_at ? fmtTs(evidence.history.created_at) : '-'}
+                    </Descriptions.Item>
+                  </Descriptions>
+                ) : null}
+              </Card>
+            ) : null}
+
             <Card
               size="small"
-              title="③ 命中样本（点一行可打开事件；反馈写独立台账）"
+              title="④ 命中样本（点一行可打开事件；反馈写独立台账）"
               style={{ marginTop: 12 }}
             >
               <Table
