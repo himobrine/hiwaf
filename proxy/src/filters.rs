@@ -128,6 +128,19 @@ struct Decision {
     pred: Option<Pred>,
 }
 
+/// 部署级降级：`supervised_block=false` 时，模型**单独**命中的 `block` 降为 `alert`。
+///
+/// 规则通道达到阻断线（`rules_flagged`）时保持 `block` —— 降级只放宽模型，
+/// 不放宽规则。这样"模型只告警、规则才阻断"的部署既保留模型证据，又不会
+/// 让模型的跨分布误报变成业务中断。
+fn effective_action<'a>(action: &'a str, rules_flagged: bool, supervised_block: bool) -> &'a str {
+    if !supervised_block && action == "block" && !rules_flagged {
+        "alert"
+    } else {
+        action
+    }
+}
+
 impl Decision {
     fn action(&self) -> Option<&str> {
         self.pred.as_ref().map(|p| p.action.as_str())
@@ -226,8 +239,20 @@ fn request_has_body(h: &RequestHeader) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{body_is_binary, collect_headers, is_textual_content_type};
+    use super::{body_is_binary, collect_headers, effective_action, is_textual_content_type};
     use http::{HeaderMap, HeaderValue};
+
+    #[test]
+    fn supervised_only_block_downgrades_to_alert() {
+        // 默认：模型可单独阻断。
+        assert_eq!(effective_action("block", false, true), "block");
+        // 关闭后：模型单独命中 -> alert；规则命中仍 block。
+        assert_eq!(effective_action("block", false, false), "alert");
+        assert_eq!(effective_action("block", true, false), "block");
+        // 非 block 动作不受开关影响。
+        assert_eq!(effective_action("alert", false, false), "alert");
+        assert_eq!(effective_action("allow", false, false), "allow");
+    }
 
     #[test]
     fn headers_keep_duplicates_and_count_normalized_bytes() {
@@ -423,7 +448,12 @@ impl Collector {
                 Ok(sc) => {
                     let v = &sc.verdict;
                     let pol = eng.policy();
-                    let action = v.action.as_str().to_string();
+                    let mut action = v.action.as_str().to_string();
+                    // 部署级降级（`--no-supervised-block`）：模型单独命中只告警，
+                    // 规则通道仍可阻断。**只在规则未达阻断线时降级** —— 规则说
+                    // block 的请求不会因为这里放宽；模型的分数/穿阈证据照常落盘。
+                    action = effective_action(&action, v.rules_flagged,
+                                              self.cfg.supervised_block).to_string();
                     let enforced =
                         self.cfg.block_mode == BlockMode::Enforce && action == "block";
                     Some(Pred {

@@ -519,6 +519,14 @@ export default function Proxy({ user }: { user: User }) {
                 <Form.Item name="no_body" label="隐私模式（不采 body）" valuePropName="checked">
                   <Switch />
                 </Form.Item>
+                <Form.Item
+                  name="supervised_block"
+                  label="模型命中可单独阻断"
+                  valuePropName="checked"
+                  extra="关掉后模型只告警，只有规则通道能返回 403（模型跨分布误报偏高时用）。"
+                >
+                  <Switch />
+                </Form.Item>
               </Space>
               <Row gutter={8}>
                 <Col span={12}>

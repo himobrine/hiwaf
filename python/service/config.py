@@ -162,6 +162,9 @@ PROXY_DEFAULTS = {
     # 判定/阻断模式：off（纯采集）| dry_run（只记录）| enforce（命中返回 403）。
     # 默认 off，enforce 必须 admin 显式开启。
     "block_mode": "off",
+    # 模型命中是否可单独阻断。False = 模型只告警、只有规则通道能阻断
+    # （模型在跨分布流量上误报偏高时的安全部署）。
+    "supervised_block": True,
     # 旧别名：block_mode != off。保存时自动同步。
     "score": False,
     "stats_interval": 60,

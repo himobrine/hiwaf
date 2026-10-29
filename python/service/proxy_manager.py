@@ -234,6 +234,7 @@ def _validate_config(patch: Dict[str, Any]) -> Dict[str, Any]:
         raise ValueError("block_mode 只支持 off/dry_run/enforce")
     out["block_mode"] = mode
     out["score"] = mode != "off"
+    out["supervised_block"] = _as_bool("supervised_block", cur["supervised_block"])
 
     out["body_keep"] = _as_int("body_keep", cur["body_keep"], 0, 16 * 1024 * 1024)
     out["body_limit"] = _as_int("body_limit", cur["body_limit"], 1, 64 * 1024 * 1024)
@@ -317,6 +318,8 @@ def build_argv(cfg: Dict[str, Any], binary: Path) -> list[str]:
     ]
     if cfg["no_body"]:
         argv.append("--no-body")
+    if not cfg.get("supervised_block", True):
+        argv.append("--no-supervised-block")
     if cfg["rules"]:
         argv += ["--rules", str(cfg["rules"])]
     else:

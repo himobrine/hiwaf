@@ -127,6 +127,12 @@ pub struct Config {
     pub channel: usize,
     /// 判定/阻断模式（`off` / `dry_run` / `enforce`）。
     pub block_mode: BlockMode,
+    /// 监督通道是否**允许单独阻断**（默认 `true`）。
+    ///
+    /// `false` 时模型命中只降级成 `alert`（分数/穿阈/规则证据照常落盘），
+    /// 只有规则通道达到阻断线才真正返回 403。用于模型在跨分布流量上误报偏高、
+    /// 但规则集已经足够精确的部署（`--no-supervised-block`）。
+    pub supervised_block: bool,
     /// 模型产物目录（`decision_policy.json` + 两个 ONNX）。
     pub artifacts: PathBuf,
     /// 运行指标 JSON 输出路径（供控制台读；`None` = 只打 stderr）。
@@ -158,6 +164,7 @@ impl Default for Config {
             file_size: 256 * 1024 * 1024,
             channel: 8192,
             block_mode: BlockMode::Off,
+            supervised_block: true,
             artifacts: PathBuf::from("../python/artifacts"),
             stats_out: None,
             stats_interval: 60,
@@ -265,6 +272,8 @@ pub fn parse_args<I: Iterator<Item = String>>(args: I) -> Result<Config, String>
             }
             // 旧开关：等价于 --block-mode dry_run（显式 --block-mode 优先）。
             "--score" => score_alias = true,
+            "--supervised-block" => c.supervised_block = true,
+            "--no-supervised-block" => c.supervised_block = false,
             "--out" => c.out_dir = PathBuf::from(val("--out")?),
             "--body-keep" => {
                 c.body_keep = val("--body-keep")?
@@ -393,6 +402,8 @@ pub const HELP: &str = "\
   --upstream-tls         单路由上游使用 TLS
   --block-mode <mode>    off（纯采集，默认）/ dry_run（只记录）/ enforce（命中返回 403）
   --score                旧开关，等价于 --block-mode dry_run
+  --supervised-block     模型命中可单独阻断（默认）
+  --no-supervised-block  模型命中只告警，只有规则通道能阻断
 
 其他:
   --out <dir>            原始记录输出目录（默认 ../traindata/proxy）
@@ -495,5 +506,15 @@ mod tests {
             BlockMode::Off
         );
         assert!(parse(&["--block-mode", "nope"]).is_err());
+    }
+
+    #[test]
+    fn supervised_block_defaults_on_and_can_be_disabled() {
+        assert!(parse(&[]).unwrap().supervised_block);
+        assert!(!parse(&["--no-supervised-block"]).unwrap().supervised_block);
+        // 后写的开关生效，便于运维在脚本里覆盖。
+        assert!(parse(&["--no-supervised-block", "--supervised-block"])
+            .unwrap()
+            .supervised_block);
     }
 }

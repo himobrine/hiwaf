@@ -82,6 +82,7 @@ call build.bat run --release -- ^
 | `--upstream-tls` | 关 | 单路由上游使用 TLS |
 | `--block-mode` | `off` | `off` 纯采集 / `dry_run` 只记录 / `enforce` 命中 block 返回 403 |
 | `--score` | — | 旧开关，等价于 `--block-mode dry_run`（显式 `--block-mode` 优先） |
+| `--supervised-block` / `--no-supervised-block` | 开 | 模型命中是否可单独阻断。关掉后模型命中只降级为 `alert`（分数/证据照常落盘），只有规则通道能返回 403 |
 | `--out` | `../traindata/proxy` | 原始记录目录（**存在真实业务数据，注意访问权限与保留期**） |
 | `--body-keep` | 65536 | 单请求**落盘** body 上限（超出标记 `body_truncated=true`） |
 | `--body-limit` | 1048576 | 单请求**缓冲**硬上限（防大文件上传打爆内存） |
@@ -116,6 +117,13 @@ call build.bat run --release -- ^
 无 body 的请求（GET/HEAD 等）在请求头阶段就判定，**上游完全收不到请求**；有 body 的请求
 必须等 body 收齐（或达到 `--body-limit`）才能判定，Pingora 会先发请求头再流 body，
 所以 body 类拦截时**上游可能已收到请求头、但收不到 body**。这是流式反向代理的固有限制。
+
+**模型只告警、规则才阻断（`--no-supervised-block`）**：监督模型在 CSIC 上标定，跨分布到本地
+业务可能系统性误报（实测本机 sqli-labs：任何 `?id=` 的 GET 都被判成 `cmdi` ≈ 0.999，阈值 0.6998）。
+关掉这个开关后，模型命中只写 `action=alert`（分数、穿阈、SHAP、规则证据都保留），
+**只有规则通道达到 `min_weight_to_block` 才 403**；规则命中时仍是 `block`。
+已知缺口：`sqli_comment_tail` 的 `(--|#|/\*)\s*$` 要求注释符在文本结尾，所以 POST 表单
+`id=1'--+&submit=Submit` 不命中（GET 的 `?id=1'--+` 命中）。
 
 完整步骤、nginx 示例与故障排查见 `SETUP.md` §8.2 / §8.7。
 

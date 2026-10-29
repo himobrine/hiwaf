@@ -314,6 +314,21 @@ Windows 上监听 80/443 需要管理员权限；**系统防火墙放行需自�
 必须等 body 收齐（或达到 `--body-limit`）才能判定，所以 body 类拦截时上游**可能已收到请求头、
 但收不到 body**（流式反向代理的固有限制）。
 
+**模型只告警、规则才阻断（`--no-supervised-block`）**：默认模型（监督通道）命中即可单独阻断。
+但监督模型是在 CSIC 上标定的，换到本地业务后可能出现**系统性误报**（实测：本机 sqli-labs 上
+任何带 `id=` 的 GET 查询串都被判成 `cmdi`，分数 ≈ 0.999，远高于 0.6998 的阈值）。
+加 `--no-supervised-block`（控制台「配置 → 模型命中可单独阻断」关掉）后：
+
+- 模型命中只降级为 `alert`：分数、穿阈、SHAP 与规则证据照常落盘，事件页可见；
+- **只有规则通道达到 `min_weight_to_block` 才返回 403**；
+- 规则通道命中时仍然是 `block`，降级只放宽模型，不放宽规则。
+
+已知覆盖缺口：`sqli_comment_tail` 的正则是 `(--|#|/\*)\s*$`（要求注释符在**文本结尾**）。
+GET 的查询串在结尾，所以 `?id=1'--+` 命中；POST 表单体后面还有 `&submit=Submit`，
+`id=1'--+&submit=Submit` **不命中该规则**（其余 `' OR '1'='1`、`UNION SELECT`、`SLEEP()` 都命中）。
+补这一类要么给规则集加「引号后跟注释符」的规则并走 `rule_promote` 重新标定预算，
+要么保留模型阻断（会带回上面的 GET 误报）。
+
 **nginx 前置（可选）**：客户端仍访问 80，nginx 把请求转给采集器，采集器再转给后端。
 
 ```nginx
@@ -398,6 +413,7 @@ call build.bat run --release -- ^
 | `--upstream-tls` | off | 单路由：上游走 TLS |
 | `--block-mode <off\|dry_run\|enforce>` | `off` | `off` 纯采集；`dry_run` 只记录；`enforce` 命中 block 返回 403 |
 | `--score` | — | 旧开关，等价于 `--block-mode dry_run`（显式 `--block-mode` 优先） |
+| `--supervised-block` / `--no-supervised-block` | 开 | 模型命中是否可单独阻断；关掉后模型只告警、只有规则通道能 403 |
 | `--out <dir>` | `../traindata/proxy` | 原始记录输出目录（控制台固定此项） |
 | `--body-keep <bytes>` | `65536` | 单请求**落盘** body 上限，超出即截断并置 `body_truncated=true` |
 | `--body-limit <bytes>` | `1048576` | 单请求**缓冲**硬上限（**防 OOM**），超过即停止累积 |
