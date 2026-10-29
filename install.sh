@@ -412,11 +412,22 @@ if [ "$build_rust" -eq 1 ]; then
         fi
         warn "采集器构建失败（继续）"
     fi
+    collector_bin=""
+    for cand in "$ROOT/bin/waf-collector" "$WAF_CARGO_TARGET/release/waf-collector"; do
+        if [ -x "$cand" ]; then
+            collector_bin="$cand"
+            break
+        fi
+    done
     if [ "$rust_failed" -eq 0 ]; then
-        [ -x "$WAF_CARGO_TARGET/release/waf-ai-proto" ] && ok "Rust 引擎：$WAF_CARGO_TARGET/release/waf-ai-proto"
-        [ -x "$WAF_CARGO_TARGET/release/waf-collector" ] && ok "采集器：$WAF_CARGO_TARGET/release/waf-collector"
+        if [ -x "$WAF_CARGO_TARGET/release/waf-ai-proto" ]; then
+            ok "Rust 引擎：$WAF_CARGO_TARGET/release/waf-ai-proto"
+        fi
+        if [ -n "$collector_bin" ]; then
+            ok "采集器：$collector_bin"
+        fi
     fi
-    if [ ! -x "$WAF_CARGO_TARGET/release/waf-collector" ]; then
+    if [ -z "$collector_bin" ]; then
         warn "未找到采集器二进制；控制台「采集代理」页会提示缺失"
     fi
 elif [ "$NO_RUST" -eq 0 ]; then

@@ -27,6 +27,8 @@
 - 控制台入口：`web/dist`（由 FastAPI 单端口托管）
 - 数据库：`python/service/console.db`
 - 初始密码：`python/service/.admin_password`（首次创建 admin 时生成）
+- 采集器二进制：`bin/waf-collector.exe`（Windows）/ `bin/waf-collector`（Linux）；
+  `proxy/build.bat|sh build --release` 成功后自动复制到这里，控制台优先使用它
 - Rust 构建缓存：Windows 优先 `E:\waf-target`，否则 `%LOCALAPPDATA%\waf-cargo-target`；
   Linux 为 `~/.cache/waf-cargo-target`
 

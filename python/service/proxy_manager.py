@@ -499,6 +499,14 @@ def status() -> dict:
     warnings = []
     if not bin_view["exists"]:
         warnings.append(f"找不到采集器：{binary}；先执行 cd proxy && build.bat build --release")
+    if cfg.get("upstream_tls"):
+        try:
+            _up_host, _up_port = _split_addr(cfg["upstream"])
+        except ValueError:
+            _up_port = 0
+        if _up_port == 80:
+            warnings.append("上游端口是 80，但 upstream_tls=true：与上游握手会失败，"
+                            "事件不会入库；上游是明文 HTTP 时请关闭 upstream_tls")
     if alive and not m:
         warnings.append("进程在运行，但读不到指标文件（--stats-out）；检查 WAF_COLLECTOR_METRICS")
     if alive and m and m.get("stale"):

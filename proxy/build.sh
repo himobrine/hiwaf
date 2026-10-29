@@ -27,4 +27,37 @@ done
 
 export CMAKE_GENERATOR="${CMAKE_GENERATOR:-Ninja}"
 export CARGO_TARGET_DIR="${WAF_CARGO_TARGET:-$HOME/.cache/waf-cargo-target}"
-exec cargo "$@"
+
+set +e
+cargo "$@"
+rc=$?
+set -e
+
+# `cargo build --release` also publishes the collector to <repo>/bin so the
+# console resolves a project-local binary instead of a machine-specific cache.
+if [ "$rc" -eq 0 ]; then
+    want_build=0
+    want_release=0
+    for arg in "$@"; do
+        if [ "$arg" = "build" ]; then want_build=1; fi
+        if [ "$arg" = "--release" ]; then want_release=1; fi
+    done
+    if [ "$want_build" -eq 1 ] && [ "$want_release" -eq 1 ]; then
+        src="$CARGO_TARGET_DIR/release/waf-collector"
+        dest="$PWD/../bin/waf-collector"
+        if [ ! -x "$src" ]; then
+            echo "[build] warning: $src not found; skip publishing to bin" >&2
+        else
+            mkdir -p "$(dirname "$dest")"
+            if cp -f "$src" "$dest" 2>/dev/null; then
+                chmod +x "$dest"
+                echo "[build] published $dest"
+            else
+                echo "[build] warning: cannot write $dest" >&2
+                echo "[build] stop the collector first, then rebuild" >&2
+            fi
+        fi
+    fi
+fi
+
+exit "$rc"

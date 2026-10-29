@@ -333,8 +333,9 @@ server {
 
 约束：
 
-- 二进制只从 `WAF_COLLECTOR_BIN` 或固定候选（`proxy/target/release`、`E:\waf-target\release`、
-  `rust/target/release`）解析，**不接受请求传入**；
+- 二进制只从 `WAF_COLLECTOR_BIN` 或固定候选（仓库 `bin/`、`proxy/bin/`、
+  `proxy/target/release`、`E:\waf-target\release`、`rust/target/release`）解析，
+  **不接受请求传入**；
 - 参数逐项白名单校验，范围对齐 `proxy/src/config.rs`；`out_dir`/`stats_out` 固定；
 - 单实例 PID 文件 + 端口探测；服务重启后靠 PID 文件接管，PID 复用需显式 `force`；
 - 所有写操作写审计：`proxy_config_update` / `proxy_start` / `proxy_stop` /
@@ -351,6 +352,11 @@ call build.bat run --release -- --listen 127.0.0.1:6188 --upstream 127.0.0.1:80 
 
 `build.bat` 相比 rust 版**多设 `CMAKE_GENERATOR=Ninja`**（pingora → flate2 → zlib-ng 会调 cmake，
 而 cmake 4.1.2 不认识 “Visual Studio 18 2026” 生成器）。
+
+`cargo build --release` 成功后脚本会把产物复制到仓库 `bin/`（Windows
+`bin\waf-collector.exe`，Linux `bin/waf-collector`），控制台优先加载这个项目内路径。
+**重建前先在控制台「采集代理」页停止采集器**，否则 Windows 上 exe 被占用，复制会失败
+（脚本只警告、不算构建失败）。
 
 **全部选项**（`proxy/src/config.rs`）：
 
@@ -630,8 +636,10 @@ py -3.10 upload_parse.py --input cap.pcap --out %TEMP%\up2 --role benign --defau
 
    ```bat
    cd F:\waf\rust  && call build.bat run --release
-   cd F:\waf\proxy && call build.bat build --release     :: 重建采集器
+   cd F:\waf\proxy && call build.bat build --release     :: 重建采集器并发布到 ..\bin
    ```
+   重建采集器前先在控制台「采集代理」页停止它（Windows 会锁定正在运行的 exe，
+   否则 `bin\waf-collector.exe` 复制失败，只警告不报错）。
    策略 / testvec / Rust 三件套必须同源，否则门禁或采集器启动即报错。
    中间态 fail-safe：策略与规则集 sha1 不一致时，规则证据权重按 0 处理（只少拦，不误拦）。
 3. **零日开关是安全降级**：策略页的开关（需 admin）会直接重跑 `thresholds.py` 并刷新 `testvec.json`；

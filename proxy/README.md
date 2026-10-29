@@ -53,6 +53,10 @@ cd waf/proxy
 `%LOCALAPPDATA%\waf-cargo-target`；Linux `~/.cache/waf-cargo-target`）。
 一键安装的 `-WithRust` / `--with-rust` 会调用同一套脚本。
 
+构建成功后脚本会把 `waf-collector[.exe]` 复制到仓库 `bin/`，控制台优先从那里加载
+（`bin/waf-collector.exe` / `bin/waf-collector`）。**重建前先停止采集器**，否则 Windows
+上 exe 被占用，复制只会警告。
+
 ```bat
 :: 本地靶场：上游先用 phpStudy/DVWA 或任意后端
 call build.bat run --release -- ^

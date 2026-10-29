@@ -437,7 +437,12 @@ function Invoke-RustBuild {
     }
 
     $engine = Join-Path $target "release\waf-ai-proto.exe"
-    $collector = Join-Path $target "release\waf-collector.exe"
+    $collectorCandidates = @(
+        (Join-Path $script:Root "bin\waf-collector.exe"),
+        (Join-Path $target "release\waf-collector.exe")
+    )
+    $collector = $collectorCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+    if (-not $collector) { $collector = $collectorCandidates[0] }
     if ($rustOk -and (Test-Path -LiteralPath $engine)) { Write-Ok "Rust 引擎：$engine" }
     if ($proxyOk -and (Test-Path -LiteralPath $collector)) { Write-Ok "采集器：$collector" }
     if (-not (Test-Path -LiteralPath $collector)) {

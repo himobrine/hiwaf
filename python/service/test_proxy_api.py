@@ -145,6 +145,21 @@ class ProxyManagerTest(unittest.TestCase):
         self.assertTrue(st["binary"]["exists"])
         self.assertEqual(st["out_dir"]["files"], 0)
 
+    def test_status_warns_tls_on_plain_port_80(self):
+        """上游 80 + upstream_tls=true 是常见误配：握手失败、事件不入库。"""
+        pm.update_config({"upstream": "192.0.2.10:80", "upstream_tls": True}, "admin")
+        with mock.patch.object(pm, "resolve_binary", return_value=self.bin), \
+                mock.patch.object(pm, "port_listening", return_value=False):
+            st = pm.status()
+        self.assertTrue(any("upstream_tls" in w for w in st["warnings"]))
+
+    def test_status_no_tls_warning_when_disabled(self):
+        pm.update_config({"upstream": "192.0.2.10:80", "upstream_tls": False}, "admin")
+        with mock.patch.object(pm, "resolve_binary", return_value=self.bin), \
+                mock.patch.object(pm, "port_listening", return_value=False):
+            st = pm.status()
+        self.assertFalse(any("upstream_tls" in w for w in st["warnings"]))
+
     def test_metrics_stale(self):
         self.metrics.write_text(json.dumps({"ts": db.now_ms() - 10 * 60 * 1000}),
                                 encoding="utf-8")

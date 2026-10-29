@@ -41,4 +41,30 @@ if not defined WAF_CARGO_TARGET (
 set "CARGO_TARGET_DIR=%WAF_CARGO_TARGET%"
 
 cargo %*
-exit /b %ERRORLEVEL%
+set "RC=%ERRORLEVEL%"
+if not "%RC%"=="0" exit /b %RC%
+
+REM 5) `cargo build --release` also publishes the collector to <repo>\bin so the
+REM    console resolves a project-local binary instead of a machine-specific
+REM    cargo cache. Copy failures (exe in use) are warnings, not build failures.
+set "WANT_BUILD="
+set "WANT_RELEASE="
+if not "%~1"=="" for %%a in (%*) do (
+  if /i "%%~a"=="build" set "WANT_BUILD=1"
+  if /i "%%~a"=="--release" set "WANT_RELEASE=1"
+)
+if defined WANT_BUILD if defined WANT_RELEASE (
+  if not exist "%CARGO_TARGET_DIR%\release\waf-collector.exe" (
+    echo [build] warning: "%CARGO_TARGET_DIR%\release\waf-collector.exe" not found; skip publishing to bin
+  ) else (
+    if not exist "%~dp0..\bin" mkdir "%~dp0..\bin"
+    copy /y "%CARGO_TARGET_DIR%\release\waf-collector.exe" "%~dp0..\bin\waf-collector.exe" >nul
+    if errorlevel 1 (
+      echo [build] warning: cannot write "%~dp0..\bin\waf-collector.exe"
+      echo [build] stop the collector first ^(console: collector page -^> Stop^), then rebuild
+    ) else (
+      echo [build] published "%~dp0..\bin\waf-collector.exe"
+    )
+  )
+)
+exit /b 0

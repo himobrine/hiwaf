@@ -162,10 +162,15 @@ PROXY_DEFAULTS = {
 _EXE = "waf-collector.exe" if os.name == "nt" else "waf-collector"
 #: 二进制只从这些固定位置解析（外加 `WAF_COLLECTOR_BIN` 覆盖），不接受请求传入。
 #:
-#: 顺序：仓库内 target → `WAF_CARGO_TARGET` → 本机旧缓存 `E:\waf-target` →
-#: 一键安装的便携缓存（Windows `%LOCALAPPDATA%` / Linux `~/.cache`）→ 旧 `rust/target`。
+#: 顺序：仓库 `bin/`（构建脚本发布到这里）→ 仓库内 target → `WAF_CARGO_TARGET` →
+#: 本机旧缓存 `E:\waf-target` → 一键安装的便携缓存（Windows `%LOCALAPPDATA%` /
+#: Linux `~/.cache`）→ 旧 `rust/target`。
 _CARGO_TARGET_ENV = os.environ.get("WAF_CARGO_TARGET", "").strip()
-PROXY_BIN_CANDIDATES = [ROOT / "proxy" / "target" / "release" / _EXE]
+PROXY_BIN_CANDIDATES = [
+    ROOT / "bin" / _EXE,
+    ROOT / "proxy" / "bin" / _EXE,
+    ROOT / "proxy" / "target" / "release" / _EXE,
+]
 if _CARGO_TARGET_ENV:
     PROXY_BIN_CANDIDATES.append(Path(_CARGO_TARGET_ENV) / "release" / _EXE)
 PROXY_BIN_CANDIDATES += [
