@@ -476,6 +476,7 @@ export default function EventDetailDrawer({
         <div>
           <Space style={{ marginBottom: 12 }}>
             <ActionTag a={detail.action} />
+            {detail.enforced ? <Tag color="red">已拦截（403）</Tag> : null}
             {detail.dry_run ? <Tag color="orange">dry-run（只记录）</Tag> : null}
             {detail.rule_testing ? (
               <Tooltip title="本条命中里包含「未合格、测试中」的规则；命中的告警是真实产生的，但该规则还不能 block">
@@ -683,6 +684,9 @@ export default function EventDetailDrawer({
                   {detail.src_ip}:{detail.src_port}
                 </Descriptions.Item>
                 <Descriptions.Item label="Host">{detail.host}</Descriptions.Item>
+                {detail.route ? (
+                  <Descriptions.Item label="路由">{detail.route}</Descriptions.Item>
+                ) : null}
                 <Descriptions.Item label="响应状态">{detail.status ?? '-'}</Descriptions.Item>
                 <Descriptions.Item label="方法">{detail.method}</Descriptions.Item>
                 <Descriptions.Item label="耗时">{fmtNum(detail.dur_ms, 3)} ms</Descriptions.Item>

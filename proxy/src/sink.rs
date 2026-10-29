@@ -60,6 +60,8 @@ pub struct Record {
     pub src_ip: String,
     pub src_port: u16,
     pub host: String,
+    /// 命中的路由名（多端口单进程时用于区分站点）。
+    pub route: String,
     pub method: String,
     pub path: String,
     pub query: String,
@@ -159,8 +161,10 @@ pub struct Pred {
     /// 规则通道是否达到阻断线 —— `action=block` 且 `supervised_flagged=false` 时，
     /// 就是规则把它拦下来的（可审计归因）。
     pub rules_flagged: bool,
-    /// 恒为 true：当前**只记录不阻断**，判定尚未进入数据面执行路径
+    /// `true` = 本次判定只写记录，未执行拦截（`block_mode=off/dry_run`）。
     pub dry_run: bool,
+    /// `true` = 这次 `action=block` **真的返回了 403**（`block_mode=enforce`）。
+    pub enforced: bool,
 }
 
 #[derive(Debug, Default)]
@@ -180,6 +184,8 @@ pub struct Stats {
     pub reload_fail: AtomicU64,
     /// `--resp-body=off` 因评分失败被临时突破、采样留证的次数。
     pub resp_body_off_overrides: AtomicU64,
+    /// 真正被 403 拦下的请求数（`block_mode=enforce` 且命中 block）。
+    pub blocked: AtomicU64,
 }
 
 impl Stats {
@@ -187,7 +193,7 @@ impl Stats {
         format!(
             "written={} dropped(queue_full)={} dropped(io)={} bytes={} \
              rule_hit_lines={} rule_hits={} rule_block_lines={} reload_ok={} reload_fail={} \
-             resp_body_off_overrides={}",
+             resp_body_off_overrides={} blocked={}",
             self.written.load(Ordering::Relaxed),
             self.dropped_full.load(Ordering::Relaxed),
             self.dropped_io.load(Ordering::Relaxed),
@@ -198,10 +204,12 @@ impl Stats {
             self.reload_ok.load(Ordering::Relaxed),
             self.reload_fail.load(Ordering::Relaxed),
             self.resp_body_off_overrides.load(Ordering::Relaxed),
+            self.blocked.load(Ordering::Relaxed),
         )
     }
 }
 
+#[derive(Clone)]
 pub struct Sink {
     tx: SyncSender<Record>,
     pub stats: Arc<Stats>,

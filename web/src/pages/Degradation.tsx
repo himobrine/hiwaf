@@ -48,8 +48,8 @@ export default function Degradation() {
       <Card size="small" title="当前运行态">
         <Descriptions size="small" bordered column={2}>
           <Descriptions.Item label="数据面模式">
-            <Tag color={d?.mode === 'dry_run' ? 'orange' : d?.mode === 'collect_only' ? 'blue' : 'default'}>
-              {d?.mode === 'dry_run' ? 'dry-run（只记录不阻断）' : d?.mode === 'collect_only' ? '纯采集' : '未知'}
+            <Tag color={d?.mode === 'enforce' ? 'red' : d?.mode === 'dry_run' ? 'orange' : d?.mode === 'off' || d?.mode === 'collect_only' ? 'blue' : 'default'}>
+              {d?.mode === 'enforce' ? '拦截中（enforce）' : d?.mode === 'dry_run' ? 'dry-run（只记录不阻断）' : d?.mode === 'off' || d?.mode === 'collect_only' ? '纯采集' : '未知'}
             </Tag>
           </Descriptions.Item>
           <Descriptions.Item label="零日通道">

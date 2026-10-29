@@ -534,6 +534,16 @@ def _overview_cache_clear() -> None:
         _OVERVIEW_CACHE.clear()
 
 
+def _mode_from_metrics(metrics: Optional[dict]) -> str:
+    """采集器判定模式：优先读 `block_mode`，兼容旧指标（只有 score_enabled）。"""
+    if not metrics:
+        return "unknown"
+    mode = metrics.get("block_mode")
+    if mode in ("off", "dry_run", "enforce"):
+        return mode
+    return "dry_run" if metrics.get("score_enabled") else "collect_only"
+
+
 def _overview_event_summary(since: int, window_hours: int) -> dict:
     ttl = max(0, int(config.OVERVIEW_CACHE_SEC))
     key = (str(config.DB_PATH), int(window_hours))
@@ -549,6 +559,7 @@ def _overview_event_summary(since: int, window_hours: int) -> dict:
                   COALESCE(SUM(action='block'),0)  AS blocks,
                   COALESCE(SUM(action='alert'),0)  AS alerts,
                   COALESCE(SUM(action='allow'),0)  AS allows,
+                  COALESCE(SUM(enforced),0)        AS enforced,
                   COALESCE(SUM(supervised_flagged),0) AS sup_flagged,
                   COALESCE(SUM(zero_day_score_crossed),0) AS zd_crossed,
                   AVG(dur_ms) AS avg_dur_ms
@@ -603,9 +614,7 @@ def overview(window_hours: int = Query(24, ge=1, le=24 * 90),
 
     pol = _policy()
     metrics = _collector_metrics()
-    mode = "unknown"
-    if metrics:
-        mode = "dry_run" if metrics.get("score_enabled") else "collect_only"
+    mode = _mode_from_metrics(metrics)
 
     return {
         "window_hours": window_hours,
@@ -629,6 +638,7 @@ def overview(window_hours: int = Query(24, ge=1, le=24 * 90),
         },
         "mode": mode,
         "dry_run": mode == "dry_run",
+        "enforce": mode == "enforce",
         "collector": ({**metrics, "reload_view": _reload_view(pol, metrics)}
                       if metrics else metrics),
         "ingest": ingest_mod.ingest_state(),
@@ -651,6 +661,12 @@ def _warnings(pol: dict, metrics: Optional[dict]) -> list:
         w.append(f"采集器写队列已丢 {metrics['dropped_queue_full']} 条（考虑调大 --channel）。")
     if metrics and metrics.get("dropped_io"):
         w.append(f"采集器写盘失败已丢 {metrics['dropped_io']} 条（检查磁盘）。")
+    if metrics:
+        bm = _mode_from_metrics(metrics)
+        if bm != "enforce":
+            w.append(
+                f"采集器判定模式为 {bm}：只记录、不会拦截。"
+                "需要拦截请在「采集代理」页把判定模式切到 enforce 并重启采集器。")
     if not metrics:
         w.append("未找到采集器指标文件：启动 waf-collector 时加 --stats-out <file>。")
     else:
@@ -765,12 +781,12 @@ def list_events(
     total = (db.scalar(f"SELECT COUNT(*) AS n FROM events WHERE {w}", p, 0)
              if with_total else None)
     items = db.rows(
-        f"""SELECT id, ts, src_ip, src_port, method, path, status, dur_ms,
+        f"""SELECT id, ts, src_ip, src_port, host, route, method, path, status, dur_ms,
                    body_len, body_truncated, action, supervised_score,
                    supervised_threshold, supervised_flagged,
                    zero_day_score, zero_day_threshold,
                    zero_day_score_crossed, zero_day_flagged, zero_day_enabled,
-                   attack_label, attack_type, ua, dry_run, rule_testing,
+                   attack_label, attack_type, ua, dry_run, enforced, rule_testing,
                    rule_set_sha1_16, rule_hits_json
             FROM events WHERE {w} ORDER BY ts DESC, id DESC LIMIT ? OFFSET ?""",
         p + [limit + 1, offset],
@@ -2443,8 +2459,8 @@ def degradation(user: dict = Depends(auth.current_user)):
         "zero_day_enabled": pol.get("zero_day_enabled"),
         "zero_day_threshold": (pol.get("zero_day") or {}).get("threshold"),
         "supervised_threshold": (pol.get("supervised") or {}).get("threshold"),
-        "mode": ("dry_run" if (m and m.get("score_enabled")) else
-                 ("collect_only" if m else "unknown")),
+        "mode": _mode_from_metrics(m),
+        "enforce": _mode_from_metrics(m) == "enforce",
         "collector": m,
         "warnings": _warnings(pol, m),
     }

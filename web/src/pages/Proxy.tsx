@@ -8,6 +8,7 @@ import {
   Form,
   Input,
   InputNumber,
+  Modal,
   Popconfirm,
   Row,
   Select,
@@ -21,6 +22,8 @@ import {
 import {
   CaretRightOutlined,
   CopyOutlined,
+  DeleteOutlined,
+  PlusOutlined,
   ReloadOutlined,
   SaveOutlined,
   StopOutlined,
@@ -38,24 +41,29 @@ function uptime(sec?: number | null) {
   return h ? `${h}h ${m}m` : m ? `${m}m ${s}s` : `${s}s`
 }
 
-const GUIDE_REVERSE = `# 拓扑：客户端 -> 采集器 -> 真实后端
-# 客户端访问采集器端口（默认 6188），采集器把请求转发到 --upstream。
+const GUIDE_REVERSE = `# 拓扑：客户端 -> 采集器（多端口） -> 多个真实后端
+# 一个采集器进程可以监听多个端口，每个端口映射一个上游。
+# 客户端 URL 不变的前提：WAF 占用原业务端口，真实后端挪到其他端口。
 
 # 1) 启动采集器（控制台「启动」或命令行）
 cd F:\\waf\\proxy
 call build.bat run --release -- ^
-  --listen 127.0.0.1:6188 ^
-  --upstream 127.0.0.1:80 ^
+  --route name=site-a,listen=0.0.0.0:80,upstream=127.0.0.1:8080,tls=0 ^
+  --route name=site-b,listen=0.0.0.0:8081,upstream=127.0.0.1:8082,tls=0 ^
+  --block-mode dry_run ^
   --out ..\\traindata\\proxy ^
   --stats-out ..\\traindata\\proxy\\collector-metrics.json
 
 # 2) 验证：请求应返回后端的响应，同时 raw-*.jsonl 多一条记录
-curl -i "http://127.0.0.1:6188/?x=1"
+curl -i "http://127.0.0.1:80/?x=1"
 
 # 3) 看指标：written 增长、dropped 为 0
 curl -s "http://127.0.0.1:8091/api/proxy/status"
 
-# 4) nginx 前置（可选）：客户端 -> nginx:80 -> 采集器:6188 -> 后端:8080
+# 4) 真实拦截：把 --block-mode 改成 enforce（控制台需 admin 二次确认）。
+#    命中 block 的请求返回 403；上游可能已收到请求头，但收不到 body。
+
+# 5) nginx 前置（可选）：客户端 -> nginx:80 -> 采集器:6188 -> 后端:8080
 #    nginx 只做转发，不终止 TLS 时只能采 HTTP；HTTPS 需要 nginx 终止 TLS 后转 HTTP。
 server {
     listen 80;
@@ -66,17 +74,20 @@ server {
     }
 }`
 
-const GUIDE_STEPS = `1. 在「采集代理」页确认 listen / upstream；保存配置。
+const GUIDE_STEPS = `1. 在「采集代理」页维护路由表（名称 / 监听 / 上游 / TLS）；保存配置。
 2. 点「启动」。状态变为运行中，指标 written 开始增长。
-3. 用 curl 或浏览器访问采集器端口，确认返回后端内容。
-4. 到「事件」页看新事件；到「降级状态」页看 dry-run/纯采集模式。
+3. 用 curl 或浏览器访问任一监听端口，确认返回对应后端内容。
+4. 到「事件」页看新事件；到「降级状态」页看 off/dry-run/enforce 模式。
 5. 改配置后页面会提示「需重启生效」；点「重启」。
-6. 停止：点「停止」。外部/未托管进程需要「强停」并二次确认。`
+6. 判定模式：off 纯采集；dry_run 只记录；enforce 命中返回 403（admin 二次确认）。
+7. 停止：点「停止」。外部/未托管进程需要「强停」并二次确认。`
 
-const GUIDE_TROUBLE = `端口被占用：改 listen，或停掉占用端口的进程；启动接口会返回 409。
+const GUIDE_TROUBLE = `端口被占用：改监听端口，或停掉占用端口的进程；启动接口会返回 409。
+监听 80/443 需要管理员权限：控制台/采集器要以管理员身份运行。
 502/连接失败：upstream 写错或后端没起；采集器只转发，不负责拉起后端。
 有请求但事件页没有：确认 out_dir 固定为 traindata/proxy，且控制台 ingest 在跑；
   再看 /api/proxy/status 的 metrics.written 是否增长。
+命中条件但不拦：确认 block_mode=enforce，且采集器已重启（状态页会提示）。
 HTTPS 拿不到 body：监听侧不做 TLS 终止/CONNECT；在 nginx/Caddy 终止 TLS 后转 HTTP 给采集器。
 指标 stale：进程可能卡住或已退出；看日志尾部，必要时重启。
 找不到采集器：先 cd F:\\waf\\proxy && build.bat build --release。`
@@ -152,6 +163,25 @@ export default function Proxy({ user }: { user: User }) {
     setBusy('save')
     try {
       const values = await form.validateFields()
+      // 只提交表单里真正编辑的字段；旧单路由字段由后端从 routes[0] 派生，
+      // 同时提交会和 routes 冲突（后端会拒绝）。
+      for (const k of ['listen', 'upstream', 'upstream_tls', 'score']) delete values[k]
+      if (values.block_mode === 'enforce') {
+        const ok = await new Promise<boolean>((resolve) => {
+          Modal.confirm({
+            title: '确认开启真实拦截（enforce）？',
+            content:
+              '命中阻断条件的请求会立即返回 403，可能误拦正常业务。' +
+              '建议先用 dry_run 观察一段时间，确认误报可接受后再切换。',
+            okText: '开启 enforce',
+            okType: 'danger',
+            cancelText: '取消',
+            onOk: () => resolve(true),
+            onCancel: () => resolve(false),
+          })
+        })
+        if (!ok) return
+      }
       const r = await api<any>('/api/proxy/config', { method: 'PUT', body: values })
       setCfgView(r)
       message.success(r.restart_required
@@ -291,11 +321,43 @@ export default function Proxy({ user }: { user: User }) {
               <Descriptions.Item label="PID / 运行时长">
                 <Text code>{st?.pid ?? '-'}</Text> / {uptime(st?.uptime_sec)}
               </Descriptions.Item>
-              <Descriptions.Item label="监听 → 上游" span={2}>
-                <Text code>{st?.listen || '-'}</Text> → <Text code>{st?.upstream || '-'}</Text>
-                <Tag style={{ marginLeft: 8 }} color={st?.port_listening ? 'green' : 'default'}>
-                  {st?.port_listening ? '端口在监听' : '端口未监听'}
+              <Descriptions.Item label="路由" span={2}>
+                {(st?.routes || []).length ? (
+                  <Space direction="vertical" size={2}>
+                    {(st.routes as any[]).map((r) => (
+                      <span key={r.listen}>
+                        <Text code>{r.name}</Text>：<Text code>{r.listen}</Text> →{' '}
+                        <Text code>{r.upstream}</Text>
+                        {r.upstream_tls ? <Tag style={{ marginLeft: 6 }}>TLS</Tag> : null}
+                        <Tag style={{ marginLeft: 6 }} color={r.listening ? 'green' : 'default'}>
+                          {r.listening ? '监听中' : '未监听'}
+                        </Tag>
+                      </span>
+                    ))}
+                  </Space>
+                ) : (
+                  <span className="muted">未配置路由</span>
+                )}
+              </Descriptions.Item>
+              <Descriptions.Item label="判定模式">
+                <Tag
+                  color={
+                    st?.block_mode === 'enforce'
+                      ? 'red'
+                      : st?.block_mode === 'dry_run'
+                        ? 'orange'
+                        : 'blue'
+                  }
+                >
+                  {st?.block_mode === 'enforce'
+                    ? 'enforce（命中返回 403）'
+                    : st?.block_mode === 'dry_run'
+                      ? 'dry_run（只记录）'
+                      : 'off（纯采集）'}
                 </Tag>
+              </Descriptions.Item>
+              <Descriptions.Item label="实际拦截 / 判定 block">
+                {fmtInt(st?.blocked_requests)} / {fmtInt(m?.actions_block)}
               </Descriptions.Item>
               <Descriptions.Item label="指标" span={2}>
                 {m ? (
@@ -328,7 +390,8 @@ export default function Proxy({ user }: { user: User }) {
               </Descriptions.Item>
             </Descriptions>
             <Paragraph className="muted" style={{ marginTop: 12, marginBottom: 0 }}>
-              采集器只采集、不阻断；<Text code>--score</Text> 仍是 dry-run。启动/停止/改配置都会写审计。
+              判定模式默认 <Text code>off</Text>（纯采集）；<Text code>dry_run</Text> 只记录；只有
+              <Text code>enforce</Text> 会真正返回 403。启动/停止/改配置都会写审计。
             </Paragraph>
           </Card>
 
@@ -352,25 +415,107 @@ export default function Proxy({ user }: { user: User }) {
         <Col xs={24} lg={10}>
           <Card size="small" title="配置">
             <Form form={form} layout="vertical" disabled={!isAdmin} size="small">
-              <Row gutter={8}>
-                <Col span={12}>
-                  <Form.Item name="listen" label="监听地址" rules={[{ required: true }]}>
-                    <Input placeholder="127.0.0.1:6188" />
-                  </Form.Item>
-                </Col>
-                <Col span={12}>
-                  <Form.Item name="upstream" label="上游地址" rules={[{ required: true }]}>
-                    <Input placeholder="127.0.0.1:80" />
-                  </Form.Item>
-                </Col>
-              </Row>
+              <Form.Item
+                name="block_mode"
+                label="判定模式"
+                extra="off=纯采集；dry_run=只记录；enforce=命中阻断条件返回 403（需二次确认）。"
+              >
+                <Select
+                  options={[
+                    { value: 'off', label: 'off（纯采集，不加载模型）' },
+                    { value: 'dry_run', label: 'dry_run（只记录，不阻断）' },
+                    { value: 'enforce', label: 'enforce（真实拦截，返回 403）' },
+                  ]}
+                />
+              </Form.Item>
+
+              <div style={{ marginBottom: 4 }}>路由（监听 → 上游）</div>
+              <Form.List name="routes">
+                {(fields, { add, remove }) => (
+                  <>
+                    {fields.map(({ key, name, ...restField }) => (
+                      <Card
+                        key={key}
+                        size="small"
+                        style={{ marginBottom: 8 }}
+                        title={`路由 ${name + 1}`}
+                        extra={
+                          <Button
+                            danger
+                            size="small"
+                            icon={<DeleteOutlined />}
+                            disabled={fields.length <= 1}
+                            onClick={() => remove(name)}
+                          >
+                            删除
+                          </Button>
+                        }
+                      >
+                        <Row gutter={8}>
+                          <Col span={8}>
+                            <Form.Item
+                              {...restField}
+                              name={[name, 'name']}
+                              label="名称"
+                              rules={[{ required: true }]}
+                            >
+                              <Input placeholder="site-a" />
+                            </Form.Item>
+                          </Col>
+                          <Col span={8}>
+                            <Form.Item
+                              {...restField}
+                              name={[name, 'listen']}
+                              label="监听"
+                              rules={[{ required: true }]}
+                            >
+                              <Input placeholder="0.0.0.0:80" />
+                            </Form.Item>
+                          </Col>
+                          <Col span={8}>
+                            <Form.Item
+                              {...restField}
+                              name={[name, 'upstream']}
+                              label="上游"
+                              rules={[{ required: true }]}
+                            >
+                              <Input placeholder="127.0.0.1:8080" />
+                            </Form.Item>
+                          </Col>
+                          <Col span={8}>
+                            <Form.Item
+                              {...restField}
+                              name={[name, 'upstream_tls']}
+                              label="上游 TLS"
+                              valuePropName="checked"
+                            >
+                              <Switch />
+                            </Form.Item>
+                          </Col>
+                        </Row>
+                      </Card>
+                    ))}
+                    <Button
+                      type="dashed"
+                      block
+                      icon={<PlusOutlined />}
+                      onClick={() =>
+                        add({
+                          name: `route${fields.length + 1}`,
+                          listen: '127.0.0.1:6188',
+                          upstream: '127.0.0.1:80',
+                          upstream_tls: false,
+                        })
+                      }
+                      style={{ marginBottom: 12 }}
+                    >
+                      添加路由
+                    </Button>
+                  </>
+                )}
+              </Form.List>
+
               <Space size="large" wrap>
-                <Form.Item name="upstream_tls" label="上游 TLS" valuePropName="checked">
-                  <Switch />
-                </Form.Item>
-                <Form.Item name="score" label="dry-run 判定" valuePropName="checked">
-                  <Switch />
-                </Form.Item>
                 <Form.Item name="no_body" label="隐私模式（不采 body）" valuePropName="checked">
                   <Switch />
                 </Form.Item>
@@ -453,8 +598,9 @@ export default function Proxy({ user }: { user: User }) {
               )}
               {cfgView?.effective ? (
                 <Paragraph className="muted" style={{ marginTop: 12, marginBottom: 0 }}>
-                  实际生效：{cfgView.effective.listen} → {cfgView.effective.upstream}；score=
-                  {String(cfgView.effective.score)}；resp-body={cfgView.effective.resp_body}
+                  实际生效：{(cfgView.effective.routes || []).length} 条路由（
+                  {cfgView.effective.listen} → {cfgView.effective.upstream} 等）；block_mode=
+                  {String(cfgView.effective.block_mode || 'off')}；resp-body={cfgView.effective.resp_body}
                 </Paragraph>
               ) : null}
             </Form>

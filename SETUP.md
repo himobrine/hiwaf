@@ -267,22 +267,25 @@ Pingora 反向代理 + HTTP/流级采集。它把请求原样转发给真实后�
 
 **红线（不可越）**：
 
-- **只采集、不打 label、不阻断、不静默丢数据**。标签由 `collect_http_log.py` 按**出处**决定。
+- **只采集、不打 label、默认不阻断、不静默丢数据**。标签由 `collect_http_log.py` 按**出处**决定。
 - `pred`（模型输出）与 `label`（真值）**结构隔离**：`parse_jsonl` 只保留已知键，
   模型输出永远不可能变成训练标签。
-- `--score` 现阶段只是 dry-run（阈值尚未在真实本地良性上重标定），**只记录、永不阻断**。
+- `--block-mode off` 是默认（纯采集）；`dry_run` 只记录；只有 admin 显式切到 `enforce`
+  才会真正返回 403。`--score` 是旧开关，等价于 `dry_run`。阈值仍应先在真实本地良性流量上
+  重标定，再考虑开 `enforce`。
 
 ### 8.2 让业务流量真正走代理（推荐：反向代理前置）
 
 ```text
-客户端 ──► 采集器 127.0.0.1:6188 ──► 真实后端 127.0.0.1:80
+客户端 ──► 采集器 0.0.0.0:6188 ──► 真实后端 127.0.0.1:80
               │
               └─► traindata/proxy/raw-*.jsonl ──► 控制台 ingest ──► 事件/告警
 ```
 
 **最快接入（3 步）**：
 
-1. 确认后端端口（下面以 `127.0.0.1:80` 为例），采集器监听 `127.0.0.1:6188`；
+1. 确认后端端口（下面以 `127.0.0.1:80` 为例），采集器监听 `0.0.0.0:6188`
+   （局域网/其他机器也能访问；只允许本机就写 `127.0.0.1:6188`）；
 2. 启动采集器（控制台「采集代理 → 启动」，或命令行，见 §8.4）；
 3. 让客户端访问 **6188** 而不是后端端口，然后验证：
 
@@ -293,6 +296,23 @@ curl -i "http://127.0.0.1:6188/?x=1"
 :: 应看到 raw 文件；控制台「采集代理」页的 written 应 +1
 dir F:\waf\traindata\proxy\raw-*.jsonl
 ```
+
+**多端口 / 多站点（单进程多路由）**：控制台「采集代理 → 配置 → 路由」可加多条
+`名称 / 监听 / 上游 / TLS`；一个采集器进程监听多个端口，共享写盘队列、模型、规则与指标，
+记录里的 `route` 字段标明命中哪条路由。
+
+若要求**客户端 URL 不变**，必须让 WAF 占用原业务端口、把真实后端挪到其他端口：
+
+```text
+客户端 ──► WAF 0.0.0.0:80 ──► phpStudy 127.0.0.1:8080
+```
+
+Windows 上监听 80/443 需要管理员权限；**系统防火墙放行需自行配置**（本程序不会自动改防火墙）。
+
+**真实拦截（`block_mode=enforce`）**：命中阻断条件返回 **403 + 简短页面**。
+无 body 的请求（GET/HEAD 等）在请求头阶段完成判定，上游完全收不到请求；有 body 的请求
+必须等 body 收齐（或达到 `--body-limit`）才能判定，所以 body 类拦截时上游**可能已收到请求头、
+但收不到 body**（流式反向代理的固有限制）。
 
 **nginx 前置（可选）**：客户端仍访问 80，nginx 把请求转给采集器，采集器再转给后端。
 
@@ -323,7 +343,7 @@ server {
 
 | 方法 | 路径 | 权限 | 作用 |
 |---|---|---|---|
-| GET | `/api/proxy/status` | viewer | 进程/PID/uptime、监听/上游、指标、输出目录、二进制、告警 |
+| GET | `/api/proxy/status` | viewer | 进程/PID/uptime、逐路由监听/上游、block_mode、指标、输出目录、二进制、告警 |
 | GET | `/api/proxy/config` | viewer | 保存配置 + 实际生效值 + `restart_required` |
 | PUT | `/api/proxy/config` | admin | 白名单校验后落库；**启动/重启才生效** |
 | POST | `/api/proxy/start` | admin | 端口占用/已在跑/二进制缺失返回 409 |
@@ -337,7 +357,9 @@ server {
   `proxy/target/release`、`E:\waf-target\release`、`rust/target/release`）解析，
   **不接受请求传入**；
 - 参数逐项白名单校验，范围对齐 `proxy/src/config.rs`；`out_dir`/`stats_out` 固定；
-- 单实例 PID 文件 + 端口探测；服务重启后靠 PID 文件接管，PID 复用需显式 `force`；
+- 路由表至少一条；`name`/`listen` 唯一，禁止 `listen == upstream`（自环）；
+- `block_mode` 默认 `off`；切到 `enforce` 前端会二次确认，并写 `proxy_block_mode_update` 审计；
+- 单实例 PID 文件 + 端口探测（逐路由检查）；服务重启后靠 PID 文件接管，PID 复用需显式 `force`；
 - 所有写操作写审计：`proxy_config_update` / `proxy_start` / `proxy_stop` /
   `proxy_force_stop` / `proxy_restart`。
 
@@ -346,7 +368,15 @@ server {
 ```bat
 cd F:\waf\proxy
 call build.bat build --release        :: 构建
-call build.bat run --release -- --listen 127.0.0.1:6188 --upstream 127.0.0.1:80 ^
+:: 单路由（旧写法仍兼容）
+call build.bat run --release -- --listen 0.0.0.0:6188 --upstream 127.0.0.1:80 ^
+    --out ..\traindata\proxy --stats-out ..\traindata\proxy\collector-metrics.json
+
+:: 多端口：一个进程监听多个端口，每个端口一个上游
+call build.bat run --release -- ^
+    --route name=site-a,listen=0.0.0.0:80,upstream=127.0.0.1:8080,tls=0 ^
+    --route name=site-b,listen=0.0.0.0:8081,upstream=127.0.0.1:8082,tls=0 ^
+    --block-mode dry_run ^
     --out ..\traindata\proxy --stats-out ..\traindata\proxy\collector-metrics.json
 ```
 
@@ -362,19 +392,21 @@ call build.bat run --release -- --listen 127.0.0.1:6188 --upstream 127.0.0.1:80 
 
 | 选项 | 默认 | 作用 |
 |---|---|---|
-| `--listen <addr>` | `127.0.0.1:6188` | 客户端 → 本代理 |
-| `--upstream <addr>` | `127.0.0.1:8080` | 本代理 → 真实后端 |
-| `--upstream-tls` | off | 上游走 TLS |
+| `--route name=<n>,listen=<addr>,upstream=<addr>,tls=0\|1` | — | 一条路由，**可重复**；多路由共用一个进程，共享写盘/模型/规则/指标 |
+| `--listen <addr>` | `0.0.0.0:6188` | 单路由：客户端 → 本代理（未给 `--route` 时使用） |
+| `--upstream <addr>` | `127.0.0.1:8080` | 单路由：本代理 → 真实后端 |
+| `--upstream-tls` | off | 单路由：上游走 TLS |
+| `--block-mode <off\|dry_run\|enforce>` | `off` | `off` 纯采集；`dry_run` 只记录；`enforce` 命中 block 返回 403 |
+| `--score` | — | 旧开关，等价于 `--block-mode dry_run`（显式 `--block-mode` 优先） |
 | `--out <dir>` | `../traindata/proxy` | 原始记录输出目录（控制台固定此项） |
 | `--body-keep <bytes>` | `65536` | 单请求**落盘** body 上限，超出即截断并置 `body_truncated=true` |
 | `--body-limit <bytes>` | `1048576` | 单请求**缓冲**硬上限（**防 OOM**），超过即停止累积 |
 | `--headers-keep <bytes>` | `8192` | 请求/响应头落盘上限（`name: value\r\n` 规范化字节） |
-| `--resp-body <alert\|all\|off>` | `alert` | 响应体采样；`--score` 下 `off` 仍缓冲并在评分失败时留证 |
+| `--resp-body <alert\|all\|off>` | `alert` | 响应体采样；判定开启时 `off` 仍缓冲并在评分失败时留证 |
 | `--resp-body-keep <bytes>` | `65536` | 响应体落盘上限（原始 wire bytes） |
 | `--file-size-mb <n>` | `256` | 单文件轮转大小；UTC 跨天也会轮转 |
 | `--channel <n>` | `8192` | 写队列容量，**满了丢记录并计数，绝不阻塞转发** |
 | `--no-body` | — | 隐私模式，body 恒空 |
-| `--score` | off | **dry-run** 加载上线模型，把判定写进 `pred` 字段 |
 | `--artifacts <dir>` | `../python/artifacts` | 模型产物目录 |
 | `--stats-out <file>` | 关 | 指标 JSON；控制台靠它显示 written/dropped/actions |
 | `--stats-interval <sec>` | `60` | 指标刷新周期 |
@@ -407,7 +439,7 @@ py -3.10 -m unittest service.test_proxy_live -v
 控制台「事件 → 行 → ⑤ 原始请求包 / 原始响应包」读取 `/api/events/{id}/packet`，
 请求包和响应包直接展开为连续原始文本；请求中命中规则的字段/行标红。
 请求体保留训练兼容的文本 `body`，精确字节在 `body_b64`；二进制时 `body=""` 且只读 `body_b64`。
-响应状态/头/体默认按 `--resp-body alert` 采样，`all` 用于联调，`off` 关闭但 `--score` 下评分失败仍留证。
+响应状态/头/体默认按 `--resp-body alert` 采样，`all` 用于联调，`off` 关闭但判定开启时评分失败仍留证。
 敏感头值默认逐字符显示 `*`；`reveal=1` 才返回原值并写 `view_sensitive_headers` 审计。
 
 90 天清理**先 dry-run 再 apply**（SQLite 事件与 raw 共用 cutoff；文件候选还要求绝对路径安全、
@@ -425,6 +457,9 @@ py -3.10 -m unittest service.test_proxy_live -v
 | 启动返回 409 | 端口已被占用 / 已有实例 / 二进制缺失；换 `listen` 或先停止 |
 | 502 / 连接失败 | `upstream` 写错或后端没起；采集器不负责拉起后端 |
 | 有请求但事件页没有 | 看 `/api/proxy/status` 的 `metrics.written`；确认 `out_dir` 是 `traindata/proxy`，ingest 在跑 |
+| 命中条件但不拦 | 确认 `block_mode=enforce`，且采集器已重启（状态页会提示 `restart_keys`） |
+| 监听 80/443 失败 | Windows 需要管理员权限；换高位端口或提升权限 |
+| 客户端 URL 不变但后端被占 | 先把真实后端挪到其他端口（如 8080），WAF 再占用原端口 |
 | HTTPS 拿不到 body | 监听侧不做 TLS 终止/CONNECT；用 nginx/Caddy 终止 TLS 后转 HTTP |
 | 指标 stale | 进程卡住或已退出；看「采集代理」页日志尾部，必要时重启 |
 | 改配置不生效 | 大多数项需重启；页面会列出 `restart_keys` |

@@ -87,6 +87,7 @@ CREATE TABLE IF NOT EXISTS events (
   src_ip                 TEXT,
   src_port               INTEGER,
   host                   TEXT,
+  route                  TEXT,
   method                 TEXT,
   path                   TEXT,
   query                  TEXT,
@@ -111,6 +112,7 @@ CREATE TABLE IF NOT EXISTS events (
   attack_type            TEXT,
   model_artifacts        TEXT,
   dry_run                INTEGER,
+  enforced               INTEGER NOT NULL DEFAULT 0,
   src_kind               TEXT,
   src_file               TEXT,
   src_line               INTEGER,
@@ -415,6 +417,9 @@ MIGRATIONS = (
     ("events", "rule_set_sha1_16", "TEXT"),
     ("events", "rule_hits_json", "TEXT"),
     ("events", "rule_testing", "INTEGER NOT NULL DEFAULT 0"),
+    # 多路由 / 真实拦截标记。
+    ("events", "route", "TEXT"),
+    ("events", "enforced", "INTEGER NOT NULL DEFAULT 0"),
     ("rule_state", "action", "TEXT NOT NULL DEFAULT 'alert'"),
     # 规则状态机 v2：启用 ≠ 合格。
     ("rules_custom", "kind", "TEXT NOT NULL DEFAULT 'detector'"),

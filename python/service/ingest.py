@@ -219,21 +219,22 @@ def _ingest_locked(with_body: bool = False) -> dict:
 
                     cur = conn.execute(
                         """INSERT OR IGNORE INTO events(
-                            ts, ingest_ts, src_ip, src_port, host, method, path, query,
+                            ts, ingest_ts, src_ip, src_port, host, route, method, path, query,
                             body_len, body_truncated, status, dur_ms, bytes_in, bytes_out,
                             ua, referer, action,
                             supervised_score, supervised_threshold, supervised_flagged,
                             zero_day_score, zero_day_threshold,
                             zero_day_score_crossed, zero_day_flagged, zero_day_enabled,
-                            attack_label, attack_type, model_artifacts, dry_run,
+                            attack_label, attack_type, model_artifacts, dry_run, enforced,
                             src_kind, src_file, src_line, policy_version
-                        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                         (
                             ts,
                             db.now_ms(),
                             d.get("src_ip"),
                             d.get("src_port"),
                             d.get("host"),
+                            d.get("route"),
                             d.get("method"),
                             d.get("path"),
                             d.get("query"),
@@ -258,6 +259,7 @@ def _ingest_locked(with_body: bool = False) -> dict:
                             attack_type,
                             pred.get("artifacts"),
                             1 if pred.get("dry_run") else 0,
+                            1 if pred.get("enforced") else 0,
                             d.get("src_kind"),
                             key,
                             n,

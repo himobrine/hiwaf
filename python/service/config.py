@@ -140,7 +140,15 @@ COLLECTOR_METRICS = Path(
 #: `RAW_DIR`，控制台状态只读 `COLLECTOR_METRICS`。允许在界面上改这两项，最容易
 #: 出现「代理在写、控制台没事件」的假故障。
 PROXY_DEFAULTS = {
-    "listen": "127.0.0.1:6188",
+    # 多路由：一个采集器进程监听多个端口，每个端口映射一个上游。
+    # 没有 `routes` 的老配置会在 `proxy_manager.get_config()` 里从
+    # listen/upstream/upstream_tls 自动迁移成一条路由。
+    "routes": [
+        {"name": "default", "listen": "0.0.0.0:6188",
+         "upstream": "127.0.0.1:80", "upstream_tls": False},
+    ],
+    # 旧单路由字段：与 routes[0] 保持同步；PUT 时仍兼容旧写法。
+    "listen": "0.0.0.0:6188",
     "upstream": "127.0.0.1:80",
     "upstream_tls": False,
     "body_keep": 65536,
@@ -151,6 +159,10 @@ PROXY_DEFAULTS = {
     "file_size_mb": 256,
     "channel": 8192,
     "no_body": False,
+    # 判定/阻断模式：off（纯采集）| dry_run（只记录）| enforce（命中返回 403）。
+    # 默认 off，enforce 必须 admin 显式开启。
+    "block_mode": "off",
+    # 旧别名：block_mode != off。保存时自动同步。
     "score": False,
     "stats_interval": 60,
     "reload_interval": 5,

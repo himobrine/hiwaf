@@ -175,12 +175,16 @@ export default function AppLayout({
   }
 
   const modeTag =
-    mode === 'dry_run' ? (
-      <Tooltip title="判定已接线，但只记录不阻断。阈值需在真实本地良性流量上重标定后才可考虑拦截。">
+    mode === 'enforce' ? (
+      <Tooltip title="已开启真实拦截：命中 block 的请求返回 403。">
+        <Tag color="red">拦截中（enforce）</Tag>
+      </Tooltip>
+    ) : mode === 'dry_run' ? (
+      <Tooltip title="判定已接线，但只记录不阻断。需要拦截请在采集代理页切到 enforce。">
         <Tag color="orange">dry-run 只记录</Tag>
       </Tooltip>
-    ) : mode === 'collect_only' ? (
-      <Tooltip title="采集器未加载模型（没加 --score）。">
+    ) : mode === 'off' || mode === 'collect_only' ? (
+      <Tooltip title="采集器未加载模型（block_mode=off）。">
         <Tag color="blue">纯采集</Tag>
       </Tooltip>
     ) : (

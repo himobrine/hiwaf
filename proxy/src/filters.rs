@@ -1,4 +1,4 @@
-//! Pingora `ProxyHttp` 实现：**采集**（不含判定/阻断）。
+//! Pingora `ProxyHttp` 实现：采集 + 可选判定/阻断。
 //!
 //! 采集什么（对应工作项 F 与 S4 决策）：
 //!   * HTTP 侧：method / path / query / **body** / host / ua / referer / status
@@ -12,7 +12,15 @@
 //! 安全约束：
 //!   * body 落盘上限 `body_keep`，缓冲硬上限 `body_limit`（防大文件上传打爆内存）；
 //!   * 写盘经有界队列，队列满就丢并计数 —— **采集永不阻塞转发**；
-//!   * 本模块**不做任何阻断**。要不要拦是另一个决策（需要先有真实本地良性流量来标定阈值）。
+//!   * 阻断由 `--block-mode` 显式开启：`off`（纯采集）/ `dry_run`（只记录）/
+//!     `enforce`（命中 block 返回 403）。默认 `off`，绝不静默拦截。
+//!
+//! ## enforce 的边界
+//!
+//! 无 body 的请求（GET/HEAD 等）在 `request_filter` 就完成判定，**上游完全收不到请求**。
+//! 有 body 的请求必须等 body 收齐（或达到 `body_limit`）才能判定；Pingora 会先发请求头
+//! 再流 body，所以 body 类拦截时**上游可能已收到请求头、但收不到 body**。这是反向代理
+//! 在流式转发下的固有限制，控制台文档里会写明。
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
@@ -23,11 +31,16 @@ use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use bytes::Bytes;
 use pingora::http::{RequestHeader, ResponseHeader};
 use pingora::prelude::*;
-use pingora::proxy::{ProxyHttp, Session};
+use pingora::proxy::{FailToProxy, ProxyHttp, Session};
 use pingora::upstreams::peer::HttpPeer;
 
-use crate::config::{Config, RespBodyMode};
+use crate::config::{BlockMode, Config, RespBodyMode, Route};
 use crate::sink::{BodyOut, Pred, Record, ResponseOut, RulesOut, Sink};
+
+/// 拦截页（简短、不泄露规则细节）。
+const BLOCK_BODY: &[u8] =
+    b"<!doctype html><meta charset=\"utf-8\"><title>403 Forbidden</title>\
+      <h1>403 Forbidden</h1><p>Request blocked by WAF.</p>";
 
 pub struct Ctx {
     start: Option<Instant>,
@@ -57,6 +70,16 @@ pub struct Ctx {
     referer: String,
     src_ip: String,
     src_port: u16,
+    /// enforce 阶段提前算好的判定；`logging` 直接复用，避免二次评分。
+    decision: Option<Decision>,
+    /// 是否已经做过判定（请求头阶段或 body 结束）。
+    decided: bool,
+    /// 本次请求是否被真实拦截（403）。
+    blocked: bool,
+    /// enforce 模式下缓冲的 body（最多 `body_limit`）。
+    enforce_body: Vec<u8>,
+    enforce_body_len: usize,
+    enforce_body_truncated: bool,
 }
 
 impl Default for Ctx {
@@ -89,7 +112,29 @@ impl Default for Ctx {
             referer: String::new(),
             src_ip: String::new(),
             src_port: 0,
+            decision: None,
+            decided: false,
+            blocked: false,
+            enforce_body: Vec::new(),
+            enforce_body_len: 0,
+            enforce_body_truncated: false,
         }
+    }
+}
+
+/// 一次判定的完整结果（规则证据 + 模型融合动作）。
+struct Decision {
+    rules: Option<RulesOut>,
+    pred: Option<Pred>,
+}
+
+impl Decision {
+    fn action(&self) -> Option<&str> {
+        self.pred.as_ref().map(|p| p.action.as_str())
+    }
+
+    fn should_block(&self) -> bool {
+        self.action() == Some("block")
     }
 }
 
@@ -165,6 +210,20 @@ fn header_str(h: &RequestHeader, name: &str) -> String {
         .to_string()
 }
 
+/// 请求是否可能带 body。GET/HEAD 通常没有；POST/PUT 等即使 content-length=0
+/// 也按“无 body”处理（判定可以在请求头阶段完成）。
+fn request_has_body(h: &RequestHeader) -> bool {
+    if h.headers.contains_key("transfer-encoding") {
+        return true;
+    }
+    h.headers
+        .get("content-length")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.trim().parse::<u64>().ok())
+        .map(|n| n > 0)
+        .unwrap_or(false)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{body_is_binary, collect_headers, is_textual_content_type};
@@ -219,7 +278,7 @@ mod tests {
     }
 }
 
-/// dry-run 判定动作计数（供 `--stats-out` 指标文件暴露给控制台总览页）。
+/// 判定动作计数（供 `--stats-out` 指标文件暴露给控制台总览页）。
 #[derive(Default)]
 pub struct ActionCounts {
     pub allow: AtomicU64,
@@ -240,15 +299,17 @@ impl ActionCounts {
 
 pub struct Collector {
     pub cfg: Arc<Config>,
+    /// 本服务实例负责的路由（监听 → 上游）。
+    pub route: Arc<Route>,
     pub sink: Sink,
-    /// `--score` 时才有：上线模型判定器（dry-run 记录用，**永不阻断**）。
+    /// `block_mode != off` 时才有：上线模型判定器。
     ///
     /// 用 `Mutex` 而非会话池：`ort::Session::run` 是 `&mut self`，
-    /// dry-run 阶段串行化够用；要并发再上会话池。
+    /// 先串行化；要并发再上会话池。
     pub scorer: Option<Arc<Mutex<waf_ai_proto::engine::Engine>>>,
     /// 判定失败计数（失败只降级为"不记录 pred"，**绝不影响转发**）。
     pub score_errors: Arc<AtomicU64>,
-    /// dry-run 动作计数（指标文件用；不影响转发）。
+    /// 判定动作计数（指标文件用）。
     pub actions: Arc<ActionCounts>,
     /// 规则通道（第三通道）。`None` = 没有现役规则集。
     ///
@@ -258,182 +319,22 @@ pub struct Collector {
     pub rules: Option<Arc<RwLock<Arc<waf_ai_proto::rules::RuleEngine>>>>,
 }
 
-#[async_trait]
-impl ProxyHttp for Collector {
-    type CTX = Ctx;
-
-    fn new_ctx(&self) -> Self::CTX {
-        Ctx::default()
-    }
-
-    /// 请求头阶段：把 HTTP 侧字段与流级起点记进 ctx。
-    async fn request_filter(&self, session: &mut Session, ctx: &mut Self::CTX) -> Result<bool> {
-        ctx.start = Some(Instant::now());
-        let req = session.req_header();
-        ctx.host = header_str(req, "host");
-        ctx.ua = header_str(req, "user-agent");
-        ctx.referer = header_str(req, "referer");
-        ctx.req_version = version_str(req.version);
-        ctx.req_content_type = content_type(&req.headers);
-        let (headers, total, stored, truncated) =
-            collect_headers(&req.headers, self.cfg.headers_keep);
-        ctx.req_headers = headers;
-        ctx.req_headers_total = total;
-        ctx.req_headers_stored = stored;
-        ctx.req_headers_truncated = truncated;
-        // pingora 的 SocketAddr 是**枚举**（支持 Unix socket），要先 as_inet()
-        if let Some(addr) = session.client_addr() {
-            if let Some(sa) = addr.as_inet() {
-                ctx.src_ip = sa.ip().to_string();
-                ctx.src_port = sa.port();
-            }
-        }
-        Ok(false) // false = 继续走后续阶段（本数据面不阻断任何流量）
-    }
-
-    async fn upstream_peer(
+impl Collector {
+    /// 规则 + 模型融合判定。`body` 是**已解码的文本**（二进制体为空串）。
+    fn decide(
         &self,
-        _session: &mut Session,
-        _ctx: &mut Self::CTX,
-    ) -> Result<Box<HttpPeer>> {
-        let mut peer = HttpPeer::new(
-            self.cfg.upstream.clone(),
-            self.cfg.upstream_tls,
-            self.cfg.host_hint().to_string(),
-        );
-        // pingora 0.9 的 PeerOptions 是**公开字段**，没有 set_*_timeout（0.4 时代的方法已移除）。
-        // 显式设超时：不给慢速连接无限占用采集进程的机会。
-        peer.options.connection_timeout = Some(std::time::Duration::from_secs(10));
-        peer.options.read_timeout = Some(std::time::Duration::from_secs(60));
-        peer.options.write_timeout = Some(std::time::Duration::from_secs(60));
-        Ok(Box::new(peer))
-    }
-
-    /// **请求体采集**（选 Pingora 的核心理由，工作项 F 第一约束的解药）。
-    async fn request_body_filter(
-        &self,
-        _session: &mut Session,
-        body: &mut Option<Bytes>,
-        _end_of_stream: bool,
-        ctx: &mut Self::CTX,
-    ) -> Result<()> {
-        if let Some(b) = body {
-            ctx.body_len += b.len();
-            if self.cfg.collect_body {
-                let room = self.cfg.body_keep.saturating_sub(ctx.body.len());
-                if room > 0 {
-                    let take = room.min(b.len());
-                    ctx.body.extend_from_slice(&b[..take]);
-                }
-                // 落盘上限之外的都算截断（哪怕还没到硬上限）
-                if ctx.body_len > self.cfg.body_keep {
-                    ctx.truncated = true;
-                }
-            }
-            // 硬上限：停止持有，避免大文件上传把内存吃掉
-            if ctx.body_len > self.cfg.body_limit {
-                ctx.truncated = true;
-                b.clear();
-            }
-        }
-        Ok(())
-    }
-
-    async fn response_filter(
-        &self,
-        _session: &mut Session,
-        upstream_response: &mut ResponseHeader,
-        ctx: &mut Self::CTX,
-    ) -> Result<()> {
-        ctx.resp_status = upstream_response.status.as_u16();
-        ctx.status = ctx.resp_status;
-        ctx.resp_captured = true;
-        ctx.resp_version = version_str(upstream_response.version);
-        let (headers, total, stored, truncated) =
-            collect_headers(&upstream_response.headers, self.cfg.headers_keep);
-        ctx.resp_headers = headers;
-        ctx.resp_headers_total = total;
-        ctx.resp_headers_stored = stored;
-        ctx.resp_headers_truncated = truncated;
-        Ok(())
-    }
-
-    /// 注意：trait 里这个方法是**同步** fn（0.9 中只有它是非 async），别写成 async。
-    fn response_body_filter(
-        &self,
-        _session: &mut Session,
-        body: &mut Option<Bytes>,
-        _end_of_stream: bool,
-        ctx: &mut Self::CTX,
-    ) -> Result<Option<std::time::Duration>>
-    where
-        Self::CTX: Send + Sync,
-    {
-        if let Some(b) = body {
-            ctx.bytes_out += b.len() as u64;
-            ctx.resp_body_len += b.len();
-            // Off 正常不缓冲；但启用评分时仍缓冲 64KB，否则评分失败后无法补采证据。
-            let should_buffer = self.cfg.resp_body_mode != RespBodyMode::Off || self.cfg.score;
-            if should_buffer {
-                let room = self.cfg.resp_body_keep.saturating_sub(ctx.resp_body.len());
-                if room > 0 {
-                    let take = room.min(b.len());
-                    ctx.resp_body.extend_from_slice(&b[..take]);
-                }
-                if ctx.resp_body_len > self.cfg.resp_body_keep {
-                    ctx.resp_body_truncated = true;
-                }
-            }
-        }
-        Ok(None)
-    }
-
-    /// 收尾：把这一条请求落进采集队列（**不写 label**）。
-    async fn logging(&self, session: &mut Session, _e: Option<&pingora::Error>, ctx: &mut Self::CTX) {
-        let dur_ms = ctx
-            .start
-            .map(|t| t.elapsed().as_secs_f64() * 1000.0)
-            .unwrap_or(0.0);
-        let (method, path, query) = {
-            let req = session.req_header();
-            (
-                req.method.to_string(),
-                req.uri.path().to_string(),
-                req.uri.query().unwrap_or("").to_string(),
-            )
-        };
-        // 顶层 body 只放文本（训练管线兼容）；二进制必须读 body_b64。
-        let req_binary = if self.cfg.collect_body {
-            body_is_binary(&ctx.body, &ctx.req_content_type)
-        } else {
-            false
-        };
-        let body = if self.cfg.collect_body && !req_binary {
-            String::from_utf8(ctx.body.clone()).unwrap_or_default()
-        } else {
-            String::new()
-        };
-        let body_b64 = if self.cfg.collect_body {
-            Some(B64.encode(&ctx.body))
-        } else {
-            None
-        };
-        let body_reason = if self.cfg.collect_body {
-            "sampled"
-        } else {
-            "collect_body_off"
-        };
-
-        // ---- dry-run 判定：**只记录，永不阻断** ----
-        //
-        // 放在 `logging` 而不是请求路径上：采集阶段不该给真实业务加延迟，
-        // 而 `logging` 时 body 已收齐，判定所需信息完整。
-        // 注意判定用的 body 是**落盘前截断后**的体（`body_truncated=true` 时下游可剔除）。
-        // ---- 规则通道（第三通道，**独立于模型**，同样 dry-run） ----
+        method: &str,
+        path: &str,
+        query: &str,
+        body: &str,
+        ua: &str,
+        referer: &str,
+    ) -> Decision {
+        // ---- 规则通道（第三通道，独立于模型）----
         //
         // 顺序刻意放在 `pred` **之前**：融合是"监督命中 或 规则达阻断线 ⇒ block"，
         // 规则证据必须先算出来喂给判定器。否则记录里的 `action` 只反映模型，而线上
-        // （启用后）是融合的 —— 那 dry-run 就在验证一个不存在的语义。
+        // 是融合的 —— 那 dry-run 就在验证一个不存在的语义。
         //
         // 与 `pred` 分开落盘：规则命中是**证据**，不是"模型判的"。
         // 规则跑在**解码后**文本上（解码在 Rust 引擎里做，与标定/回放同一份实现）。
@@ -449,12 +350,12 @@ impl ProxyHttp for Collector {
                     Vec::new()
                 } else {
                     eng.evaluate(&waf_ai_proto::rules::RuleInput {
-                        method: method.clone(),
-                        path: path.clone(),
-                        query: query.clone(),
-                        body: body.clone(),
-                        ua: ctx.ua.clone(),
-                        referer: ctx.referer.clone(),
+                        method: method.to_string(),
+                        path: path.to_string(),
+                        query: query.to_string(),
+                        body: body.to_string(),
+                        ua: ua.to_string(),
+                        referer: referer.to_string(),
                     })
                 };
                 if hits.is_empty() {
@@ -509,10 +410,10 @@ impl ProxyHttp for Collector {
 
         let pred = self.scorer.as_ref().and_then(|s| {
             let req = waf_ai_proto::features::Request {
-                method: method.clone(),
-                path: path.clone(),
-                query: query.clone(),
-                body: body.clone(),
+                method: method.to_string(),
+                path: path.to_string(),
+                query: query.to_string(),
+                body: body.to_string(),
             };
             let mut eng = match s.lock() {
                 Ok(g) => g,
@@ -522,8 +423,11 @@ impl ProxyHttp for Collector {
                 Ok(sc) => {
                     let v = &sc.verdict;
                     let pol = eng.policy();
+                    let action = v.action.as_str().to_string();
+                    let enforced =
+                        self.cfg.block_mode == BlockMode::Enforce && action == "block";
                     Some(Pred {
-                        action: v.action.as_str().to_string(),
+                        action,
                         supervised_score: v.supervised_score,
                         supervised_threshold: pol.supervised.threshold,
                         supervised_flagged: v.supervised_flagged,
@@ -538,7 +442,8 @@ impl ProxyHttp for Collector {
                         rule_weight: v.rule_weight,
                         rule_block_weight: v.rule_block_weight,
                         rules_flagged: v.rules_flagged,
-                        dry_run: true,
+                        dry_run: self.cfg.block_mode != BlockMode::Enforce,
+                        enforced,
                     })
                 }
                 Err(e) => {
@@ -551,6 +456,321 @@ impl ProxyHttp for Collector {
                 }
             }
         });
+
+        Decision { rules, pred }
+    }
+
+    /// 判定用的 body 文本：二进制体按空串处理（与落盘字段语义一致）。
+    fn decision_text(&self, bytes: &[u8], ct: &str) -> String {
+        if body_is_binary(bytes, ct) {
+            String::new()
+        } else {
+            String::from_utf8_lossy(bytes).into_owned()
+        }
+    }
+}
+
+#[async_trait]
+impl ProxyHttp for Collector {
+    type CTX = Ctx;
+
+    fn new_ctx(&self) -> Self::CTX {
+        Ctx::default()
+    }
+
+    /// 请求头阶段：把 HTTP 侧字段与流级起点记进 ctx；
+    /// enforce 模式下，**无 body 的请求在这里完成判定并可直接返回 403**。
+    async fn request_filter(&self, session: &mut Session, ctx: &mut Self::CTX) -> Result<bool> {
+        ctx.start = Some(Instant::now());
+        {
+            let req = session.req_header();
+            ctx.host = header_str(req, "host");
+            ctx.ua = header_str(req, "user-agent");
+            ctx.referer = header_str(req, "referer");
+            ctx.req_version = version_str(req.version);
+            ctx.req_content_type = content_type(&req.headers);
+            let (headers, total, stored, truncated) =
+                collect_headers(&req.headers, self.cfg.headers_keep);
+            ctx.req_headers = headers;
+            ctx.req_headers_total = total;
+            ctx.req_headers_stored = stored;
+            ctx.req_headers_truncated = truncated;
+        }
+        // pingora 的 SocketAddr 是**枚举**（支持 Unix socket），要先 as_inet()
+        if let Some(addr) = session.client_addr() {
+            if let Some(sa) = addr.as_inet() {
+                ctx.src_ip = sa.ip().to_string();
+                ctx.src_port = sa.port();
+            }
+        }
+
+        if self.cfg.block_mode == BlockMode::Enforce {
+            let (has_body, method, path, query) = {
+                let req = session.req_header();
+                (
+                    request_has_body(req),
+                    req.method.to_string(),
+                    req.uri.path().to_string(),
+                    req.uri.query().unwrap_or("").to_string(),
+                )
+            };
+            if !has_body {
+                let decision = self.decide(&method, &path, &query, "", &ctx.ua, &ctx.referer);
+                let block = decision.should_block();
+                ctx.decision = Some(decision);
+                ctx.decided = true;
+                if block {
+                    ctx.blocked = true;
+                    self.sink.stats.blocked.fetch_add(1, Ordering::Relaxed);
+                    session
+                        .respond_error_with_body(403, Bytes::from_static(BLOCK_BODY))
+                        .await?;
+                    return Ok(true);
+                }
+            }
+        }
+        Ok(false) // false = 继续走后续阶段
+    }
+
+    async fn upstream_peer(
+        &self,
+        _session: &mut Session,
+        _ctx: &mut Self::CTX,
+    ) -> Result<Box<HttpPeer>> {
+        let mut peer = HttpPeer::new(
+            self.route.upstream.clone(),
+            self.route.upstream_tls,
+            self.route.host_hint().to_string(),
+        );
+        // pingora 0.9 的 PeerOptions 是**公开字段**，没有 set_*_timeout（0.4 时代的方法已移除）。
+        // 显式设超时：不给慢速连接无限占用采集进程的机会。
+        peer.options.connection_timeout = Some(std::time::Duration::from_secs(10));
+        peer.options.read_timeout = Some(std::time::Duration::from_secs(60));
+        peer.options.write_timeout = Some(std::time::Duration::from_secs(60));
+        Ok(Box::new(peer))
+    }
+
+    /// **请求体采集**（选 Pingora 的核心理由，工作项 F 第一约束的解药）。
+    ///
+    /// enforce 模式下先缓冲 body（最多 `body_limit`），在 `end_of_stream` 时判定：
+    /// 命中 block 就返回 `HTTPStatus(403)`，由 `fail_to_proxy` 写 403 页面；
+    /// 未命中则把完整缓冲体作为最后一块交给上游。
+    async fn request_body_filter(
+        &self,
+        session: &mut Session,
+        body: &mut Option<Bytes>,
+        end_of_stream: bool,
+        ctx: &mut Self::CTX,
+    ) -> Result<()> {
+        if let Some(b) = body.as_ref() {
+            ctx.body_len += b.len();
+            if self.cfg.collect_body {
+                let room = self.cfg.body_keep.saturating_sub(ctx.body.len());
+                if room > 0 {
+                    let take = room.min(b.len());
+                    ctx.body.extend_from_slice(&b[..take]);
+                }
+                // 落盘上限之外的都算截断（哪怕还没到硬上限）
+                if ctx.body_len > self.cfg.body_keep {
+                    ctx.truncated = true;
+                }
+            }
+        }
+
+        if self.cfg.block_mode != BlockMode::Enforce || ctx.decided {
+            return Ok(());
+        }
+
+        // ---- enforce：缓冲请求体，等 body 结束（或超过硬上限）再判定 ----
+        //
+        // 只缓冲副本、**不改动 `body` 本身**：否则超过 `--body-limit` 时会把要转发的
+        // 字节一起清掉，等于静默截断上传（采集不能改变客户端/上游看到的内容）。
+        let mut copied_from_current = 0usize;
+        if let Some(b) = body.as_ref() {
+            let room = self.cfg.body_limit.saturating_sub(ctx.enforce_body.len());
+            if room > 0 {
+                let take = room.min(b.len());
+                ctx.enforce_body.extend_from_slice(&b[..take]);
+                copied_from_current = take;
+            }
+            ctx.enforce_body_len += b.len();
+            if ctx.enforce_body_len > self.cfg.body_limit {
+                ctx.enforce_body_truncated = true;
+            }
+        }
+        let over_limit = ctx.enforce_body_len > self.cfg.body_limit;
+        if !end_of_stream && !over_limit {
+            // 先扣住，不发给上游；`Some(空)` 不会被当成 body 结束。
+            *body = Some(Bytes::new());
+            return Ok(());
+        }
+
+        let (method, path, query) = {
+            let req = session.req_header();
+            (
+                req.method.to_string(),
+                req.uri.path().to_string(),
+                req.uri.query().unwrap_or("").to_string(),
+            )
+        };
+        let text = self.decision_text(&ctx.enforce_body, &ctx.req_content_type);
+        let decision = self.decide(&method, &path, &query, &text, &ctx.ua, &ctx.referer);
+        let block = decision.should_block();
+        ctx.decision = Some(decision);
+        ctx.decided = true;
+
+        if block {
+            ctx.blocked = true;
+            self.sink.stats.blocked.fetch_add(1, Ordering::Relaxed);
+            return Err(Error::explain(HTTPStatus(403), "waf: blocked by policy"));
+        }
+
+        // 放行：把之前扣住的缓冲体 + 当前块里**尚未缓冲**的尾部一起交给上游。
+        // 这样无论是否超过 body_limit，转发字节都不会丢/不会重复。
+        let mut out = std::mem::take(&mut ctx.enforce_body);
+        if let Some(b) = body.as_ref() {
+            if copied_from_current < b.len() {
+                out.extend_from_slice(&b[copied_from_current..]);
+            }
+        }
+        if out.is_empty() && end_of_stream {
+            *body = None;
+        } else {
+            *body = Some(Bytes::from(out));
+        }
+        Ok(())
+    }
+
+    async fn response_filter(
+        &self,
+        _session: &mut Session,
+        upstream_response: &mut ResponseHeader,
+        ctx: &mut Self::CTX,
+    ) -> Result<()> {
+        ctx.resp_status = upstream_response.status.as_u16();
+        ctx.status = ctx.resp_status;
+        ctx.resp_captured = true;
+        ctx.resp_version = version_str(upstream_response.version);
+        let (headers, total, stored, truncated) =
+            collect_headers(&upstream_response.headers, self.cfg.headers_keep);
+        ctx.resp_headers = headers;
+        ctx.resp_headers_total = total;
+        ctx.resp_headers_stored = stored;
+        ctx.resp_headers_truncated = truncated;
+        Ok(())
+    }
+
+    /// 注意：trait 里这个方法是**同步** fn（0.9 中只有它是非 async），别写成 async。
+    fn response_body_filter(
+        &self,
+        _session: &mut Session,
+        body: &mut Option<Bytes>,
+        _end_of_stream: bool,
+        ctx: &mut Self::CTX,
+    ) -> Result<Option<std::time::Duration>>
+    where
+        Self::CTX: Send + Sync,
+    {
+        if let Some(b) = body {
+            ctx.bytes_out += b.len() as u64;
+            ctx.resp_body_len += b.len();
+            // Off 正常不缓冲；但启用判定时仍缓冲 64KB，否则评分失败后无法补采证据。
+            let should_buffer =
+                self.cfg.resp_body_mode != RespBodyMode::Off || self.cfg.block_mode.score_enabled();
+            if should_buffer {
+                let room = self.cfg.resp_body_keep.saturating_sub(ctx.resp_body.len());
+                if room > 0 {
+                    let take = room.min(b.len());
+                    ctx.resp_body.extend_from_slice(&b[..take]);
+                }
+                if ctx.resp_body_len > self.cfg.resp_body_keep {
+                    ctx.resp_body_truncated = true;
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    /// 拦截时的统一错误响应（简短 403 页面，带 `X-WAF-Action`）。
+    async fn fail_to_proxy(
+        &self,
+        session: &mut Session,
+        e: &Error,
+        ctx: &mut Self::CTX,
+    ) -> FailToProxy {
+        let code = match e.etype() {
+            HTTPStatus(code) => *code,
+            _ => match e.esource() {
+                ErrorSource::Upstream => 502,
+                ErrorSource::Downstream => match e.etype() {
+                    WriteError | ReadError | ConnectionClosed => 0,
+                    _ => 400,
+                },
+                ErrorSource::Internal | ErrorSource::Unset => 500,
+            },
+        };
+        if code > 0 {
+            if ctx.blocked && code == 403 {
+                if let Err(err) = session
+                    .respond_error_with_body(403, Bytes::from_static(BLOCK_BODY))
+                    .await
+                {
+                    eprintln!("[block] 写 403 响应失败：{err}");
+                }
+            } else if let Err(err) = session.respond_error(code).await {
+                eprintln!("[proxy] 写错误响应 {code} 失败：{err}");
+            }
+        }
+        FailToProxy {
+            error_code: code,
+            can_reuse_downstream: false,
+        }
+    }
+
+    /// 收尾：把这一条请求落进采集队列（**不写 label**）。
+    async fn logging(&self, session: &mut Session, _e: Option<&pingora::Error>, ctx: &mut Self::CTX) {
+        let dur_ms = ctx
+            .start
+            .map(|t| t.elapsed().as_secs_f64() * 1000.0)
+            .unwrap_or(0.0);
+        let (method, path, query) = {
+            let req = session.req_header();
+            (
+                req.method.to_string(),
+                req.uri.path().to_string(),
+                req.uri.query().unwrap_or("").to_string(),
+            )
+        };
+        // 顶层 body 只放文本（训练管线兼容）；二进制必须读 body_b64。
+        let req_binary = if self.cfg.collect_body {
+            body_is_binary(&ctx.body, &ctx.req_content_type)
+        } else {
+            false
+        };
+        let body = if self.cfg.collect_body && !req_binary {
+            String::from_utf8(ctx.body.clone()).unwrap_or_default()
+        } else {
+            String::new()
+        };
+        let body_b64 = if self.cfg.collect_body {
+            Some(B64.encode(&ctx.body))
+        } else {
+            None
+        };
+        let body_reason = if self.cfg.collect_body {
+            "sampled"
+        } else {
+            "collect_body_off"
+        };
+
+        // enforce 模式下判定已经在请求路径上算过，直接复用；off/dry_run 仍在这里补算，
+        // 保证“采集阶段不给真实业务加延迟”的旧语义。
+        let decision = match ctx.decision.take() {
+            Some(d) => d,
+            None => self.decide(&method, &path, &query, &body, &ctx.ua, &ctx.referer),
+        };
+        let rules = decision.rules;
+        let pred = decision.pred;
         if let Some(p) = &pred {
             self.actions.bump(&p.action);
         }
@@ -625,6 +845,7 @@ impl ProxyHttp for Collector {
             src_ip: ctx.src_ip.clone(),
             src_port: ctx.src_port,
             host: std::mem::take(&mut ctx.host),
+            route: self.route.name.clone(),
             method,
             path,
             query,
@@ -642,7 +863,7 @@ impl ProxyHttp for Collector {
             body_truncated: ctx.truncated,
             ua: std::mem::take(&mut ctx.ua),
             referer: std::mem::take(&mut ctx.referer),
-            status: ctx.status,
+            status: if ctx.blocked { 403 } else { ctx.status },
             dur_ms,
             bytes_in: ctx.body_len as u64,
             bytes_out: ctx.bytes_out,

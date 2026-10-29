@@ -14,6 +14,7 @@ export interface EventRow {
   src_ip?: string
   src_port?: number
   host?: string
+  route?: string | null
   method?: string
   path?: string
   query?: string
@@ -38,6 +39,7 @@ export interface EventRow {
   attack_type?: string | null
   model_artifacts?: string
   dry_run?: number
+  enforced?: number
   policy_version?: number
   rule_hits?: RuleHit[]
   rule_set_sha1_16?: string

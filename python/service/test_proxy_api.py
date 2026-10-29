@@ -75,7 +75,7 @@ class ProxyManagerTest(unittest.TestCase):
     # ---- 配置校验 ------------------------------------------------------
     def test_defaults_and_save(self):
         cfg = pm.get_config()
-        self.assertEqual(cfg["listen"], "127.0.0.1:6188")
+        self.assertEqual(cfg["listen"], "0.0.0.0:6188")
         self.assertEqual(cfg["resp_body"], "alert")
 
         res = pm.update_config({"listen": "127.0.0.1:6199", "body_keep": 1024}, "admin")
@@ -119,16 +119,118 @@ class ProxyManagerTest(unittest.TestCase):
 
     def test_build_argv_fixed_paths_and_flags(self):
         cfg = pm.get_config()
-        cfg.update({"score": True, "no_body": True, "upstream_tls": True,
-                    "rules": "", "listen": "127.0.0.1:6199"})
+        cfg.update({
+            "block_mode": "dry_run",
+            "no_body": True,
+            "rules": "",
+            "routes": [{
+                "name": "a",
+                "listen": "127.0.0.1:6199",
+                "upstream": "127.0.0.1:8080",
+                "upstream_tls": True,
+            }],
+        })
         argv = pm.build_argv(cfg, self.bin)
-        self.assertIn("--score", argv)
+        self.assertIn("--block-mode", argv)
+        self.assertEqual(argv[argv.index("--block-mode") + 1], "dry_run")
+        self.assertIn("--route", argv)
+        self.assertEqual(
+            argv[argv.index("--route") + 1],
+            "name=a,listen=127.0.0.1:6199,upstream=127.0.0.1:8080,tls=1")
         self.assertIn("--no-body", argv)
-        self.assertIn("--upstream-tls", argv)
+        self.assertNotIn("--score", argv)
+        self.assertNotIn("--upstream-tls", argv)
         self.assertIn("--no-rules", argv)
         self.assertEqual(argv[argv.index("--out") + 1], str(config.RAW_DIR))
         self.assertEqual(argv[argv.index("--stats-out") + 1],
                          str(config.COLLECTOR_METRICS))
+
+    def test_build_argv_multiple_routes(self):
+        cfg = pm.get_config()
+        cfg.update({
+            "block_mode": "enforce",
+            "routes": [
+                {"name": "a", "listen": "0.0.0.0:80",
+                 "upstream": "127.0.0.1:8080", "upstream_tls": False},
+                {"name": "b", "listen": "0.0.0.0:443",
+                 "upstream": "127.0.0.1:8443", "upstream_tls": True},
+            ],
+        })
+        argv = pm.build_argv(cfg, self.bin)
+        specs = [argv[i + 1] for i, a in enumerate(argv) if a == "--route"]
+        self.assertEqual(specs, [
+            "name=a,listen=0.0.0.0:80,upstream=127.0.0.1:8080,tls=0",
+            "name=b,listen=0.0.0.0:443,upstream=127.0.0.1:8443,tls=1",
+        ])
+        self.assertEqual(argv[argv.index("--block-mode") + 1], "enforce")
+
+    def test_routes_validation(self):
+        with self.assertRaises(ValueError):
+            pm.update_config({"routes": []}, "admin")
+        with self.assertRaises(ValueError):
+            pm.update_config({"routes": [
+                {"name": "a", "listen": "127.0.0.1:7001",
+                 "upstream": "127.0.0.1:8001", "upstream_tls": False},
+                {"name": "b", "listen": "127.0.0.1:7001",
+                 "upstream": "127.0.0.1:8002", "upstream_tls": False},
+            ]}, "admin")
+        with self.assertRaises(ValueError):
+            pm.update_config({"routes": [
+                {"name": "a", "listen": "127.0.0.1:7001",
+                 "upstream": "127.0.0.1:7001", "upstream_tls": False},
+            ]}, "admin")
+        with self.assertRaises(ValueError):
+            pm.update_config({"routes": [
+                {"name": "a", "listen": "127.0.0.1:7001",
+                 "upstream": "127.0.0.1:8001", "upstream_tls": False,
+                 "extra": 1},
+            ]}, "admin")
+        with self.assertRaises(ValueError):
+            pm.update_config({"routes": [
+                {"name": "a", "listen": "127.0.0.1:7001",
+                 "upstream": "127.0.0.1:8001", "upstream_tls": False},
+            ], "listen": "127.0.0.1:7002"}, "admin")
+
+    def test_routes_saved_and_legacy_aliases_synced(self):
+        res = pm.update_config({"routes": [
+            {"name": "a", "listen": "0.0.0.0:6188",
+             "upstream": "192.168.3.97:80", "upstream_tls": False},
+            {"name": "b", "listen": "0.0.0.0:6189",
+             "upstream": "192.168.3.97:8080", "upstream_tls": False},
+        ]}, "admin")
+        self.assertEqual(len(res["config"]["routes"]), 2)
+        self.assertEqual(res["config"]["listen"], "0.0.0.0:6188")
+        self.assertEqual(res["config"]["upstream"], "192.168.3.97:80")
+        # 重新读取也要保持一致（老字段是 routes[0] 的别名）。
+        cfg = pm.get_config()
+        self.assertEqual(len(cfg["routes"]), 2)
+        self.assertEqual(cfg["listen"], cfg["routes"][0]["listen"])
+
+    def test_routes_echo_back_with_legacy_aliases(self):
+        """GET /api/proxy/config 的返回原样 PUT 回来应成功（旧字段是 routes[0] 别名）。"""
+        view = pm.config_view()
+        res = pm.update_config(view["config"], "admin")
+        self.assertEqual(res["config"]["routes"], view["config"]["routes"])
+        self.assertEqual(res["config"]["listen"], view["config"]["listen"])
+
+    def test_block_mode_and_legacy_score_migration(self):
+        # 老配置只有 score=true ⇒ 迁移成 dry_run。
+        db.execute(
+            "INSERT OR REPLACE INTO app_settings(key, value, updated_at, actor) "
+            "VALUES(?,?,?,?)", ("proxy.score", "true", db.now_ms(), "admin"))
+        cfg = pm.get_config()
+        self.assertEqual(cfg["block_mode"], "dry_run")
+        self.assertTrue(cfg["score"])
+
+        res = pm.update_config({"block_mode": "enforce"}, "admin")
+        self.assertEqual(res["config"]["block_mode"], "enforce")
+        self.assertTrue(res["config"]["score"])
+        self.assertIn("proxy_block_mode_update", self._audit_actions())
+
+        res = pm.update_config({"block_mode": "off"}, "admin")
+        self.assertFalse(res["config"]["score"])
+        with self.assertRaises(ValueError):
+            pm.update_config({"block_mode": "block-everything"}, "admin")
 
     def test_resolve_binary_env_override(self):
         with mock.patch.dict("os.environ", {"WAF_COLLECTOR_BIN": str(self.bin)}):
@@ -255,6 +357,19 @@ class ProxyManagerTest(unittest.TestCase):
             st = pm.status()
         self.assertTrue(st["restart_required"])
         self.assertIn("listen", st["restart_keys"])
+        self.assertIn("routes", st["restart_keys"])
+
+    def test_restart_required_for_block_mode(self):
+        old = pm.get_config()
+        self._pid_file(cfg=old)
+        pm.update_config({"block_mode": "enforce"}, "admin")
+        with mock.patch.object(pm, "resolve_binary", return_value=self.bin), \
+                mock.patch.object(pm, "port_listening", return_value=True), \
+                mock.patch.object(pm, "_pid_alive", return_value=True), \
+                mock.patch.object(pm, "_identity_ok", return_value=True):
+            st = pm.status()
+        self.assertTrue(st["restart_required"])
+        self.assertIn("block_mode", st["restart_keys"])
 
     def test_tail_log(self):
         self.logs.mkdir(parents=True, exist_ok=True)

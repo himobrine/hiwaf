@@ -9,7 +9,7 @@ Pingora 反向代理 + **HTTP/流级采集**。这是工作项 F 第一约束（
 | 不做 | 原因 |
 |---|---|
 | **不打标签** | 真实流量的攻击没有标签。用内容正则打标 = 把要替换掉的那套规则抄进训练集（循环论证），还会把规则漏掉的新型攻击标成良性。标签由 `python/collect_http_log.py` 按**出处**决定 |
-| **不做阻断** | `--score` 只把模型判定写进 `pred` 字段（**dry-run**）。要拦必须先有**真实本地良性流量**标定阈值；否则就是拿公共卫生数据硬调参（项目已否掉这条路）。判定逻辑本身在 `waf_ai_proto::decision`，与本代理共用同一份 |
+| **默认不阻断** | 默认 `--block-mode off` 只采集；`dry_run` 把判定写进 `pred` 但**不拦截**；只有 admin 显式切到 `enforce` 才会在命中 `block` 时返回 403。要拦必须先有**真实本地良性流量**标定阈值；否则就是拿公共卫生数据硬调参（项目已否掉这条路）。判定逻辑本身在 `waf_ai_proto::decision`，与本代理共用同一份 |
 | **不静默丢数据** | 队列满/写盘失败都会**打日志并计数**；良性池被悄悄污染比少采几条危险得多 |
 
 ## 端到端管线
@@ -23,7 +23,8 @@ Pingora 反向代理 + **HTTP/流级采集**。这是工作项 F 第一约束（
                         │        --canary-prefix /admin.php --redteam-window <START,END> --keep-body ...
                         │   ──► traindata/local/*_benign.jsonl / *_attack.jsonl（label 来源可审计）
                         │        （`pred` 模型输出在此**结构性消失**，不可能变成标签）
-                        ├─► --score：模型判定写入 pred（dry-run，仅记录，永不阻断）
+                        ├─► --block-mode dry_run/enforce：规则+模型融合判定写入 pred
+                        │      （dry_run 只记录；enforce 命中 block 返回 403）
                         └─► 流级通道（dur_ms / bytes_in / bytes_out / src_ip / status）
 ```
 
@@ -59,17 +60,28 @@ cd waf/proxy
 
 ```bat
 :: 本地靶场：上游先用 phpStudy/DVWA 或任意后端
+:: 单路由（旧写法仍兼容）
 call build.bat run --release -- ^
     --listen 127.0.0.1:6188 ^
     --upstream 127.0.0.1:80 ^
+    --out ..\traindata\proxy
+
+:: 多端口：一个进程监听多个端口，每个端口一个上游
+call build.bat run --release -- ^
+    --route name=site-a,listen=0.0.0.0:80,upstream=127.0.0.1:8080,tls=0 ^
+    --route name=site-b,listen=0.0.0.0:8081,upstream=127.0.0.1:8082,tls=0 ^
+    --block-mode dry_run ^
     --out ..\traindata\proxy
 ```
 
 | 选项 | 默认 | 说明 |
 |---|---|---|
-| `--listen` | `127.0.0.1:6188` | 监听地址 |
-| `--upstream` | `127.0.0.1:8080` | 上游地址 |
-| `--upstream-tls` | 关 | 上游使用 TLS |
+| `--route name=<n>,listen=<addr>,upstream=<addr>,tls=0\|1` | — | 一条路由，**可重复**。多路由共用一个进程（共享写盘队列/模型/规则/指标），每条路由独立监听与上游 |
+| `--listen` | `0.0.0.0:6188` | 单路由监听地址（未给 `--route` 时使用） |
+| `--upstream` | `127.0.0.1:8080` | 单路由上游地址 |
+| `--upstream-tls` | 关 | 单路由上游使用 TLS |
+| `--block-mode` | `off` | `off` 纯采集 / `dry_run` 只记录 / `enforce` 命中 block 返回 403 |
+| `--score` | — | 旧开关，等价于 `--block-mode dry_run`（显式 `--block-mode` 优先） |
 | `--out` | `../traindata/proxy` | 原始记录目录（**存在真实业务数据，注意访问权限与保留期**） |
 | `--body-keep` | 65536 | 单请求**落盘** body 上限（超出标记 `body_truncated=true`） |
 | `--body-limit` | 1048576 | 单请求**缓冲**硬上限（防大文件上传打爆内存） |
@@ -79,7 +91,6 @@ call build.bat run --release -- ^
 | `--file-size-mb` | 256 | 单文件轮转大小 |
 | `--channel` | 8192 | 写队列容量；满了**丢记录并计数**，绝不阻塞转发 |
 | `--no-body` | — | 隐私模式：只留元数据 |
-| `--score` | 关 | **dry-run** 加载上线模型，把判定写进 `pred`（**只记录、永不阻断**） |
 | `--artifacts` | `../python/artifacts` | 模型产物目录（`decision_policy.json` + 两个 ONNX + `xgb_trees.json` + `feature_names_v2.json`） |
 | `--stats-out` | 关 | 运行指标 JSON（控制台轮询；含 written/dropped/actions/stale 判定依据） |
 | `--stats-interval` | 60 | 指标刷新周期（秒）；启动时立即写一次 |
@@ -94,6 +105,17 @@ call build.bat run --release -- ^
 1. 把客户端的访问地址改成采集器端口（或让 nginx 前置转发到采集器）；
 2. 用 `--upstream` 指向真实后端；
 3. 验证：`curl -i http://127.0.0.1:6188/` 返回后端内容，且 `raw-*.jsonl` 多一条记录。
+
+**多端口 / 多站点**：一个采集器进程可以监听多个端口（`--route` 重复），每条路由独立
+监听、独立上游，共享同一个写盘队列/模型/规则/指标文件；记录里的 `route` 字段标明命中哪条路由。
+注意：如果要求**客户端 URL 不变**，就必须让 WAF 占用原业务端口，把真实后端挪到其他端口
+（例如 phpStudy 80 → 8080，WAF 监听 `0.0.0.0:80 → 127.0.0.1:8080`）。Windows 上监听
+80/443 需要管理员权限；防火墙放行需自行配置（本程序不改系统防火墙）。
+
+**真实拦截（`--block-mode enforce`）**：命中 `block` 时返回 403 + 简短页面。
+无 body 的请求（GET/HEAD 等）在请求头阶段就判定，**上游完全收不到请求**；有 body 的请求
+必须等 body 收齐（或达到 `--body-limit`）才能判定，Pingora 会先发请求头再流 body，
+所以 body 类拦截时**上游可能已收到请求头、但收不到 body**。这是流式反向代理的固有限制。
 
 完整步骤、nginx 示例与故障排查见 `SETUP.md` §8.2 / §8.7。
 
@@ -154,7 +176,7 @@ nginx/Caddy 终止 TLS 后转 HTTP 给采集器，否则只能看到 CONNECT 元
   `--no-body` 时 `body_b64` 省略、`body_reason=collect_body_off`。
 * **响应体**：`response.body` 存的是**原始 wire bytes**（可能是 gzip/br/zstd 压缩流），
   默认按 `--resp-body alert` 只采 alert/block；`all` 用于取证/联调；`off` 关闭。
-  启用 `--score` 时即使 `off` 也缓冲至 64KB：评分失败时以 `body_reason=score_unavailable`
+  启用判定（`block_mode != off`）时即使 `off` 也缓冲至 64KB：评分失败时以 `body_reason=score_unavailable`
   落盘留证，并计数 `resp_body_off_overrides`；未启用评分则 `off` 不缓冲。
 * **头**：`headers` 是有序数组，保留重复头；顺序是 Pingora 解析后的 `HeaderMap` 顺序，
   **不是 wire order**。字节口径为 `name: value\r\n`（不含起始行），重复头分别计数；
@@ -174,7 +196,7 @@ nginx/Caddy 终止 TLS 后转 HTTP 给采集器，否则只能看到 CONNECT 元
 
 ### `pred` 字段是什么（以及不是什么）
 
-`--score` 时每条记录多一个 `pred`：
+`--block-mode dry_run|enforce` 时每条记录多一个 `pred`：
 
 ```json
 "pred": {"action":"allow","supervised_score":0.0112,"supervised_threshold":0.699765,
@@ -182,8 +204,11 @@ nginx/Caddy 终止 TLS 后转 HTTP 给采集器，否则只能看到 CONNECT 元
          "zero_day_score_crossed":false,"zero_day_flagged":false,"zero_day_enabled":false,
          "attack_label":0,
          "shap_topk":[{"feature":"sql_weak_r","value":0.0,"contribution":-0.42}],
-         "artifacts":".../python/artifacts","dry_run":true}
+         "artifacts":".../python/artifacts","dry_run":true,"enforced":false}
 ```
+
+* `dry_run=true` 表示本次判定只写记录；`enforced=true` 表示这次 `action=block` **真的返回了 403**
+  （只有 `enforce` 模式才可能为 true）。顶层 `route` 标明命中的路由。
 
 * `attack_label` 是 argmax（**只作攻击类型归类**，不参与判定）；名称映射在
   `decision_policy.json.supervised.labels`，由控制面解释。
@@ -195,9 +220,11 @@ nginx/Caddy 终止 TLS 后转 HTTP 给采集器，否则只能看到 CONNECT 元
   **结构性消失** —— 模型输出不可能变成训练标签（这是刻意的，见 `p8_proxy_e2e.py` 的断言）。
 * **不是验收指标**。上线模型训练集带 body 的记录是 **0 条**，拿它对真实流量算的分数只能当诊断；
   阈值必须在真实本地良性留出流量上重标定（`python/thresholds.py --pool file:...`）。
-* 判定在 `logging` 阶段做（body 已收齐、**不占用真实请求延迟**）；`ort::Session::run` 是 `&mut self`，
-  故用 `Mutex` 串行化，dry-run 阶段够用，要并发再上会话池。
-* 判定/加载失败**只降级为不记录 `pred`**，绝不影响转发；模型加载不了就退化成纯采集（打日志）。
+* 判定在 `logging` 阶段做（body 已收齐、**不占用真实请求延迟**）——`off`/`dry_run` 是这种情况；
+  `enforce` 必须在转发前判定（无 body 在请求头阶段，有 body 在 body 收齐后），会带来相应延迟。
+  `ort::Session::run` 是 `&mut self`，故用 `Mutex` 串行化，需要并发再上会话池。
+* 判定/加载失败在 `off`/`dry_run` 下**只降级为不记录 `pred`**，不影响转发；模型加载不了就退化成纯采集（打日志）。
+  **`enforce` 下加载失败会直接启动失败**（避免“以为在拦、其实没拦”）。
 
 ### 判定代码为什么在 `rust/`
 
@@ -229,11 +256,13 @@ nginx/Caddy 终止 TLS 后转 HTTP 给采集器，否则只能看到 CONNECT 元
   保留期明确、必要时用 `--no-body`；下游 `collect_http_log.py --scrub` 会脱敏敏感参数与 IP。
 * `bytes_in` 只统计**请求体**字节（不含头），`dur_ms` 是代理视角端到端耗时，都不是内核级精确值
   —— 流级特征用它们做近似足够，但不要当成计费/审计口径。
-* **还没有任何判定**：本程序不会拦任何请求。接线判定见下一步。
+* **默认不拦截**：`block_mode=off` 纯采集；`dry_run` 只记录；只有显式 `enforce` 才会拦。
+  判定失败/模型加载失败在 `off`/`dry_run` 下退化为纯采集，`enforce` 下直接拒绝启动。
 
 ## 下一步
 
-1. 判定已在 `--score`（dry-run）下接线；**正式阻断**要等真实本地良性池攒够、阈值重标定之后；
+1. 判定已在 `dry_run` 下接线；`enforce` 已实现（命中 block 返回 403），但**正式上线前**
+   仍应等真实本地良性池攒够、阈值重标定；
 2. 攒够 ≥2,000 条真实本地良性后，用 `python/thresholds.py --pool file:...` 替换标定池的作业点；
 3. 流级通道按 §8.7.5 的结论（**剔除 `Destination Port`**，跨文件 @1%FPR 仅 29.0%）做旁路信号，
    不做主判定；

@@ -192,8 +192,8 @@ export default function Overview() {
           刷新
         </Button>
         {d?.mode ? (
-          <Tag color={d.mode === 'dry_run' ? 'orange' : d.mode === 'collect_only' ? 'blue' : 'default'}>
-            {d.mode === 'dry_run' ? 'dry-run（只记录不阻断）' : d.mode === 'collect_only' ? '纯采集' : '采集器状态未知'}
+          <Tag color={d.mode === 'enforce' ? 'red' : d.mode === 'dry_run' ? 'orange' : d.mode === 'off' || d.mode === 'collect_only' ? 'blue' : 'default'}>
+            {d.mode === 'enforce' ? '拦截中（enforce）' : d.mode === 'dry_run' ? 'dry-run（只记录不阻断）' : d.mode === 'off' || d.mode === 'collect_only' ? '纯采集' : '采集器状态未知'}
           </Tag>
         ) : null}
       </div>
@@ -211,7 +211,11 @@ export default function Overview() {
         </Col>
         <Col xs={12} md={6} lg={3}>
           <Card size="small">
-            <Statistic title="dry-run 判定阻断" value={t.blocks || 0} valueStyle={{ color: '#cf1322' }} />
+            <Statistic
+              title={d?.mode === 'enforce' ? '实际拦截（403）' : 'dry-run 判定阻断'}
+              value={(d?.mode === 'enforce' ? t.enforced : t.blocks) || 0}
+              valueStyle={{ color: '#cf1322' }}
+            />
           </Card>
         </Col>
         <Col xs={12} md={6} lg={3}>

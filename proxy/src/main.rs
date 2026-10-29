@@ -9,7 +9,8 @@
 //!
 //!   * **不打标签**。真实流量的攻击没有标签；用内容正则打标 = 把要替换掉的规则抄进训练集。
 //!     标签由 `python/collect_http_log.py` 按**出处**（蜜罐路径 / 红队时间窗 / 复核清单）决定。
-//!   * **不做阻断**。本程序只采集。要不要拦是另一个决策，前置条件是先拿到**真实本地良性流量**
+//!   * **不做阻断**。默认 `--block-mode off` 只采集；只有显式 `enforce` 才会在
+//!     命中 `block` 时返回 403。要不要拦是另一个决策，前置条件是先拿到**真实本地良性流量**
 //!     来标定阈值（否则就是拿公共卫生数据硬调参，项目已否掉这条路）。
 //!
 //! ## 端到端管线
@@ -61,14 +62,16 @@ fn main() {
     let mut server = Server::new(None).expect("Server::new");
     server.bootstrap();
 
-    // dry-run 判定（可选）。**失败不致命**：模型加载不了就降级成纯采集，
+    // 判定（可选）。**失败不致命**（除非 enforce）：模型加载不了就降级成纯采集，
     // 绝不因为"判定器起不来"把采集面一起拖垮（采集是任务 F 的前提）。
-    let scorer = if cfg.score {
+    // 但 `block_mode=enforce` 时静默降级 = "以为在拦，其实没拦"，必须直接启动失败。
+    let scorer = if cfg.block_mode.score_enabled() {
         match waf_ai_proto::engine::Engine::load(&cfg.artifacts) {
             Ok(e) => {
                 let pol = e.policy();
                 eprintln!(
-                    "[collector] dry-run 判定已启用：产物 {} | 监督阈值 {:.6} / 零日阈值 {:.6} | 零日通道 {} | 标定池 {}",
+                    "[collector] 判定已启用（{}）：产物 {} | 监督阈值 {:.6} / 零日阈值 {:.6} | 零日通道 {} | 标定池 {}",
+                    cfg.block_mode.as_str(),
                     e.artifacts.display(),
                     pol.supervised.threshold,
                     pol.zero_day.threshold,
@@ -78,7 +81,11 @@ fn main() {
                 Some(Arc::new(Mutex::new(e)))
             }
             Err(e) => {
-                eprintln!("[collector] ⚠️ dry-run 判定启用失败，已降级为**纯采集**：{e:#}");
+                if cfg.block_mode == config::BlockMode::Enforce {
+                    eprintln!("[collector] ❌ enforce 模式下判定器加载失败，拒绝启动：{e:#}");
+                    std::process::exit(1);
+                }
+                eprintln!("[collector] ⚠️ 判定启用失败，已降级为**纯采集**：{e:#}");
                 None
             }
         }
@@ -119,6 +126,12 @@ fn main() {
                     Some(Arc::new(RwLock::new(Arc::new(e))))
                 }
                 Err(e) => {
+                    if cfg.block_mode == config::BlockMode::Enforce {
+                        eprintln!(
+                            "[collector] ❌ enforce 模式下规则集加载失败，拒绝启动：{e:#}"
+                        );
+                        std::process::exit(1);
+                    }
                     eprintln!(
                         "[collector] ⚠️ 规则集加载失败，已降级为**无规则通道**（热重载会继续重试）：{e:#}"
                     );
@@ -151,7 +164,7 @@ fn main() {
         let rs = Arc::clone(&reload_shared);
         let interval_ms = cfg.stats_interval.max(1) * 1000;
         let artifacts = cfg.artifacts.display().to_string();
-        let score_on = cfg.score;
+        let score_on = cfg.block_mode.score_enabled();
         std::thread::Builder::new()
             .name("collector-stats".to_string())
             .spawn(move || {
@@ -170,23 +183,31 @@ fn main() {
             .ok();
     }
 
-    let collector = filters::Collector {
-        cfg: Arc::clone(&cfg),
-        sink,
-        scorer,
-        score_errors,
-        actions,
-        rules,
-    };
-    let mut svc = http_proxy_service(&server.configuration, collector);
-    svc.add_tcp(&cfg.listen);
-
-    server.add_service(svc);
+    // 每条路由一个 ProxyService，共享 sink / 模型 / 规则 / 指标。
+    for route in &cfg.routes {
+        let collector = filters::Collector {
+            cfg: Arc::clone(&cfg),
+            route: Arc::new(route.clone()),
+            sink: sink.clone(),
+            scorer: scorer.clone(),
+            score_errors: Arc::clone(&score_errors),
+            actions: Arc::clone(&actions),
+            rules: rules.clone(),
+        };
+        let mut svc = http_proxy_service(&server.configuration, collector);
+        svc.add_tcp(&route.listen);
+        server.add_service(svc);
+        eprintln!(
+            "[collector] 路由 {}：监听 {}  ->  上游 {}{}",
+            route.name,
+            route.listen,
+            route.upstream,
+            if route.upstream_tls { " (TLS)" } else { "" },
+        );
+    }
     eprintln!(
-        "[collector] 监听 {}  ->  上游 {}{}   输出 {}   采集 body={}{}   判定={}   热重载={}",
-        cfg.listen,
-        cfg.upstream,
-        if cfg.upstream_tls { " (TLS)" } else { "" },
+        "[collector] 共 {} 条路由 | 输出 {} | 采集 body={}{} | 判定={} | 热重载={}",
+        cfg.routes.len(),
         cfg.out_dir.display(),
         cfg.collect_body,
         if cfg.collect_body {
@@ -201,7 +222,11 @@ fn main() {
         } else {
             String::new()
         },
-        if cfg.score { "dry-run(只记录)" } else { "关" },
+        match cfg.block_mode {
+            config::BlockMode::Off => "关".to_string(),
+            config::BlockMode::DryRun => "dry-run(只记录)".to_string(),
+            config::BlockMode::Enforce => "enforce(命中返回 403)".to_string(),
+        },
         if cfg.reload_interval == 0 {
             "关".to_string()
         } else {
@@ -223,15 +248,22 @@ fn main() {
 // --------------------------------------------------------------------------- 指标输出
 /// 采集器运行指标（供控制台总览/采集面状态页轮询）。
 ///
-/// ⚠️ 这里的 `actions_*` 是**dry-run 判定**的动作计数（当前不阻断），不是真实拦截数。
+/// `actions_*` 是**判定动作计数**（含 dry_run 的“本来会拦”）；真实拦截数看
+/// `blocked_requests`（只有 `block_mode=enforce` 才会增长）。
 #[derive(serde::Serialize)]
 struct Metrics {
     ts: i64,
     pid: u32,
+    /// 第一条路由的监听地址（兼容旧控制台字段）。
     listen: String,
+    /// 第一条路由的上游（兼容旧控制台字段）。
     upstream: String,
+    /// 全部路由（多端口单进程）。
+    routes: Vec<RouteMetric>,
     out_dir: String,
     score_enabled: bool,
+    /// `off` / `dry_run` / `enforce`
+    block_mode: String,
     artifacts: String,
     written: u64,
     dropped_queue_full: u64,
@@ -241,7 +273,9 @@ struct Metrics {
     actions_allow: u64,
     actions_block: u64,
     actions_alert: u64,
-    /// 规则通道计数（history 累计；dry-run 下 `rule_block_lines` **不代表真的拦了**）
+    /// 真正被 403 拦下的请求数（只有 `enforce` 才会增长）。
+    blocked_requests: u64,
+    /// 规则通道计数（history 累计；dry_run 下 `rule_block_lines` **不代表真的拦了**）
     rule_hit_lines: u64,
     rule_hits: u64,
     rule_block_lines: u64,
@@ -261,6 +295,14 @@ struct Metrics {
     models_loaded_ts: Option<i64>,
     /// 热重载状态：控制台据此判断"采集器用的是不是磁盘上那一版"
     reload: reload::ReloadState,
+}
+
+#[derive(serde::Serialize)]
+struct RouteMetric {
+    name: String,
+    listen: String,
+    upstream: String,
+    upstream_tls: bool,
 }
 
 /// 首次写指标的时刻（近似"模型会话加载时刻"）：进程内模型只加载一次，之后靠重启更新。
@@ -307,10 +349,21 @@ fn write_metrics(
     let m = Metrics {
         ts: filters::now_ms(),
         pid: std::process::id(),
-        listen: cfg.listen.clone(),
-        upstream: cfg.upstream.clone(),
+        listen: cfg.listen().to_string(),
+        upstream: cfg.upstream().to_string(),
+        routes: cfg
+            .routes
+            .iter()
+            .map(|r| RouteMetric {
+                name: r.name.clone(),
+                listen: r.listen.clone(),
+                upstream: r.upstream.clone(),
+                upstream_tls: r.upstream_tls,
+            })
+            .collect(),
         out_dir: cfg.out_dir.display().to_string(),
         score_enabled: score_on,
+        block_mode: cfg.block_mode.as_str().to_string(),
         artifacts: artifacts.to_string(),
         written: st.written.load(Ordering::Relaxed),
         dropped_queue_full: st.dropped_full.load(Ordering::Relaxed),
@@ -320,6 +373,7 @@ fn write_metrics(
         actions_allow: ac.allow.load(Ordering::Relaxed),
         actions_block: ac.block.load(Ordering::Relaxed),
         actions_alert: ac.alert.load(Ordering::Relaxed),
+        blocked_requests: st.blocked.load(Ordering::Relaxed),
         rule_hit_lines: st.rule_hit_lines.load(Ordering::Relaxed),
         rule_hits: st.rule_hits.load(Ordering::Relaxed),
         rule_block_lines: st.rule_block_lines.load(Ordering::Relaxed),
