@@ -214,6 +214,22 @@ def main() -> int:
     st, cs = call("GET", "/api/collector/status", token=token)
     ck("采集面状态（可缺指标文件）", st == 200, f"{st} available={cs.get('available')}")
 
+    st, ps = call("GET", "/api/proxy/status", token=token)
+    ck("采集代理状态", st == 200 and "running" in ps and "config" in ps,
+       f"{st} running={ps.get('running')} managed={ps.get('managed')} "
+       f"port={ps.get('port_listening')}")
+
+    st, pc = call("GET", "/api/proxy/config", token=token)
+    ck("采集代理配置", st == 200 and "listen" in (pc.get("config") or {}),
+       f"{st} listen={((pc.get('config') or {}).get('listen'))}")
+
+    st, bad = call("PUT", "/api/proxy/config", {"body_keep": 999999999}, token=token)
+    ck("采集代理配置校验（非法值 400）", st == 400, f"{st} {bad}")
+
+    st, ok = call("PUT", "/api/proxy/config", pc.get("config") or {}, token=token)
+    ck("采集代理配置保存（同值）", st == 200 and (ok.get("config") or {}).get("listen")
+       == (pc.get("config") or {}).get("listen"), f"{st}")
+
     st, au = call("GET", "/api/audit", token=token)
     ck("审计", st == 200 and "items" in au, f"{st} n={len(au.get('items') or [])}")
 

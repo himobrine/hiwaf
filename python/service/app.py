@@ -35,8 +35,8 @@ from . import (alerts as alerts_mod, audit_retention, audit_retention_scheduler,
                auth, config, correlate, db,
                ingest as ingest_mod, ingest_scheduler, login_guard,
                model_registry, model_switch,
-               packet as packet_mod, retention, retention_scheduler, rule_spans,
-               rules as rules_mod, rules_dsl, sites as sites_mod,
+               packet as packet_mod, proxy_manager, retention, retention_scheduler,
+               rule_spans, rules as rules_mod, rules_dsl, sites as sites_mod,
                suppression, uploads)
 
 # --------------------------------------------------------------------------- 应用
@@ -182,17 +182,8 @@ def _reload_view(pol: dict, metrics: Optional[dict]) -> dict:
 
 
 def _collector_metrics() -> Optional[dict]:
-    p = config.COLLECTOR_METRICS
-    if not p.exists():
-        return None
-    m = _read_json(p, None)
-    if not isinstance(m, dict):
-        return None
-    age = (db.now_ms() - int(m.get("ts") or 0)) // 1000
-    m["available"] = True
-    m["age_sec"] = age
-    m["stale"] = age > 180
-    return m
+    """采集器 `--stats-out` 指标（兼容旧调用；实现统一在 proxy_manager）。"""
+    return proxy_manager.metrics()
 
 
 # --------------------------------------------------------------------------- 入参模型
@@ -2371,6 +2362,64 @@ def collector_status(user: dict = Depends(auth.current_user)):
     # `**m` 保持向后兼容（顶层仍是采集器原始指标）；`reload_view` 是控制台的解释层：
     # 「磁盘上的策略/规则」vs「采集器实际在用的」，以及是否需要重启。
     return {**m, "reload_view": _reload_view(pol, m), "policy_revision": pol.get("version")}
+
+
+# --------------------------------------------------------------------------- 采集代理管理
+def _proxy_http_error(e: Exception) -> HTTPException:
+    return HTTPException(getattr(e, "status", 400), str(e))
+
+
+@app.get("/api/proxy/status")
+def proxy_status(user: dict = Depends(auth.current_user)):
+    return proxy_manager.status()
+
+
+@app.get("/api/proxy/config")
+def proxy_config(user: dict = Depends(auth.current_user)):
+    return proxy_manager.config_view()
+
+
+@app.put("/api/proxy/config")
+def proxy_config_update(body: dict, request: Request,
+                        user: dict = Depends(auth.require_at_least("admin"))):
+    try:
+        return proxy_manager.update_config(body, user["username"], _ip(request))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/proxy/start")
+def proxy_start(request: Request,
+                user: dict = Depends(auth.require_at_least("admin"))):
+    try:
+        return proxy_manager.start(user["username"], _ip(request))
+    except proxy_manager.ProxyError as e:
+        raise _proxy_http_error(e)
+
+
+@app.post("/api/proxy/stop")
+def proxy_stop(request: Request, body: Optional[dict] = None,
+               user: dict = Depends(auth.require_at_least("admin"))):
+    force = bool((body or {}).get("force"))
+    try:
+        return proxy_manager.stop(user["username"], force=force, ip=_ip(request))
+    except proxy_manager.ProxyError as e:
+        raise _proxy_http_error(e)
+
+
+@app.post("/api/proxy/restart")
+def proxy_restart(request: Request,
+                  user: dict = Depends(auth.require_at_least("admin"))):
+    try:
+        return proxy_manager.restart(user["username"], _ip(request))
+    except proxy_manager.ProxyError as e:
+        raise _proxy_http_error(e)
+
+
+@app.get("/api/proxy/log")
+def proxy_log(tail: int = Query(200, ge=1, le=2000),
+              user: dict = Depends(auth.require_at_least("analyst"))):
+    return proxy_manager.tail_log(tail)
 
 
 @app.post("/api/ingest/scan")

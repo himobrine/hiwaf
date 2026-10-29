@@ -134,6 +134,42 @@ COLLECTOR_METRICS = Path(
     os.environ.get("WAF_COLLECTOR_METRICS", str(RAW_DIR / "collector-metrics.json"))
 )
 
+#: 采集代理控制面可编辑配置（`app_settings` 的 `proxy.*` 键）。
+#:
+#: 刻意**不暴露** `out_dir` 与 `stats_out`：`ingest.py`/`ingest_scheduler` 只扫
+#: `RAW_DIR`，控制台状态只读 `COLLECTOR_METRICS`。允许在界面上改这两项，最容易
+#: 出现「代理在写、控制台没事件」的假故障。
+PROXY_DEFAULTS = {
+    "listen": "127.0.0.1:6188",
+    "upstream": "127.0.0.1:80",
+    "upstream_tls": False,
+    "body_keep": 65536,
+    "body_limit": 1048576,
+    "headers_keep": 8192,
+    "resp_body": "alert",
+    "resp_body_keep": 65536,
+    "file_size_mb": 256,
+    "channel": 8192,
+    "no_body": False,
+    "score": False,
+    "stats_interval": 60,
+    "reload_interval": 5,
+    "artifacts": str(ARTIFACTS),
+    # 空字符串 = `--no-rules`（只跑模型/纯采集）。
+    "rules": str(RULES_AUTHORITATIVE),
+}
+
+_EXE = "waf-collector.exe" if os.name == "nt" else "waf-collector"
+#: 二进制只从这些固定位置解析（外加 `WAF_COLLECTOR_BIN` 覆盖），不接受请求传入。
+PROXY_BIN_CANDIDATES = [
+    ROOT / "proxy" / "target" / "release" / _EXE,
+    Path(os.environ.get("WAF_CARGO_TARGET", r"E:\waf-target")) / "release" / _EXE,
+    ROOT / "rust" / "target" / "release" / _EXE,
+]
+#: 托管进程的 PID 文件与日志（都在控制台日志目录下）。
+PROXY_PID_NAME = "proxy.pid"
+PROXY_LOG_KEEP = 10
+
 TOKEN_TTL_SEC = int(os.environ.get("WAF_CONSOLE_TOKEN_TTL", "28800"))
 #: 总览的事件聚合缓存（秒）：15s 轮询下 5s 足够，设 0 关闭。
 OVERVIEW_CACHE_SEC = max(0, int(os.environ.get("WAF_OVERVIEW_CACHE_SEC", "5")))
