@@ -36,7 +36,8 @@ from . import (alerts as alerts_mod, audit_retention, audit_retention_scheduler,
                ingest as ingest_mod, ingest_scheduler, login_guard,
                model_registry, model_switch,
                packet as packet_mod, retention, retention_scheduler, rule_spans,
-               rules as rules_mod, rules_dsl, sites as sites_mod, uploads)
+               rules as rules_mod, rules_dsl, sites as sites_mod,
+               suppression, uploads)
 
 # --------------------------------------------------------------------------- 应用
 @asynccontextmanager
@@ -230,6 +231,29 @@ class AckIn(BaseModel):
     group_key: str
     status: str = "ack"
     assignee: Optional[str] = None
+
+
+class SuppressionIn(BaseModel):
+    """实体级抑制草案；至少一个实体字段非空，多个字段是 AND。"""
+    src_ip: Optional[str] = None
+    path: Optional[str] = None
+    ua: Optional[str] = None
+    host: Optional[str] = None
+    attack_type: Optional[str] = None
+    reason: str
+    ttl_hours: Optional[int] = None
+    note: Optional[str] = None
+
+
+class SuppressionDecisionIn(BaseModel):
+    note: Optional[str] = None
+
+
+class SuppressionSuggestIn(BaseModel):
+    days: Optional[int] = None
+    min_count: Optional[int] = None
+    ttl_hours: Optional[int] = None
+    limit: int = 50
 
 
 class RulePatch(BaseModel):
@@ -889,6 +913,7 @@ def list_alerts(
     window_hours: int = Query(24, ge=1, le=24 * 90),
     bucket_min: int = Query(10, ge=1, le=1440),
     dedup: bool = False,
+    include_suppressed: bool = False,
     user: dict = Depends(auth.current_user),
 ):
     """聚合告警。
@@ -896,6 +921,8 @@ def list_alerts(
     * 默认：`src_ip + action + method/path + 时间桶`，一条路径一组。
     * `dedup=1`：`src_ip + action + attack_type + 时间桶`，把同一源在同一桶内
       打不同路径的同类攻击合并成一行（`path_count` 是路径数），用于扫描风暴去重。
+    * 生效中的实体级抑制默认折叠（`suppressed_hidden` 计数），
+      `include_suppressed=1` 可显示并带 `suppression` 摘要。
     """
     since = db.now_ms() - window_hours * 3600 * 1000
     bucket_ms = bucket_min * 60 * 1000
@@ -935,8 +962,12 @@ def list_alerts(
         st = states.get(r["group_key"])
         r["status"] = st["status"] if st else "open"
         r["assignee"] = st["assignee"] if st else None
+
+    items, suppressed_hidden = suppression.apply(
+        items, include_suppressed=include_suppressed)
     return {"window_hours": window_hours, "bucket_min": bucket_min,
-            "dedup": dedup, "items": items}
+            "dedup": dedup, "include_suppressed": include_suppressed,
+            "suppressed_hidden": suppressed_hidden, "items": items}
 
 
 @app.get("/api/alerts/events")
@@ -970,6 +1001,7 @@ def alert_chains(
     min_events: int = Query(2, ge=1, le=1000),
     only_suspicious: bool = True,
     include_noise: bool = False,
+    include_suppressed: bool = False,
     limit: int = Query(200, ge=1, le=500),
     user: dict = Depends(auth.current_user),
 ):
@@ -977,6 +1009,7 @@ def alert_chains(
 
     `chain_key` 与聚合告警共用 `alert_state.group_key`，所以确认/关闭走同一个
     `/api/alerts/ack`。扫描噪音（大量探测且无拦截）默认折叠，`include_noise=1` 可看。
+    生效中的实体级抑制同样默认折叠（`suppressed_hidden` 计数）。
     """
     res = correlate.collect(
         window_hours=window_hours, gap_min=gap_min, min_events=min_events,
@@ -996,6 +1029,10 @@ def alert_chains(
         st = states.get(c["chain_key"])
         c["status"] = st["status"] if st else "open"
         c["assignee"] = st["assignee"] if st else None
+
+    res["items"], res["suppressed_hidden"] = suppression.apply(
+        res["items"], include_suppressed=include_suppressed)
+    res["include_suppressed"] = include_suppressed
     return res
 
 
@@ -1029,6 +1066,116 @@ def ack_alert(body: AckIn, request: Request,
     )
     audit(user["username"], "ack_alert", body.group_key, body.status, _ip(request))
     return {"ok": True}
+
+
+# --------------------------------------------------------------------------- 抑制
+@app.get("/api/suppressions")
+def list_suppressions(
+    status: Optional[str] = None,
+    limit: int = Query(200, ge=1, le=1000),
+    user: dict = Depends(auth.current_user),
+):
+    """实体级抑制列表（只影响控制台告警可见性，不改数据面判定）。"""
+    try:
+        items = suppression.list_suppressions(status=status, limit=limit)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {
+        "items": items,
+        "status": status,
+        "default_ttl_hours": config.SUPPRESS_TTL_HOURS,
+        "max_ttl_hours": config.SUPPRESS_MAX_TTL_HOURS,
+    }
+
+
+@app.post("/api/suppressions")
+def create_suppression(
+    body: SuppressionIn,
+    request: Request,
+    user: dict = Depends(auth.require_at_least("analyst")),
+):
+    """创建抑制草案（draft）。需要 admin 审批后才生效。"""
+    try:
+        row = suppression.create_draft(
+            reason=body.reason, ttl_hours=body.ttl_hours, note=body.note,
+            actor=user["username"], src_ip=body.src_ip, path=body.path,
+            ua=body.ua, host=body.host, attack_type=body.attack_type)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    audit(user["username"], "suppress_create", f"suppression:{row['id']}",
+          json.dumps({k: row.get(k) for k in suppression.FIELDS}, ensure_ascii=False),
+          _ip(request))
+    return row
+
+
+@app.post("/api/suppressions/suggest")
+def suggest_suppressions(
+    body: SuppressionSuggestIn,
+    request: Request,
+    user: dict = Depends(auth.require_at_least("analyst")),
+):
+    """从人工确认误报生成草案；只生成 draft，不自动生效。"""
+    try:
+        res = suppression.suggest(
+            days=body.days, min_count=body.min_count, ttl_hours=body.ttl_hours,
+            limit=body.limit, actor=user["username"])
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    audit(user["username"], "suppress_suggest", None,
+          json.dumps({"scanned": res["scanned"], "created": len(res["created"]),
+                      "skipped": len(res["skipped"])}, ensure_ascii=False),
+          _ip(request))
+    return res
+
+
+@app.post("/api/suppressions/{sid}/approve")
+def approve_suppression(
+    sid: int,
+    body: SuppressionDecisionIn,
+    request: Request,
+    user: dict = Depends(auth.require_at_least("admin")),
+):
+    try:
+        row = suppression.approve(sid, user["username"], body.note)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    audit(user["username"], "suppress_approve", f"suppression:{sid}",
+          json.dumps({"expires_at": row.get("expires_at")}, ensure_ascii=False),
+          _ip(request))
+    return row
+
+
+@app.post("/api/suppressions/{sid}/revoke")
+def revoke_suppression(
+    sid: int,
+    body: SuppressionDecisionIn,
+    request: Request,
+    user: dict = Depends(auth.require_at_least("admin")),
+):
+    try:
+        row = suppression.revoke(sid, user["username"], body.note)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    audit(user["username"], "suppress_revoke", f"suppression:{sid}",
+          body.note, _ip(request))
+    return row
+
+
+@app.delete("/api/suppressions/{sid}")
+def delete_suppression(
+    sid: int,
+    request: Request,
+    user: dict = Depends(auth.require_at_least("admin")),
+):
+    """只允许删草案/已撤销行；生效中的必须先撤销，保留审批轨迹。"""
+    try:
+        row = suppression.delete(sid, user["username"])
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    audit(user["username"], "suppress_delete", f"suppression:{sid}",
+          json.dumps({k: row.get(k) for k in suppression.FIELDS}, ensure_ascii=False),
+          _ip(request))
+    return {"ok": True, "deleted": row}
 
 
 # --------------------------------------------------------------------------- 策略

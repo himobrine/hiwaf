@@ -155,6 +155,34 @@ CREATE TABLE IF NOT EXISTS alert_state (
   actor      TEXT
 );
 
+-- 实体级误报抑制：draft → active（带 TTL）→ revoked/expired。
+-- 只影响控制台告警可见性，**不改**数据面判定（不因抑制而放行）。
+-- 至少一个实体字段非空；多个字段是 AND（同时满足才命中）。
+CREATE TABLE IF NOT EXISTS suppressions (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  src_ip        TEXT,
+  path          TEXT,
+  ua            TEXT,
+  host          TEXT,
+  attack_type   TEXT,
+  reason        TEXT NOT NULL,
+  status        TEXT NOT NULL DEFAULT 'draft'
+                CHECK (status IN ('draft','active','revoked','expired')),
+  ttl_hours     INTEGER NOT NULL DEFAULT 168,
+  expires_at    INTEGER,
+  created_by    TEXT,
+  created_at    INTEGER NOT NULL,
+  approved_by   TEXT,
+  approved_at   INTEGER,
+  revoked_by    TEXT,
+  revoked_at    INTEGER,
+  decision_note TEXT,
+  note          TEXT,
+  updated_at    INTEGER
+);
+CREATE INDEX IF NOT EXISTS ix_suppressions_status
+  ON suppressions(status, expires_at);
+
 CREATE TABLE IF NOT EXISTS policy_versions (
   version    INTEGER PRIMARY KEY,
   json       TEXT NOT NULL,

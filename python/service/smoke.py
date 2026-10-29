@@ -110,9 +110,15 @@ def main() -> int:
     ck("告警去重", st == 200 and ad.get("dedup") is True and "items" in ad,
        f"{st} n={len(ad.get('items') or [])}")
 
-    st, ch = call("GET", "/api/alerts/chains?window_hours=168", token=token)
-    ck("攻击链", st == 200 and "items" in ch and "noise_hidden" in ch,
-       f"{st} chains={len(ch.get('items') or [])} noise_hidden={ch.get('noise_hidden')}")
+    st, als = call("GET", "/api/alerts?window_hours=168&include_suppressed=1", token=token)
+    ck("告警·抑制标注", st == 200 and "suppressed_hidden" in als,
+       f"{st} hidden={als.get('suppressed_hidden')} n={len(als.get('items') or [])}")
+
+    st, ch = call("GET", "/api/alerts/chains?window_hours=168&include_suppressed=1", token=token)
+    ck("攻击链", st == 200 and "items" in ch and "noise_hidden" in ch
+       and "suppressed_hidden" in ch,
+       f"{st} chains={len(ch.get('items') or [])} noise_hidden={ch.get('noise_hidden')} "
+       f"sup_hidden={ch.get('suppressed_hidden')}")
 
     if ch.get("items"):
         c0 = ch["items"][0]
@@ -128,6 +134,34 @@ def main() -> int:
            f"{st} total={ce.get('total')} n={len(ce.get('items') or [])}")
     else:
         ck("攻击链下钻（无链数据，跳过）", True, "no chains")
+
+    # 实体级抑制：列表 / 误报扫描（阈值拉高，不写库）/ 草案全生命周期自测后清理。
+    st, sp = call("GET", "/api/suppressions", token=token)
+    ck("抑制列表", st == 200 and "items" in sp and "default_ttl_hours" in sp,
+       f"{st} n={len(sp.get('items') or [])} ttl={sp.get('default_ttl_hours')}")
+
+    st, sg = call("POST", "/api/suppressions/suggest",
+                  {"days": 1, "min_count": 999999}, token=token)
+    ck("误报草案扫描（不写库）", st == 200 and (sg.get("created") or []) == [],
+       f"{st} scanned={sg.get('scanned')} created={len(sg.get('created') or [])}")
+
+    st, cr = call("POST", "/api/suppressions", {
+        "src_ip": "203.0.113.99", "attack_type": "smoke-test",
+        "reason": "smoke self-test", "ttl_hours": 1,
+    }, token=token)
+    sid = cr.get("id")
+    ck("抑制草案创建", st == 200 and cr.get("status") == "draft", f"{st} id={sid}")
+    if sid:
+        try:
+            st, ap = call("POST", f"/api/suppressions/{sid}/approve", {}, token=token)
+            ck("抑制审批生效", st == 200 and ap.get("status") == "active"
+               and ap.get("expires_at"), f"{st} expires={ap.get('expires_at')}")
+            st, rv = call("POST", f"/api/suppressions/{sid}/revoke",
+                          {"note": "smoke cleanup"}, token=token)
+            ck("抑制撤销", st == 200 and rv.get("status") == "revoked", f"{st}")
+        finally:
+            st, dl = call("DELETE", f"/api/suppressions/{sid}", token=token)
+            ck("抑制删除（清理）", st == 200 and dl.get("ok") is True, f"{st} id={sid}")
 
     st, ru = call("GET", "/api/rules", token=token)
     ck("规则", st == 200 and "rules" in ru, f"{st} n={len(ru.get('rules') or [])}")

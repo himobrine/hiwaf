@@ -59,6 +59,12 @@ POLICY_JSON = ARTIFACTS / "decision_policy.json"
 #: 默认指向 artifacts 下的可编辑文件；测试用 patch 指到临时目录。
 TEMPORAL_RULES_JSON = Path(os.environ.get(
     "WAF_TEMPORAL_RULES", str(ARTIFACTS / "temporal_rules.json")))
+#: 实体级抑制：默认 TTL、从误报生成草案的统计窗口/阈值、撤销后冷却期。
+SUPPRESS_TTL_HOURS = max(1, min(2160, int(os.environ.get("WAF_SUPPRESS_TTL_HOURS", "168"))))
+SUPPRESS_MAX_TTL_HOURS = 2160
+SUPPRESS_SUGGEST_DAYS = max(1, min(90, int(os.environ.get("WAF_SUPPRESS_SUGGEST_DAYS", "30"))))
+SUPPRESS_SUGGEST_MIN = max(1, int(os.environ.get("WAF_SUPPRESS_SUGGEST_MIN", "3")))
+SUPPRESS_COOLDOWN_HOURS = max(0, int(os.environ.get("WAF_SUPPRESS_COOLDOWN_HOURS", "24")))
 FEATURE_NAMES = ARTIFACTS / "feature_names_v2.json"
 RULE_CANDIDATES = ARTIFACTS / "rule_candidates.json"
 CURVES = ARTIFACTS / "curves"
