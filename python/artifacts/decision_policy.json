@@ -1,8 +1,8 @@
 {
   "schema": 2,
-  "version": 11,
-  "generated_by": "thresholds.py",
-  "generated_at": "2026-10-29 12:21:03",
+  "version": 12,
+  "generated_by": "console:breaker",
+  "generated_at": 1793250764386,
   "zero_day_enabled": false,
   "calibration_pool": {
     "name": "CSIC 2010 正常流量留出 6,000 条（seed=7 切分，与零日通道训练集互斥）",
@@ -76,7 +76,7 @@
     "budget_method": "wilson95_upper_on_pool",
     "n_pool": 6000,
     "hits_by_block_rule": {},
-    "note": "规则通道是**并列第三通道**（不是『规则→AI』串行管线）。只有 action=block 的命中消耗阻断预算；未被策略认可（总开关关 / 指纹不一致）时规则证据完全不影响动作。预算按实测从监督目标里扣，故融合阻断 FPR 目标不变。"
+    "note": "规则通道熔断/恢复（控制台重新打开规则通道）：通道开启，阻断规则按当前产物执行。预算数字沿用旧值（偏保守）；后台重标定后会精确扣减。"
   },
   "fusion": {
     "policy": "supervised_block__zero_day_alert__rules_block",
