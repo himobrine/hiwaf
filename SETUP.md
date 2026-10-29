@@ -482,6 +482,10 @@ py -3.10 upload_parse.py --input cap.pcap --out %TEMP%\up2 --role benign --defau
   探测多且无拦截的链标为扫描噪音、默认折叠。确认/关闭复用告警状态（`chain_key`
   即 `alert_state.group_key`），下钻抽屉能看到每条事件的阶段标签。
 - 时序规则可用 `WAF_TEMPORAL_RULES` 指向 JSON 覆盖，格式见 `python/service/README.md` §2.3。
+- **实体级抑制**：告警页两个页签都有「显示已抑制」开关。默认折叠生效中的抑制项，
+  只显示「另有 N 组被折叠」；打开后保留行、置灰并标「已抑制」。「抑制策略」页负责
+  草案 → admin 审批（带 TTL）→ 撤销/过期；也可从人工确认误报自动生成草案。
+  **抑制只影响控制台可见性，不改数据面 block/alert 判定**，详见 `service/README.md` §2.4。
 
 **必须在界面上记住的四件事**：
 
@@ -772,12 +776,14 @@ py -3.10 import_waf_rules.py --write-db         # 写成草稿（enabled=0 / act
 4. **datacon2025 完整版仍未拿到**，OOD 评估可信度受限；替代品 = CSIC 2010 + CIC-IDS2017。
 5. **CI / 托管暂缓**（用户后续用 VM）；构建缓存不要落在 `F:`。
 6. **控制台待办**（见 `python\service\README.md` §6）：
-   1. **90 天 raw/事件清理已实现但未自动调度**：提供 dry-run / apply / pending 处置 API，
-      需由计划任务按日调用；`rule_hits_daily` / `rule_incidents` 的保留清理仍未做；
+   1. **90 天 raw/事件清理**：dry-run / apply / pending 处置 API + 每日自动 dry-run 已实现，
+      真正 apply 仍需 admin 显式确认；`rule_hits_daily` / `rule_incidents` 随同一 cutoff 清理；
    2. **用户管理页缺失**：只有引导创建的 `admin`，没有增删改用户接口；
    3. ~~攻击链关联未实现~~：已实现同源 + UA 切链、阶段分类、扫描噪音降级与
       时序规则；告警页「攻击链」页签 + `dedup=1` 同源同类去重（见 `service/README.md` §2.3）；
-   4. 若要多人并发/多机，SQLite 需迁 Postgres。
+   4. ~~实体级误报抑制未实现~~：已实现草案 → 审批（TTL）→ 撤销/过期，支持从确认误报
+      生成草案；告警/攻击链默认折叠被抑制项，只影响控制台可见性（见 §2.4）；
+   5. 若要多人并发/多机，SQLite 需迁 Postgres。
 7. **规则启停不会自动进数据面**：`enabled=1` 只是“测试中”；接进数据面要走「提升到现役」
    （写 `artifacts\rules_authoritative.json` + 策略指纹），采集器 ≤5s 热重载。
    未合格规则即使提升也只会 `alert`；`block` 只对已合格 + 人工翻转开放。

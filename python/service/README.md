@@ -38,6 +38,7 @@ py -3.10 -m service.run                  # http://127.0.0.1:8090/docs
 | `uploads.py` | 用户上传训练数据：存储/子进程解析/重叠剔除/预览/软删除（解析在 `../upload_parse.py`） |
 | `alerts.py` | 告警（聚合）下钻：同公式复算时间桶 + 精确匹配，取某聚合组的原始事件（含分页）；`dedup_groups` 做同源同类去重 |
 | `correlate.py` | 同源攻击链：按 `(src_ip, ua)` + 间隔切链、阶段分类（探测/试探/利用）、扫描噪音降级、时序规则（`sequence/group_by/within`） |
+| `suppression.py` | 实体级误报抑制：草案/审批/TTL/撤销/惰性过期、AND 匹配、告警/攻击链折叠、误报草案生成 |
 | `sites.py` | 站点（Host）→ 模型：按逐条判决留证 + 策略快照反查每站点实际在跑哪套模型，并与现役对比定状态 |
 | `audit_retention.py` | 审计保留：90 天 dry-run 预览、按时间分批清理、勾选删除、每次删除写 `audit_cleanup*` |
 | `audit_retention_scheduler.py` | 审计日志每日自动清理（0 条不写审计；异常尽力写 `audit_cleanup_failed`） |
@@ -53,6 +54,7 @@ py -3.10 -m service.run                  # http://127.0.0.1:8090/docs
 | `test_audit_retention.py` | 审计保留：dry-run、只删旧行、清理留痕、勾选删除、回滚、自动清理开关 |
 | `test_alerts_drilldown.py` | 聚合下钻：精确匹配（子串不混入）、桶边界左闭右开、NULL 字段、分页；`dedup=1` 同源同类合并 |
 | `test_correlate.py` | 攻击链：阶段分类、gap 切链、同毫秒稳定、噪音降级、时序窗口边界、规则 JSON 覆盖/回退、链下钻 |
+| `test_suppression.py` | 抑制：实体校验、草案/审批/撤销/删除、TTL 惰性过期、AND 匹配保守语义、折叠计数、误报草案去重与冷却 |
 | `test_db_session.py` | 连接复用：`session()` 分组/嵌套、线程内长连接、换库自动重连、关池释放句柄 |
 | `test_overview_cache.py` | 总览聚合：SQL 分桶直方图、越界夹取、TTL 缓存命中/关闭 |
 | `test_events_paging.py` | 事件 keyset 分页：(ts,id) 游标不重不漏、`with_total=false` 跳过 COUNT、复合索引命中 |
@@ -74,6 +76,8 @@ py -3.10 -m service.run                  # http://127.0.0.1:8090/docs
 | **查看请求/响应取证包**（每次写审计） | ❌ | ✅ | ✅ |
 | **显示敏感头 / 下载原始体**（每次写审计） | ❌ | ✅ | ✅ |
 | 人工反馈、告警确认 | ❌ | ✅ | ✅ |
+| 创建抑制草案 / 从误报生成草案 | ❌ | ✅ | ✅ |
+| 审批 / 撤销 / 删除抑制 | ❌ | ❌ | ✅ |
 | 策略预览 / 提升、零日开关、规则启停、任务 | ❌ | ❌ | ✅ |
 | 上传训练数据 / 预览上传数据集 | ❌ | ✅ | ✅ |
 | 删除上传数据集 | ❌ | ❌ | ✅ |
@@ -108,6 +112,10 @@ py -3.10 -m service.run                  # http://127.0.0.1:8090/docs
 | `WAF_SENSITIVE_HEADERS` | Authorization, Cookie, Set-Cookie, X-Api-Key... | 默认逐字符 `*` 打码的头名（逗号分隔，大小写不敏感） |
 | `WAF_COLLECTOR_METRICS` | `traindata/proxy/collector-metrics.json` | 采集器 `--stats-out` 指标文件 |
 | `WAF_TEMPORAL_RULES` | `artifacts/temporal_rules.json` | 时序规则 JSON；缺失/非法时回退内置 3 条规则 |
+| `WAF_SUPPRESS_TTL_HOURS` | `168` | 抑制草案默认 TTL（小时，1–2160） |
+| `WAF_SUPPRESS_SUGGEST_DAYS` | `30` | 从误报生成草案的统计窗口（天，1–90） |
+| `WAF_SUPPRESS_SUGGEST_MIN` | `3` | 同一 `(src_ip, attack_type)` 至少多少条确认误报才生成草案 |
+| `WAF_SUPPRESS_COOLDOWN_HOURS` | `24` | 撤销/过期后多久内不再自动生成同实体草案 |
 
 ## 2.2 性能与数据层
 
@@ -163,6 +171,30 @@ py -3.10 -m service.run                  # http://127.0.0.1:8090/docs
 **同源同类去重**：`/api/alerts?dedup=1` 把 `src_ip + action + attack_type + 时间桶`
 相同的路径合并成一行，`path_count` 是不同 `method path` 数；下钻走
 `/api/alerts/events?dedup=1&attack_type=...`，条数仍与聚合行一致。
+
+## 2.4 实体级误报抑制
+
+规则熔断的粒度是**整条规则**；抑制的粒度是**实体**。典型场景：某个 IP 的 XSS
+命中经人工确认全是误报——要的不是关掉 XSS 规则，而是「该 IP 的 XSS 命中在
+控制台折叠 7 天」。
+
+**边界**：只影响控制台告警可见性，**不改数据面 block/alert 判定**。被抑制的
+命中仍会拦截/告警、仍进事件表与审计，只是聚合告警/攻击链列表默认折叠。
+
+- **实体字段**：`src_ip` / `path` / `ua` / `host` / `attack_type`。多个字段是
+  **AND**（同时满足才命中），至少一个非空；`path` 必须以 `/` 开头。
+  `item` 缺少抑制要求的字段时视为**不匹配**（保守），避免误伤整组。
+- **状态机**：`draft`（默认不生效）→ `active`（admin 审批，写入 `expires_at`）
+  → `revoked`（人工撤销）/ `expired`（到期惰性扫描：读列表/生效项时顺手
+  `UPDATE`，无后台线程）。删除只允许 `draft`/`revoked`；`active` 必须先撤销，
+  审批轨迹保留在行内与审计里。
+- **误报草案**：`POST /api/suppressions/suggest` 按 `(src_ip, attack_type)` 统计
+  近 N 天 `feedback.verdict='false_positive'`，达到阈值才生成 `draft`；已有同签名
+  草案/生效抑制、或撤销/过期仍在冷却期内 → 跳过。**只生成草案，不自动生效。**
+- **匹配范围**：聚合组看 `src_ip/ua/host/attack_type/path`；攻击链额外支持
+  `hosts[]` / `attack_types[]` / `top_paths[]`，任一命中即算（再与其它字段 AND）。
+- **审计**：创建/扫描/审批/撤销/删除分别写 `suppress_create` / `suppress_suggest`
+  / `suppress_approve` / `suppress_revoke` / `suppress_delete`。
 
 ## 3. 接口
 
@@ -245,16 +277,30 @@ path/trash 同时存在、symlink、stat 不匹配都不会自动删；连续 5 
 **`feedback` 保留**（人工结论不随证据过期丢弃）。
 
 ### 告警
-- `GET  /api/alerts?window_hours&bucket_min&dedup` — 默认按 **源IP + 动作 + 方法/路径 + 时间桶**
-  聚合；`dedup=1` 改为 **源IP + 动作 + 攻击类型 + 时间桶**，返回 `path_count`
+- `GET  /api/alerts?window_hours&bucket_min&dedup&include_suppressed` — 默认按 **源IP + 动作 + 方法/路径 + 时间桶**
+  聚合；`dedup=1` 改为 **源IP + 动作 + 攻击类型 + 时间桶**，返回 `path_count`。
+  生效中的实体级抑制默认折叠，返回 `suppressed_hidden` 计数；`include_suppressed=1`
+  保留行并附 `suppression` 摘要（用于「已抑制」标签）。
 - `GET  /api/alerts/events` — 下钻：`src_ip/action/bucket/bucket_min/method/path/limit/offset`，
   与聚合同公式复算时间桶（左闭右开）、method/path 精确匹配（NULL 归一空串），
   服务端分页；保证抽屉里的条数 = 聚合行的 n。`dedup=1&attack_type=...` 走下钻合并组。
-- `GET  /api/alerts/chains?window_hours&gap_min&min_events&only_suspicious&include_noise&limit`
-  — 同源攻击链（见 §2.3），附带 `status/assignee`（同 `alert_state`）与 `sequences`
+- `GET  /api/alerts/chains?window_hours&gap_min&min_events&only_suspicious&include_noise&include_suppressed&limit`
+  — 同源攻击链（见 §2.3），附带 `status/assignee`（同 `alert_state`）与 `sequences`；
+  同样返回 `suppressed_hidden`，`include_suppressed=1` 时保留被抑制链
 - `GET  /api/alerts/chains/events?src_ip&ua&from_ts&to_ts&limit&offset`
   — 链下钻：同源 + 同 UA + 时间范围，返回 `stage` 阶段分类
 - `POST /api/alerts/ack` body `{group_key, status, assignee}`（链的 `chain_key` 同样走这里）
+
+### 实体级抑制（见 §2.4）
+- `GET  /api/suppressions?status&limit` — 列表；`status` 可选 `draft/active/revoked/expired`，
+  同时返回 `default_ttl_hours` / `max_ttl_hours`
+- `POST /api/suppressions` body `{src_ip?, path?, ua?, host?, attack_type?, reason, ttl_hours?, note?}`
+  — 创建**草案**（analyst+）；至少一个实体字段，多个字段 AND
+- `POST /api/suppressions/suggest` body `{days?, min_count?, ttl_hours?, limit?}`
+  — 从人工确认误报生成草案（analyst+），返回 `scanned/created/skipped`
+- `POST /api/suppressions/{id}/approve` body `{note?}` — admin 审批，写入 `expires_at`
+- `POST /api/suppressions/{id}/revoke` body `{note?}` — admin 撤销草案/生效项
+- `DELETE /api/suppressions/{id}` — admin；只允许 `draft`/`revoked`，`active` 必须先撤销
 
 ### 策略（**唯一事实来源仍是 `artifacts/decision_policy.json`**）
 - `GET  /api/policy` — 现役策略 + 版本历史 + warnings
@@ -458,7 +504,7 @@ path/trash 同时存在、symlink、stat 不匹配都不会自动删；连续 5 
 ## 5. 自检
 
 ```bash
-py -3.10 -X utf8 -m service.smoke          # 需要服务已启动；20 项
+py -3.10 -X utf8 -m service.smoke          # 需要服务已启动；30 项
 py -3.10 -X utf8 -m unittest service.test_packet -v   # packet 纯函数测试
 py -3.10 -X utf8 -m service.test_rule_spans -v        # 规则命中精确标位测试
 py -3.10 -X utf8 -m service.test_rules_bulk -v        # 按 ID 批量规则操作测试
@@ -474,6 +520,7 @@ py -3.10 -X utf8 -m service.test_task_plan_upload -v  # 上传训练任务 argv 
 py -3.10 -X utf8 -m service.test_audit_retention -v   # 审计保留/勾选删除/自动清理测试
 py -3.10 -X utf8 -m service.test_alerts_drilldown -v  # 告警聚合下钻：桶边界/精确匹配/分页/去重
 py -3.10 -X utf8 -m service.test_correlate -v         # 攻击链：阶段/gap 切链/噪音降级/时序规则
+py -3.10 -X utf8 -m service.test_suppression -v       # 实体级抑制：状态机/TTL/匹配/折叠/误报草案
 py -3.10 -X utf8 -m service.test_sites -v             # 站点→模型：归组/状态/快照反查
 py -3.10 -X utf8 -m service.test_db_session -v        # 连接复用：session/线程内长连接/换库
 py -3.10 -X utf8 -m service.test_overview_cache -v    # 总览：SQL 分桶直方图 + TTL 缓存
@@ -503,5 +550,9 @@ curl -s -X POST -H "Authorization: Bearer <admin-token>" -H "Content-Type: appli
       告警状态批量查询（见 §2.2）。
 - [x] **攻击链关联**：`correlate.py` 做同源 + UA 切链、阶段分类、扫描噪音降级与
       时序规则（`sequence/group_by/within`）；`/api/alerts?dedup=1` 做同源同类去重。
+- [x] **实体级误报抑制**：`suppression.py` 做草案/审批/TTL/撤销/惰性过期与 AND 匹配；
+      告警/攻击链默认折叠已抑制项，误报统计可生成草案（见 §2.4）。
+- [ ] **抑制生效范围可再收窄**：目前实体字段是精确匹配；若需要 CIDR / 路径前缀 /
+      正则 UA，需要新增匹配类型并写清审计与回滚语义。
 - [ ] **用户管理页**：目前只有引导创建的 `admin`，没有增删改用户的接口。
 - [ ] **SQLite 迁移到 Postgres**（若要多人并发/多机）。
