@@ -1803,12 +1803,21 @@ def update_custom_rule(rid: str, body: RuleEditIn, request: Request,
 @app.delete("/api/rules/custom/{rid}")
 def delete_custom_rule(rid: str, request: Request,
                        user: dict = Depends(auth.require_at_least("admin"))):
+    """删除自撰规则：DB 行 + 历史证据 + 熔断行，并从现役规则集立即移除。"""
     try:
-        rules_mod.delete_custom(rid)
+        out = rules_mod.delete_custom(rid, actor=user["username"])
     except ValueError as e:
-        raise HTTPException(404, str(e))
-    audit(user["username"], "rule_delete", rid, None, _ip(request))
-    return {"ok": True}
+        raise HTTPException(404 if "不存在" in str(e) else 400, str(e))
+    except Exception as e:  # noqa: BLE001 - 产物写入失败：已回滚，未删 DB
+        raise HTTPException(500, f"删除失败（未改动任何状态）：{e}")
+    if out.get("active"):
+        # 现役规则集变了：重导出 testvec，避免 Rust 门禁指纹不一致。
+        out["testvec"] = rules_mod.refresh_testvec()
+    audit(user["username"], "rule_delete", rid,
+          json.dumps({"name": out.get("name"), "active": out.get("active"),
+                      "testvec_ok": (out.get("testvec") or {}).get("ok")},
+                     ensure_ascii=False), _ip(request))
+    return {"ok": True, **out}
 
 
 @app.patch("/api/rules/custom/{rid}")

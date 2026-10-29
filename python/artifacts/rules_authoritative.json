@@ -1,7 +1,7 @@
 {
  "schema": 1,
- "ruleset_id": "authoritative-1793267894",
- "generated_at": 1793267894075,
+ "ruleset_id": "authoritative-1793268769",
+ "generated_at": 1793268769980,
  "decode": [
   "urlencoded",
   "unicode"
@@ -9,15 +9,15 @@
  "min_weight_to_block": 1.0,
  "counts": {
   "total": 91,
-  "block": 40,
-  "alert": 51,
+  "block": 41,
+  "alert": 50,
   "mined": 21,
   "custom": 70,
   "crs": 0,
   "wafjson": 66,
   "proven": 77,
   "user_override": 14,
-  "testing": 29,
+  "testing": 0,
   "breaker": 0,
   "by_verdict": {
    "insufficient_support": 2,
@@ -607,7 +607,7 @@
    ],
    "severity": "medium",
    "weight": 1.0,
-   "action": "alert",
+   "action": "block",
    "source": "manual",
    "provenance": {
     "kind": "detector",
@@ -641,7 +641,7 @@
       }
      },
      "failed_at": "attack_replay",
-     "tool": "C:\\Users\\lenovo\\AppData\\Local\\Temp\\waf_rule_val_eqggjbht\\rules.json",
+     "tool": "C:\\Users\\lenovo\\AppData\\Local\\Temp\\waf_rule_val_p6h6eecw\\rules.json",
      "calibration": {
       "schema": 1,
       "ruleset_sha1_16": null,
@@ -993,7 +993,7 @@
     "qualified_by": "admin",
     "qualification_source": "history_replay",
     "qualification_note": "历史告警回放：sqlmap UA 命中 90 条确认攻击 / 0 条确认良性",
-    "action_requested": "alert",
+    "action_requested": "block",
     "action_forced": null,
     "breaker": null
    }
@@ -2990,13 +2990,13 @@
       }
      }
     },
-    "qualification": "testing",
-    "qualified_at": null,
-    "qualified_by": null,
-    "qualification_source": null,
+    "qualification": "qualified",
+    "qualified_at": 1793268347229,
+    "qualified_by": "admin",
+    "qualification_source": "admin_override",
     "qualification_note": null,
     "action_requested": "alert",
-    "action_forced": "alert",
+    "action_forced": null,
     "breaker": null
    }
   },
@@ -4592,13 +4592,13 @@
       }
      }
     },
-    "qualification": "testing",
-    "qualified_at": null,
-    "qualified_by": null,
-    "qualification_source": null,
+    "qualification": "qualified",
+    "qualified_at": 1793268374366,
+    "qualified_by": "admin",
+    "qualification_source": "admin_override",
     "qualification_note": null,
     "action_requested": "alert",
-    "action_forced": "alert",
+    "action_forced": null,
     "breaker": null
    }
   },
@@ -4993,13 +4993,13 @@
       }
      }
     },
-    "qualification": "testing",
-    "qualified_at": null,
-    "qualified_by": null,
-    "qualification_source": null,
+    "qualification": "qualified",
+    "qualified_at": 1793268382549,
+    "qualified_by": "admin",
+    "qualification_source": "admin_override",
     "qualification_note": null,
     "action_requested": "alert",
-    "action_forced": "alert",
+    "action_forced": null,
     "breaker": null
    }
   },
@@ -5393,13 +5393,13 @@
       }
      }
     },
-    "qualification": "testing",
-    "qualified_at": null,
-    "qualified_by": null,
-    "qualification_source": null,
+    "qualification": "qualified",
+    "qualified_at": 1793268378785,
+    "qualified_by": "admin",
+    "qualification_source": "admin_override",
     "qualification_note": null,
     "action_requested": "alert",
-    "action_forced": "alert",
+    "action_forced": null,
     "breaker": null
    }
   },
@@ -5793,13 +5793,13 @@
       }
      }
     },
-    "qualification": "testing",
-    "qualified_at": null,
-    "qualified_by": null,
-    "qualification_source": null,
+    "qualification": "qualified",
+    "qualified_at": 1793268385955,
+    "qualified_by": "admin",
+    "qualification_source": "admin_override",
     "qualification_note": null,
     "action_requested": "alert",
-    "action_forced": "alert",
+    "action_forced": null,
     "breaker": null
    }
   },
@@ -6193,13 +6193,13 @@
       }
      }
     },
-    "qualification": "testing",
-    "qualified_at": null,
-    "qualified_by": null,
-    "qualification_source": null,
+    "qualification": "qualified",
+    "qualified_at": 1793268389547,
+    "qualified_by": "admin",
+    "qualification_source": "admin_override",
     "qualification_note": null,
     "action_requested": "alert",
-    "action_forced": "alert",
+    "action_forced": null,
     "breaker": null
    }
   },
@@ -6593,13 +6593,13 @@
       }
      }
     },
-    "qualification": "testing",
-    "qualified_at": null,
-    "qualified_by": null,
-    "qualification_source": null,
+    "qualification": "qualified",
+    "qualified_at": 1793268393848,
+    "qualified_by": "admin",
+    "qualification_source": "admin_override",
     "qualification_note": null,
     "action_requested": "alert",
-    "action_forced": "alert",
+    "action_forced": null,
     "breaker": null
    }
   },
@@ -6993,13 +6993,13 @@
       }
      }
     },
-    "qualification": "testing",
-    "qualified_at": null,
-    "qualified_by": null,
-    "qualification_source": null,
+    "qualification": "qualified",
+    "qualified_at": 1793268398539,
+    "qualified_by": "admin",
+    "qualification_source": "admin_override",
     "qualification_note": null,
     "action_requested": "alert",
-    "action_forced": "alert",
+    "action_forced": null,
     "breaker": null
    }
   },
@@ -7393,13 +7393,13 @@
       }
      }
     },
-    "qualification": "testing",
-    "qualified_at": null,
-    "qualified_by": null,
-    "qualification_source": null,
+    "qualification": "qualified",
+    "qualified_at": 1793268402901,
+    "qualified_by": "admin",
+    "qualification_source": "admin_override",
     "qualification_note": null,
     "action_requested": "alert",
-    "action_forced": "alert",
+    "action_forced": null,
     "breaker": null
    }
   },
@@ -8192,13 +8192,13 @@
       }
      }
     },
-    "qualification": "testing",
-    "qualified_at": null,
-    "qualified_by": null,
-    "qualification_source": null,
+    "qualification": "qualified",
+    "qualified_at": 1793268407027,
+    "qualified_by": "admin",
+    "qualification_source": "admin_override",
     "qualification_note": null,
     "action_requested": "alert",
-    "action_forced": "alert",
+    "action_forced": null,
     "breaker": null
    }
   },
@@ -8592,13 +8592,13 @@
       }
      }
     },
-    "qualification": "testing",
-    "qualified_at": null,
-    "qualified_by": null,
-    "qualification_source": null,
+    "qualification": "qualified",
+    "qualified_at": 1793268410661,
+    "qualified_by": "admin",
+    "qualification_source": "admin_override",
     "qualification_note": null,
     "action_requested": "alert",
-    "action_forced": "alert",
+    "action_forced": null,
     "breaker": null
    }
   },
@@ -8992,13 +8992,13 @@
       }
      }
     },
-    "qualification": "testing",
-    "qualified_at": null,
-    "qualified_by": null,
-    "qualification_source": null,
+    "qualification": "qualified",
+    "qualified_at": 1793268415224,
+    "qualified_by": "admin",
+    "qualification_source": "admin_override",
     "qualification_note": null,
     "action_requested": "alert",
-    "action_forced": "alert",
+    "action_forced": null,
     "breaker": null
    }
   },
@@ -9392,13 +9392,13 @@
       }
      }
     },
-    "qualification": "testing",
-    "qualified_at": null,
-    "qualified_by": null,
-    "qualification_source": null,
+    "qualification": "qualified",
+    "qualified_at": 1793268418652,
+    "qualified_by": "admin",
+    "qualification_source": "admin_override",
     "qualification_note": null,
     "action_requested": "alert",
-    "action_forced": "alert",
+    "action_forced": null,
     "breaker": null
    }
   },
@@ -9792,13 +9792,13 @@
       }
      }
     },
-    "qualification": "testing",
-    "qualified_at": null,
-    "qualified_by": null,
-    "qualification_source": null,
+    "qualification": "qualified",
+    "qualified_at": 1793268422487,
+    "qualified_by": "admin",
+    "qualification_source": "admin_override",
     "qualification_note": null,
     "action_requested": "alert",
-    "action_forced": "alert",
+    "action_forced": null,
     "breaker": null
    }
   },
@@ -10592,13 +10592,13 @@
       }
      }
     },
-    "qualification": "testing",
-    "qualified_at": null,
-    "qualified_by": null,
-    "qualification_source": null,
+    "qualification": "qualified",
+    "qualified_at": 1793268427443,
+    "qualified_by": "admin",
+    "qualification_source": "admin_override",
     "qualification_note": null,
     "action_requested": "alert",
-    "action_forced": "alert",
+    "action_forced": null,
     "breaker": null
    }
   },
@@ -13390,13 +13390,13 @@
       }
      }
     },
-    "qualification": "testing",
-    "qualified_at": null,
-    "qualified_by": null,
-    "qualification_source": null,
+    "qualification": "qualified",
+    "qualified_at": 1793268431564,
+    "qualified_by": "admin",
+    "qualification_source": "admin_override",
     "qualification_note": null,
     "action_requested": "alert",
-    "action_forced": "alert",
+    "action_forced": null,
     "breaker": null
    }
   },
@@ -14191,13 +14191,13 @@
       }
      }
     },
-    "qualification": "testing",
-    "qualified_at": null,
-    "qualified_by": null,
-    "qualification_source": null,
+    "qualification": "qualified",
+    "qualified_at": 1793268435015,
+    "qualified_by": "admin",
+    "qualification_source": "admin_override",
     "qualification_note": null,
     "action_requested": "alert",
-    "action_forced": "alert",
+    "action_forced": null,
     "breaker": null
    }
   },
@@ -14591,13 +14591,13 @@
       }
      }
     },
-    "qualification": "testing",
-    "qualified_at": null,
-    "qualified_by": null,
-    "qualification_source": null,
+    "qualification": "qualified",
+    "qualified_at": 1793268440673,
+    "qualified_by": "admin",
+    "qualification_source": "admin_override",
     "qualification_note": null,
     "action_requested": "alert",
-    "action_forced": "alert",
+    "action_forced": null,
     "breaker": null
    }
   },
@@ -14992,13 +14992,13 @@
       }
      }
     },
-    "qualification": "testing",
-    "qualified_at": null,
-    "qualified_by": null,
-    "qualification_source": null,
+    "qualification": "qualified",
+    "qualified_at": 1793268446875,
+    "qualified_by": "admin",
+    "qualification_source": "admin_override",
     "qualification_note": null,
     "action_requested": "alert",
-    "action_forced": "alert",
+    "action_forced": null,
     "breaker": null
    }
   },
@@ -16192,13 +16192,13 @@
       }
      }
     },
-    "qualification": "testing",
-    "qualified_at": null,
-    "qualified_by": null,
-    "qualification_source": null,
+    "qualification": "qualified",
+    "qualified_at": 1793268453302,
+    "qualified_by": "admin",
+    "qualification_source": "admin_override",
     "qualification_note": null,
     "action_requested": "alert",
-    "action_forced": "alert",
+    "action_forced": null,
     "breaker": null
    }
   },
@@ -16592,13 +16592,13 @@
       }
      }
     },
-    "qualification": "testing",
-    "qualified_at": null,
-    "qualified_by": null,
-    "qualification_source": null,
+    "qualification": "qualified",
+    "qualified_at": 1793268457484,
+    "qualified_by": "admin",
+    "qualification_source": "admin_override",
     "qualification_note": null,
     "action_requested": "alert",
-    "action_forced": "alert",
+    "action_forced": null,
     "breaker": null
    }
   },
@@ -16993,13 +16993,13 @@
       }
      }
     },
-    "qualification": "testing",
-    "qualified_at": null,
-    "qualified_by": null,
-    "qualification_source": null,
+    "qualification": "qualified",
+    "qualified_at": 1793268461767,
+    "qualified_by": "admin",
+    "qualification_source": "admin_override",
     "qualification_note": null,
     "action_requested": "alert",
-    "action_forced": "alert",
+    "action_forced": null,
     "breaker": null
    }
   },
@@ -18597,13 +18597,13 @@
       }
      }
     },
-    "qualification": "testing",
-    "qualified_at": null,
-    "qualified_by": null,
-    "qualification_source": null,
+    "qualification": "qualified",
+    "qualified_at": 1793268465537,
+    "qualified_by": "admin",
+    "qualification_source": "admin_override",
     "qualification_note": null,
     "action_requested": "alert",
-    "action_forced": "alert",
+    "action_forced": null,
     "breaker": null
    }
   },
@@ -19397,13 +19397,13 @@
       }
      }
     },
-    "qualification": "testing",
-    "qualified_at": null,
-    "qualified_by": null,
-    "qualification_source": null,
+    "qualification": "qualified",
+    "qualified_at": 1793268478880,
+    "qualified_by": "admin",
+    "qualification_source": "admin_override",
     "qualification_note": null,
     "action_requested": "alert",
-    "action_forced": "alert",
+    "action_forced": null,
     "breaker": null
    }
   },
@@ -20198,13 +20198,13 @@
       }
      }
     },
-    "qualification": "testing",
-    "qualified_at": null,
-    "qualified_by": null,
-    "qualification_source": null,
+    "qualification": "qualified",
+    "qualified_at": 1793268483084,
+    "qualified_by": "admin",
+    "qualification_source": "admin_override",
     "qualification_note": null,
     "action_requested": "alert",
-    "action_forced": "alert",
+    "action_forced": null,
     "breaker": null
    }
   },
@@ -20599,13 +20599,13 @@
       }
      }
     },
-    "qualification": "testing",
-    "qualified_at": null,
-    "qualified_by": null,
-    "qualification_source": null,
+    "qualification": "qualified",
+    "qualified_at": 1793268486631,
+    "qualified_by": "admin",
+    "qualification_source": "admin_override",
     "qualification_note": null,
     "action_requested": "alert",
-    "action_forced": "alert",
+    "action_forced": null,
     "breaker": null
    }
   },
@@ -21000,13 +21000,13 @@
       }
      }
     },
-    "qualification": "testing",
-    "qualified_at": null,
-    "qualified_by": null,
-    "qualification_source": null,
+    "qualification": "qualified",
+    "qualified_at": 1793268491105,
+    "qualified_by": "admin",
+    "qualification_source": "admin_override",
     "qualification_note": null,
     "action_requested": "alert",
-    "action_forced": "alert",
+    "action_forced": null,
     "breaker": null
    }
   },
@@ -22201,13 +22201,13 @@
       }
      }
     },
-    "qualification": "testing",
-    "qualified_at": null,
-    "qualified_by": null,
-    "qualification_source": null,
+    "qualification": "qualified",
+    "qualified_at": 1793268504415,
+    "qualified_by": "admin",
+    "qualification_source": "admin_override",
     "qualification_note": null,
     "action_requested": "alert",
-    "action_forced": "alert",
+    "action_forced": null,
     "breaker": null
    }
   },
@@ -23003,13 +23003,13 @@
       }
      }
     },
-    "qualification": "testing",
-    "qualified_at": null,
-    "qualified_by": null,
-    "qualification_source": null,
+    "qualification": "qualified",
+    "qualified_at": 1793268495677,
+    "qualified_by": "admin",
+    "qualification_source": "admin_override",
     "qualification_note": null,
     "action_requested": "alert",
-    "action_forced": "alert",
+    "action_forced": null,
     "breaker": null
    }
   },

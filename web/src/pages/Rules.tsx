@@ -528,13 +528,22 @@ export default function Rules({ user }: { user: User }) {
   const remove = (r: RuleRow) => {
     Modal.confirm({
       title: `删除规则 ${r.id}？`,
-      content: '自撰规则一旦删除不可恢复。若它已在现役规则集里，请重新「提升」以把它移出现役。',
+      content:
+        '删除不可撤销：会同时清理历史告警证据、熔断记录，并**立即从现役规则集移除**' +
+        '（采集器 5s 内热重载）。',
       okText: '删除',
       okButtonProps: { danger: true },
       onOk: async () => {
         try {
-          await api(`/api/rules/custom/${encodeURIComponent(r.id)}`, { method: 'DELETE' })
-          message.success('已删除')
+          const out = await api<any>(`/api/rules/custom/${encodeURIComponent(r.id)}`,
+            { method: 'DELETE' })
+          if (out?.active) {
+            message.success(
+              `已删除并从现役移除（策略 v${out.active.policy_version}，${out.active.n_rules} 条）`,
+            )
+          } else {
+            message.success('已删除（该规则不在现役规则集）')
+          }
           await load()
         } catch (e: any) {
           message.error(e?.message || '删除失败')
@@ -944,8 +953,12 @@ export default function Rules({ user }: { user: User }) {
     const errors = out?.errors || []
     const skipped = out?.skipped || []
     const n = out?.n_changed ?? out?.changed?.length ?? 0
+    const removed = out?.active_removed || []
+    const removedNote = removed.length
+      ? `；其中 ${removed.length} 条已从现役规则集移除`
+      : ''
     if (!errors.length && !skipped.length) {
-      message.success(`${title}：成功 ${n} 条`)
+      message.success(`${title}：成功 ${n} 条${removedNote}`)
       return
     }
     Modal.info({
@@ -954,6 +967,12 @@ export default function Rules({ user }: { user: User }) {
       content: (
         <div>
           <p>成功 <b>{n}</b> 条；跳过/未处理 <b>{skipped.length}</b> 条；失败 <b>{errors.length}</b> 条。</p>
+          {removed.length ? (
+            <p>
+              已从现役规则集移除 <b>{removed.length}</b> 条（采集器 5s 内热重载）
+              {out?.testvec && !out.testvec.ok ? '；testvec 刷新失败，Rust 门禁会暂时不一致' : ''}
+            </p>
+          ) : null}
           {errors.length ? (
             <div style={{ maxHeight: 260, overflow: 'auto' }}>
               <b>失败原因</b>
@@ -998,8 +1017,11 @@ export default function Rules({ user }: { user: User }) {
                 : `当前选中规则中可 block：${customBlockEligible} 条。`}
             </p>
           ) : null}
-          {op === 'delete' ? <p><b>删除不可撤销。</b></p> : null}
-          <p className="muted">改动只写入控制面，需重新「提升到现役」才会在数据面生效。</p>
+          {op === 'delete' ? (
+            <p><b>删除不可撤销；会立即从现役规则集移除（采集器 5s 内热重载）。</b></p>
+          ) : (
+            <p className="muted">改动只写入控制面，需重新「提升到现役」才会在数据面生效。</p>
+          )}
         </div>
       ),
       okText: label,

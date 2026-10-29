@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import time
 from typing import Any, Dict, List, Optional
 
@@ -585,11 +586,23 @@ def update_custom(rid: str, payload: Dict[str, Any], actor: str) -> Dict[str, An
             "note": "已保存；因为内容变了，上一轮的验证/合格结论作废（enabled 已复位为草稿）。"}
 
 
-def delete_custom(rid: str) -> None:
-    if not db.one("SELECT 1 AS x FROM rules_custom WHERE id=?", (rid,)):
+def delete_custom(rid: str, *, actor: str = "system",
+                  note: str = "") -> Dict[str, Any]:
+    """删除自撰规则：DB 行 + 历史证据 + 熔断行，并从**现役规则集定向移除**。
+
+    只改 DB 不删现役的话，数据面会继续按旧规则集拦截/告警（以前要手动再提升
+    一次）。这里直接 patch 产物 + 刷新策略指纹；数据面 ≤5s 热重载。
+    """
+    row = db.one("SELECT * FROM rules_custom WHERE id=?", (rid,))
+    if not row:
         raise ValueError(f"规则不存在：{rid}")
+    # 先从现役移除；失败就整体中止，DB 状态不变（避免半删）。
+    active = drop_from_authoritative(rid, actor=actor, note=note)
     db.execute("DELETE FROM rules_custom WHERE id=?", (rid,))
     db.execute("DELETE FROM rule_history_evidence WHERE rule=?", (rid,))
+    db.execute("DELETE FROM rule_breakers WHERE rule=?", (rid,))
+    db.execute("DELETE FROM rule_state WHERE rule=?", (rid,))
+    return {"deleted": rid, "name": row.get("name"), "active": active}
 
 
 def _get_mined(rid: str) -> Optional[Dict[str, Any]]:
@@ -690,6 +703,7 @@ def bulk_apply_rules(*, scope: str, ids: List[str], op: str,
 
     changed: List[str] = []
     skipped: List[str] = []
+    active_removed: List[str] = []
     failed_ids = {e["rule"] for e in errors}
     for rid in clean_ids:
         if rid in failed_ids:
@@ -703,7 +717,9 @@ def bulk_apply_rules(*, scope: str, ids: List[str], op: str,
                                 actor=actor)
             else:
                 if op == "delete":
-                    delete_custom(rid)
+                    out = delete_custom(rid, actor=actor)
+                    if out.get("active"):
+                        active_removed.append(rid)
                 else:
                     enabled = True if op == "enable" else False if op == "disable" else None
                     set_custom_state(rid, enabled=enabled,
@@ -712,7 +728,7 @@ def bulk_apply_rules(*, scope: str, ids: List[str], op: str,
             changed.append(rid)
         except ValueError as e:
             errors.append({"rule": rid, "error": str(e)})
-    return {
+    result = {
         "ok": True,
         "scope": scope,
         "op": op,
@@ -721,8 +737,13 @@ def bulk_apply_rules(*, scope: str, ids: List[str], op: str,
         "changed": changed,
         "skipped": skipped,
         "errors": errors,
-        "note": "只改控制面状态；要在数据面生效必须重新「提升到现役」。",
+        "note": ("删除会立即从现役规则集移除并刷新 testvec；"
+                 "其余操作只改控制面状态，要在数据面生效必须重新「提升到现役」。"),
     }
+    if active_removed:
+        result["active_removed"] = active_removed
+        result["testvec"] = refresh_testvec()
+    return result
 
 
 def _get_custom(rid: str) -> Optional[Dict[str, Any]]:
@@ -1087,10 +1108,129 @@ def authoritative_info() -> Dict[str, Any]:
 
 def write_authoritative(doc: Dict[str, Any]) -> None:
     """原子落盘（先写临时文件再替换），避免数据面读到半个文件。"""
-    import os
     tmp = str(config.RULES_AUTHORITATIVE) + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(doc, f, ensure_ascii=False, indent=1)
         f.flush()
         os.fsync(f.fileno())
     os.replace(tmp, str(config.RULES_AUTHORITATIVE))
+
+
+# --------------------------------------------------------------------------- 定向移除
+def _read_policy_json() -> Dict[str, Any]:
+    try:
+        with open(config.POLICY_JSON, "r", encoding="utf-8") as f:
+            return json.load(f) or {}
+    except Exception:
+        return {}
+
+
+def _write_json_atomic(path, doc: Dict[str, Any]) -> None:
+    tmp = str(path) + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(doc, f, ensure_ascii=False, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, str(path))
+
+
+def recount_active(doc: Dict[str, Any]) -> Dict[str, Any]:
+    """按现役规则集重算 counts（与 `build_authoritative` 同口径）。"""
+    rules = doc.get("rules") or []
+    by_verdict: Dict[str, int] = {}
+    by_kind: Dict[str, int] = {}
+    for r in rules:
+        prov = r.get("provenance") or {}
+        if r.get("source") == "mined":
+            v = prov.get("verdict") or "unknown"
+            by_verdict[v] = by_verdict.get(v, 0) + 1
+        k = prov.get("kind") or "detector"
+        by_kind[k] = by_kind.get(k, 0) + 1
+    counts = {
+        "total": len(rules),
+        "block": sum(1 for r in rules if r.get("action") == "block"),
+        "alert": sum(1 for r in rules if r.get("action") != "block"),
+        "mined": sum(1 for r in rules if r.get("source") == "mined"),
+        "custom": sum(1 for r in rules
+                      if r.get("source") in ("custom", "manual", "crs", "wafjson")),
+        "crs": sum(1 for r in rules if r.get("source") == "crs"),
+        "wafjson": sum(1 for r in rules if r.get("source") == "wafjson"),
+        "proven": sum(1 for r in rules
+                      if not (r.get("provenance") or {}).get("overridden")),
+        "user_override": sum(1 for r in rules
+                             if (r.get("provenance") or {}).get("overridden")),
+        "testing": sum(1 for r in rules
+                       if (r.get("provenance") or {}).get("qualification") == "testing"),
+        "breaker": sum(1 for r in rules
+                       if (r.get("provenance") or {}).get("action_forced") == "breaker"),
+        "by_verdict": by_verdict,
+        "by_kind": by_kind,
+    }
+    doc["counts"] = counts
+    return counts
+
+
+def drop_from_authoritative(rid: str, *, actor: str = "system",
+                            note: str = "") -> Optional[Dict[str, Any]]:
+    """把一条规则从现役规则集里**定向移除**（不重跑标定）。
+
+    返回 None = 本来就不在现役；否则返回新指纹 / counts / 策略版本。
+    失败时回滚规则集并抛错（调用方据此中止删除，避免半删）。
+    """
+    doc = load_authoritative()
+    if not doc:
+        return None
+    backup = json.loads(json.dumps(doc))
+    doc = json.loads(json.dumps(doc))
+    if rid not in [str(r.get("id")) for r in doc.get("rules") or []]:
+        return None
+    doc["rules"] = [r for r in doc["rules"] if str(r.get("id")) != rid]
+    counts = recount_active(doc)
+    write_authoritative(doc)
+    try:
+        sha = authoritative_sha1_16()
+        pol = _read_policy_json()
+        if not pol:
+            raise ValueError("读不到 decision_policy.json")
+        pol = dict(pol)
+        pol["version"] = int(pol.get("version") or 0) + 1
+        pol["generated_by"] = "console:rule_delete"
+        pol["generated_at"] = db.now_ms()
+        rb = dict(pol.get("rules") or {})
+        rb.update({
+            "ruleset_sha1_16": sha,
+            "n_rules": counts["total"],
+            "n_block_rules": counts["block"],
+            "note": (f"删除规则 {rid}：已从现役规则集移除；"
+                     "预算数字沿用旧值（只会更保守）。"),
+        })
+        pol["rules"] = rb
+        _write_json_atomic(config.POLICY_JSON, pol)
+        db.execute(
+            "INSERT OR REPLACE INTO policy_versions(version, json, actor, created_at, note) "
+            "VALUES(?,?,?,?,?)",
+            (pol["version"], json.dumps(pol, ensure_ascii=False), actor,
+             db.now_ms(), note or f"删除规则 {rid}"))
+    except Exception:
+        write_authoritative(backup)   # 要么都改，要么都不改
+        raise
+    return {"rule": rid, "ruleset_sha1_16": sha, "counts": counts,
+            "policy_version": pol["version"], "n_rules": counts["total"],
+            "n_block_rules": counts["block"]}
+
+
+def refresh_testvec(timeout: int = 300) -> Dict[str, Any]:
+    """现役规则集变了之后重导出 testvec，避免 Rust 门禁指纹不一致。"""
+    import subprocess
+    import sys
+    env = os.environ.copy()
+    env["PYTHONIOENCODING"] = "utf-8"
+    try:
+        p = subprocess.run(
+            [sys.executable, str(config.PY / "export_testvec.py")],
+            cwd=str(config.PY), capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=timeout, env=env)
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": str(e)}
+    return {"ok": p.returncode == 0, "rc": p.returncode,
+            "log": ((p.stdout or "") + (p.stderr or ""))[-1500:]}

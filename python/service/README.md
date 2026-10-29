@@ -369,6 +369,9 @@ path/trash 同时存在、symlink、stat 不匹配都不会自动删；连续 5 
     才能作为合格证据；结果缓存到 `rule_history_evidence`（带规则内容指纹，规则一改即失效）。
     适用于「先有攻击、后补规则」，不用先重放攻击制造在线命中。
   - 批量启用测试：`POST /api/rules/custom/bulk-enable`；确认/撤销合格：`POST /api/rules/{id}/qualify` / `unqualify`。
+  - 删除自撰规则：`DELETE /api/rules/custom/{id}`（admin）——删 DB 行 + 历史回放证据 +
+    熔断行，并**立即从现役规则集定向移除**（patch 产物 + 策略版本 +1 + 重导出 testvec，
+    采集器 ≤5s 热重载）；写入失败会整体回滚，不会出现「DB 删了但现役还在」。
   - 规则页支持关键词搜索、各状态列筛选、行选择批量启用/停用/改动作/删除（admin）。
 - **熔断 / incident**：
   - `POST /api/rules/breaker` body `{scope:"rule"|"all_block"|"channel", rule?, reason?}`；
