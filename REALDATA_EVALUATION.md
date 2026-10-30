@@ -1079,7 +1079,8 @@ call build.bat run --release        :: 另开窗口发请求，见 README.md
 6. **C 盘外只有 F: 可写而 F: 几乎满了**：`ort`(ONNX Runtime) 的编译产物很大，
    `rust/` 与 `proxy/` 各自建一棵依赖树时直接把 F: 撑爆
    （`error: failed to build archive ... 磁盘空间不足 (os error 112)`）。
-   解法：两个 `build.bat` 共用 `CARGO_TARGET_DIR=WAF_CARGO_TARGET`（默认 `E:\waf-target`）
+   解法：两个 `build.bat` 共用 `CARGO_TARGET_DIR=WAF_CARGO_TARGET`（默认
+   `%LOCALAPPDATA%\waf-cargo-target`，作者本机当时指向 `E:\waf-target`）
    ⇒ `ort` 只编译一次（而非每个 crate 一次），F: 由 0.3GB 回到 4.4GB。
    顺带把两个 `build.bat` 的注释改成**纯 ASCII** —— 之前 `rust/build.bat` 里的中文 `REM`
    行会被 cmd 当命令执行，每次构建都吐一行 `'rapper:' 不是内部或外部命令`。

@@ -120,8 +120,8 @@ py -3.10 -m service.run                   # http://127.0.0.1:8090/docs
 | `WAF_RAW_CLEANUP_ORPHAN_AGE_SEC` | `86400` | 孤儿 `.trash` 超过多久才登记/告警 |
 | `WAF_SENSITIVE_HEADERS` | Authorization, Cookie, Set-Cookie, X-Api-Key... | 默认逐字符 `*` 打码的头名（逗号分隔，大小写不敏感） |
 | `WAF_COLLECTOR_METRICS` | `traindata/proxy/collector-metrics.json` | 采集器 `--stats-out` 指标文件 |
-| `WAF_COLLECTOR_BIN` | 自动查找 | 采集器可执行文件；覆盖 `proxy/target/release` / `E:\waf-target\release` 等候选 |
-| `WAF_CARGO_TARGET` | `E:\waf-target` | 采集器/ Rust 共用构建缓存目录（影响二进制查找） |
+| `WAF_COLLECTOR_BIN` | 自动查找 | 采集器可执行文件；覆盖 `proxy/target/release` / `%WAF_CARGO_TARGET%\release` 等候选 |
+| `WAF_CARGO_TARGET` | `%LOCALAPPDATA%\waf-cargo-target` | 采集器/ Rust 共用构建缓存目录（影响二进制查找；作者本机为 `E:\waf-target`） |
 | `WAF_TEMPORAL_RULES` | `artifacts/temporal_rules.json` | 时序规则 JSON；缺失/非法时回退内置 3 条规则 |
 | `WAF_SUPPRESS_TTL_HOURS` | `168` | 抑制草案默认 TTL（小时，1–2160） |
 | `WAF_SUPPRESS_SUGGEST_DAYS` | `30` | 从误报生成草案的统计窗口（天，1–90） |

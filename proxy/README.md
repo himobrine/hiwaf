@@ -210,9 +210,9 @@ nginx/Caddy 终止 TLS 后转 HTTP 给采集器，否则只能看到 CONNECT 元
 > 原始报文中的 Cookie/Authorization/Set-Cookie 是敏感数据。控制台默认把敏感头值逐字符显示为
 > `*`；只有显式「显示敏感值」才重新读取并写审计；90 天保留清理见 `python/service/README.md`。
 
-> **构建缓存放在 `E:\waf-target`**：F: 盘几乎满了，而 `ort`(ONNX Runtime) 的编译产物很大。
-> `build.bat` 把 `CARGO_TARGET_DIR` 指到 `WAF_CARGO_TARGET`（默认 `%LOCALAPPDATA%\waf-cargo-target`，
-> 作者本机指向 `E:\waf-target`），
+> **构建缓存放在仓库外**（作者本机是 `E:\waf-target`，见 `SETUP.md` 附录 A）：F: 盘几乎满了，
+> 而 `ort`(ONNX Runtime) 的编译产物很大。`build.bat` 把 `CARGO_TARGET_DIR` 指到
+> `WAF_CARGO_TARGET`（默认 `%LOCALAPPDATA%\waf-cargo-target`），
 > 且 `rust/` 与 `proxy/` **共用同一个目录** —— 于是 `ort` 只编译一次，而不是每个 crate 各编一次。
 > 想改位置就设 `WAF_CARGO_TARGET`；`python/p8_proxy_e2e.py` 会按环境变量/默认值自动找到采集器。
 

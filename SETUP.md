@@ -278,9 +278,10 @@ cd rust
 call build.bat run --release
 ```
 
-- `build.bat` 做三件事：`vcvars64.bat` 建 MSVC 环境 → 把 `C:\Users\lenovo\.cargo\bin`
-  加进 PATH → 设 `CARGO_TARGET_DIR=%WAF_CARGO_TARGET%`（默认 `E:\waf-target`）。
-- 二进制在 **`E:\waf-target\release\waf-ai-proto.exe`**。
+- `build.bat` 做三件事：`vcvars64.bat` 建 MSVC 环境 → 把 `%USERPROFILE%\.cargo\bin`
+  加进 PATH → 设 `CARGO_TARGET_DIR=%WAF_CARGO_TARGET%`（默认 `%LOCALAPPDATA%\waf-cargo-target`；
+  作者本机指向 `E:\waf-target`，见附录 A）。
+- 二进制在 **`%WAF_CARGO_TARGET%\release\waf-ai-proto.exe`**（未设变量时用上面的默认目录）。
 - **门禁必须全绿**（换机器/换编译器后要复核，Linux 侧 libm `log2` 可能有末位差异，
   CI 用数值容差）：
 
@@ -412,7 +413,7 @@ server {
 约束：
 
 - 二进制只从 `WAF_COLLECTOR_BIN` 或固定候选（仓库 `bin/`、`proxy/bin/`、
-  `proxy/target/release`、`E:\waf-target\release`、`rust/target/release`）解析，
+  `proxy/target/release`、`%WAF_CARGO_TARGET%\release`、`rust/target/release`）解析，
   **不接受请求传入**；
 - 参数逐项白名单校验，范围对齐 `proxy/src/config.rs`；`out_dir`/`stats_out` 固定；
 - 路由表至少一条；`name`/`listen` 唯一，禁止 `listen == upstream`（自环）；
@@ -841,8 +842,8 @@ py -3.10 smoke_test.py
 4. **`build.bat` 注释必须纯 ASCII**：中文 `REM` 行 + LF 行尾会被 cmd 当命令解析，
    静默跳过前面的 `set`（表现为假的 cmake/生成器报错，还会带上
    `'rapper:' 不是内部或外部命令` 噪声）。
-5. **构建缓存必须两个 crate 共用**：默认 Windows 有 `E:\` 时用 `E:\waf-target`，
-   否则 `%LOCALAPPDATA%\waf-cargo-target`；Linux 用 `~/.cache/waf-cargo-target`。
+5. **构建缓存必须两个 crate 共用**：Windows 默认 `%LOCALAPPDATA%\waf-cargo-target`
+   （作者本机指向 `E:\waf-target`，见附录 A）；Linux 用 `~/.cache/waf-cargo-target`。
    `build.bat` / `build.sh` 已统一设置 `CARGO_TARGET_DIR`，不要各写各的。
 6. **Rust 侧 `Session::run` 需要 `&mut self`**；`response_body_filter` 在 Pingora 0.9 是
    **同步** `fn`（写成 `async` 会得到误导性的 `E0195` 生命周期/约束错误）。
