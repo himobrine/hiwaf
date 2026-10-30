@@ -2,6 +2,7 @@
 name = "waf-proxy-spike"
 version = "0.1.0"
 edition = "2021"
+license = "AGPL-3.0-or-later"
 description = "S4 门禁实验：验证 Cloudflare Pingora 能否在 Windows x86_64 MSVC 上编译并跑起一个可读 body 的反向代理"
 
 [dependencies]

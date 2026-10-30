@@ -5,6 +5,23 @@
 
 ---
 
+## 0. 本仓库自身的许可
+
+**GNU Affero General Public License v3.0 or later（AGPL-3.0-or-later）**，全文见根目录
+[`LICENSE`](LICENSE)。SPDX 标识同时写进了 `rust/Cargo.toml`、`proxy/Cargo.toml`、
+`proxy_spike/Cargo.toml` 与 `web/package.json`。
+
+三条**不随本仓库 AGPL 重新授权**的例外：
+
+1. **CRS 派生规则**（§1）：原始许可 Apache-2.0，与 AGPLv3 单向兼容；版权与修改声明保留。
+2. **`rules/waf_rules.json`**（§1b）：用户提供的外部规则集，**许可未知**；对外分发前须自行确认。
+3. **数据集**（§2）：不在本仓库内，各自的条款由使用者遵守。
+
+AGPL §13（远程网络交互）提示：如果你修改本项目并把它作为网络服务对外提供，
+必须向这些用户提供 Corresponding Source。
+
+---
+
 ## 1. OWASP ModSecurity Core Rule Set（CRS）
 
 - **用途**：`python/import_crs.py` 读取 CRS 的 `REQUEST-9xx` 规则，把其中**语义可
@@ -92,8 +109,10 @@
 | 数据 | 用途 | 是否参与训练 | 许可状态 |
 |---|---|---|---|
 | CSIC 2010 HTTP dataset | 监督通道训练 + 零日通道训练 + **统一标定池**（正常流量 `seed=7` 留出 6,000） | 是（正常/异常流量） | 学术用途发布；**未核实**再分发条款 |
+| HTTP Params 2015（`payload_*.csv`） | 监督通道正式训练/测试集 + 困难门槛集 | 是 | 公开数据集；**未核实**再分发条款 |
 | CIC-IDS2017 | 独立**流级**通道（与 HTTP 通道并列，不混训） | 否（流级通道尚未实现消费者） | 加拿大网络安全研究所发布；**未核实**再分发条款 |
 | datacon2025 | **OOD 复核集**，永不参与训练 | 否 | 完整版尚未公开；**未核实** |
+| `enhanced_security_dataset_clear.json` | **不可用**：767 条 Java 代码漏洞问答，不是 HTTP 请求（上传解析全部 `missing_path`） | 否 | 来源不明；**禁止入训练、禁止当良性池** |
 | 本地真实流量（`traindata/local/`） | 真实良性池 / 标定池 | 视采集方式 | 本项目自采；采集前须获得站点授权 |
 | 本仓库 `python/artifacts/` 下的模型与曲线 | 派生产物 | — | 由上述数据训练得到，**继承上游数据的限制** |
 
@@ -117,7 +136,9 @@
 - **python-multipart**（Apache-2.0，仅控制面上传）
 - **Ant Design** / **React** / **ECharts**（MIT / Apache-2.0）
 
-> **Scapy 2.7.0（GPL-2.0-only）**：仅用于控制台解析用户主动上传的 pcap/pcapng
-> （`python/upload_parse.py`），**不进入 Rust 数据面、不随数据面二进制分发**。
-> 若将来要把本仓库或控制台作为整体对外分发，请单独复核 GPL 义务，或改用
-> BSD 许可的抓包解析实现。
+> **Scapy 2.7.0（GPL-2.0-only）—— 许可冲突提示**：仅用于控制台解析用户主动上传的
+> pcap/pcapng（`python/upload_parse.py`），**不进入 Rust 数据面、不随数据面二进制分发**。
+> 但 `GPL-2.0-only` 与 `AGPL-3.0` **不兼容**：在 AGPLv3 的整体分发中直接 import 它是有风险的。
+> 因此：① 内部使用不受影响；② 对外分发前应把 pcap 解析换成宽松许可实现
+> （例如自写 pcap 解析，或换 BSD/MIT 的解析库），或把该功能拆成独立可选组件并单独声明；
+> ③ 不要把它静态打进任何对外二进制。

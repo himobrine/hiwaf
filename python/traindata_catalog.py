@@ -322,6 +322,35 @@ def scan_proxy() -> dict:
             "stats": {"n_files": len(files)}}
 
 
+def scan_enhanced_security() -> dict:
+    """`enhanced_security_dataset_clear.json`：**不是 HTTP 流量**（Java 代码问答）。
+
+    名字像安全数据集，实际是 `{instruction, output}` 的代码审计问答，没有
+    method/path/query/body，无法转成 80 维特征。这里只登记事实，供目录与自检
+    一眼看出它为什么不能训练。
+    """
+    p = os.path.join(TRAINDATA, "enhanced_security_dataset_clear.json")
+    if not os.path.exists(p):
+        return {"corpus": "enhanced_security", "files": [], "stats": {"present": False}}
+    meta = file_meta(p)
+    rows = json.load(open(p, "r", encoding="utf-8"))
+    keys = collections.Counter()
+    for r in rows:
+        if isinstance(r, dict):
+            keys.update(r.keys())
+    n = len(rows) if isinstance(rows, list) else 0
+    http_keys = {"method", "path", "query", "body", "url"}
+    meta.update({"rows": n, "keys": dict(keys),
+                 "has_http_fields": bool(http_keys & set(keys)),
+                 "is_list": isinstance(rows, list)})
+    return {
+        "corpus": "enhanced_security",
+        "files": [meta],
+        "stats": {"present": True, "rows": n, "keys": dict(keys),
+                  "has_http_fields": meta["has_http_fields"]},
+    }
+
+
 def scan_archives() -> list:
     """zip 与解压目录并存：登记但不删（zip 是原始出处）。"""
     import zipfile
@@ -385,6 +414,18 @@ def build_issues(catalog: dict) -> list:
     dc = catalog["datacon2025_sample"]["stats"]
     cic = catalog.get("cic_ids2017", {}).get("stats") or {}
     proxy = catalog["collector_output"]["files"]
+    enh = (catalog.get("enhanced_security") or {}).get("stats") or {}
+
+    if enh.get("present") and not enh.get("has_http_fields"):
+        issues.append({
+            "id": "enhanced_security_not_http",
+            "severity": "warn",
+            "detail": f"enhanced_security_dataset_clear.json 有 {enh.get('rows', 0)} 条，"
+                      "字段只有 " + "、".join(f"`{k}`" for k in enh.get("keys", {}))
+                      + " —— 是 Java 代码漏洞问答，**没有 method/path/query/body**。"
+                        "名字像安全数据集，但 `upload_parse.py` 会把它们全部判为 "
+                        "`missing_path`（rows_kept=0）。禁止入训练、禁止当良性池。",
+        })
 
     if payload["stats"].get("full_is_train_plus_test"):
         issues.append({
@@ -616,6 +657,8 @@ def build_catalog(skip_cic: bool = False, skip_pools: bool = False) -> dict:
         print("[catalog] CIC-IDS2017 跳过（--skip-cic）")
     print("[catalog] proxy/ ...")
     proxy = scan_proxy()
+    print("[catalog] enhanced_security（非 HTTP，仅登记）...")
+    enhanced = scan_enhanced_security()
     archives = scan_archives()
     pools = {"pools": {}} if skip_pools else pool_report()
     if pools.get("pools"):
@@ -815,9 +858,9 @@ def build_catalog(skip_cic: bool = False, skip_pools: bool = False) -> dict:
             "title": "采集器落盘样本（proxy/）",
             "path": "traindata/proxy/",
             "role": "**运行样本，不是语料**（有 pred、无 label）",
-            "provenance": "`proxy` 采集器 dry-run 输出（2 个 raw 分片 + metrics）",
+            "provenance": "`proxy` 采集器 dry-run 输出（多个 raw 分片 + metrics）",
             "consumers": "人工排查 / p8 e2e 观察",
-            "usable": "不能进池（20 条、无标签）",
+            "usable": "不能进池（无标签；只是运行样本）",
             "scale": f"{sum(f.get('rows', 0) for f in proxy['files'])} 条",
             "notes": ["字段含 `pred`（action/attack_label/score）与 `body_truncated`",
                       "与 `events` 表结构不同：这里是采集器原始记录，别当训练数据"],
@@ -827,6 +870,29 @@ def build_catalog(skip_cic: bool = False, skip_pools: bool = False) -> dict:
                       for f in proxy["files"]],
             "stats": proxy["stats"],
             "files": proxy["files"],
+        },
+        {
+            "id": "enhanced_security",
+            "title": "enhanced_security_dataset_clear.json（名字像安全数据集，实际是代码问答）",
+            "path": "traindata/enhanced_security_dataset_clear.json",
+            "role": "**不可训练**：不是 HTTP 请求，只可当知识库素材",
+            "provenance": "来源不明；无许可证文件（见 THIRD_PARTY_NOTICES §2）",
+            "consumers": "**无**（上传解析实测 767 条全部 `missing_path`、`rows_kept=0`）",
+            "usable": "禁止入训练、禁止当良性池；没有 method/path/query/body，无法转成 80 维特征",
+            "scale": f"{enhanced['stats'].get('rows', 0)} 条 `instruction`/`output` 问答"
+                     if enhanced["stats"].get("present") else "未找到",
+            "notes": [
+                "内容是 Java 代码漏洞问答（Jenkins / Spring 源码片段），不是请求报文",
+                "字段只有 " + "、".join(f"`{k}`" for k in enhanced["stats"].get("keys", {}))
+                if enhanced["stats"].get("present") else "文件不存在",
+                "`upload_parse.py` 会把它全部标为 `missing_path`；这是**解析器的正确行为**，不要为了让它「能用」而放宽解析",
+            ],
+            "table": [{"file": f["path"], "bytes": human(f["bytes"]),
+                       "rows": f"{f.get('rows', '-')}",
+                       "note": "has_http_fields=" + str(f.get("has_http_fields", "-"))}
+                      for f in enhanced["files"]],
+            "stats": enhanced["stats"],
+            "files": enhanced["files"],
         },
     ]
 
@@ -860,6 +926,7 @@ def build_catalog(skip_cic: bool = False, skip_pools: bool = False) -> dict:
         "datacon2025_sample": datacon,
         "cic_ids2017": cic,
         "collector_output": proxy,
+        "enhanced_security": enhanced,
     })
     catalog["recommendations"] = build_recommendations(catalog, pools)
     catalog["elapsed_s"] = round(time.time() - t0, 1)
@@ -933,7 +1000,7 @@ def self_test() -> int:
     ck("T-20 inwild_benign 不在任何池",
        all("inwild_benign" not in p["members"] for p in pools.values()))
     ck("T-21 池无缺成员", all(not p["missing"] for p in pools.values()))
-    ck("T-22 语料 9 组", len(cat["corpora"]) == 9, str(len(cat["corpora"])))
+    ck("T-22 语料 10 组", len(cat["corpora"]) == 10, str(len(cat["corpora"])))
     ck("T-23 每条语料都有 role/consumers/usable/scale/files",
        all((c.get("files") or c["id"] == "cic_ids2017")
            and all(c.get(k) for k in ("role", "consumers", "usable", "scale"))
@@ -946,6 +1013,12 @@ def self_test() -> int:
     ck("T-26 md 能渲染", "traindata/" in render_md(cat))
     ck("T-27 覆盖率标记如实（skip_cic=True）",
        cat["coverage"]["cic_scanned"] is False and cat["coverage"]["pools_computed"] is True)
+    es = cat["corpora"][9]["stats"]
+    ck("T-28 enhanced_security 767 条且无 HTTP 字段",
+       es.get("rows") == 767 and es.get("has_http_fields") is False,
+       f"{es.get('rows')}/{es.get('has_http_fields')}")
+    ck("T-29 enhanced_security 有不可训练告警",
+       any(i["id"] == "enhanced_security_not_http" for i in cat["issues"]))
 
     bad = [c for c in checks if not c[1]]
     for name, ok, detail in checks:

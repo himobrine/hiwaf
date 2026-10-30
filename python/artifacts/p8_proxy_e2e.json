@@ -90,7 +90,7 @@
     {
       "name": "流级字段(dur_ms/bytes_in/bytes_out/src_ip)",
       "ok": true,
-      "detail": "dur_ms=0.5041 bytes_in=29 bytes_out=4 src=127.0.0.1"
+      "detail": "dur_ms=0.3729 bytes_in=29 bytes_out=4 src=127.0.0.1"
     },
     {
       "name": "中文/引号/反斜杠/制表 转义往返一致",
@@ -133,9 +133,9 @@
       "detail": "crossed=2/7"
     },
     {
-      "name": "B: 阈值与 policy 同源（监督 0.699765 / 零日 -7.262677）",
+      "name": "B: 阈值与 policy 同源（监督 0.721004 / 零日 -7.359740）",
       "ok": true,
-      "detail": "sup=[0.699765] zd=[-7.262677]"
+      "detail": "sup=[0.721004] zd=[-7.35974] policy=0.721004/-7.359740"
     },
     {
       "name": "B: **SHAP Top-K 归因**已写入记录（控制台详情页的「为什么」）",
@@ -160,20 +160,20 @@
     {
       "name": "C: 至少 1 条命中规则并落盘证据",
       "ok": true,
-      "detail": "2/7 条带 rules，命中规则=['custom_waf_sqli_009', 'custom_waf_xss_001', 'custom_waf_xss_002', 'custom_waf_xss_007', 'sqli_tautology', 'xss_script_tag']"
+      "detail": "2/7 条带 rules，命中规则=['custom_1793265370', 'custom_waf_sqli_009', 'custom_waf_xss_001', 'custom_waf_xss_002', 'custom_waf_xss_007', 'sqli_tautology', 'xss_script_tag']"
     },
     {
       "name": "C: 命中记录的规则集指纹与策略**同源**",
       "ok": true,
-      "detail": "disk=['1313bccdc0d80b8e'] policy=1313bccdc0d80b8e"
+      "detail": "disk=['5425465fd0085457'] policy=5425465fd0085457"
     },
     {
       "name": "C: 规则证据被策略采纳（pred.rule_weight == rules.weight）",
       "ok": true,
-      "detail": "weights=[0.0, 0.0, 5.0, 14.0, 0.0, 0.0, 0.0]"
+      "detail": "weights=[0.0, 0.0, 6.0, 14.0, 0.0, 0.0, 0.0]"
     },
     {
-      "name": "C: rules_flagged 与规则集阻断线逐条一致（现役 block 规则 33 条 / 阻断线 1.0）",
+      "name": "C: rules_flagged 与规则集阻断线逐条一致（现役 block 规则 41 条 / 阻断线 1.0）",
       "ok": true,
       "detail": "flagged=2/7"
     },
@@ -240,9 +240,9 @@
         "ua": "p8-probe/1.0",
         "body_len": 0,
         "action": "allow",
-        "supervised_score": 0.034384,
+        "supervised_score": 0.017189,
         "supervised_flagged": false,
-        "zero_day_score": -8.519237,
+        "zero_day_score": -8.639622,
         "zero_day_score_crossed": false,
         "zero_day_flagged": false,
         "shap_top1": "val_special_r"
@@ -253,9 +253,9 @@
         "ua": "p8-probe/1.0",
         "body_len": 13,
         "action": "allow",
-        "supervised_score": 0.002072,
+        "supervised_score": 0.002332,
         "supervised_flagged": false,
-        "zero_day_score": -7.95694,
+        "zero_day_score": -7.90249,
         "zero_day_score_crossed": false,
         "zero_day_flagged": false,
         "shap_top1": "val_special_r"
@@ -266,9 +266,9 @@
         "ua": "sqlmap/1.7",
         "body_len": 29,
         "action": "block",
-        "supervised_score": 0.999959,
+        "supervised_score": 0.99998,
         "supervised_flagged": true,
-        "zero_day_score": -6.401914,
+        "zero_day_score": -6.486336,
         "zero_day_score_crossed": true,
         "zero_day_flagged": false,
         "shap_top1": "sql_weak_r"
@@ -279,9 +279,9 @@
         "ua": "Mozilla/5.0",
         "body_len": 29,
         "action": "block",
-        "supervised_score": 0.999938,
+        "supervised_score": 0.99995,
         "supervised_flagged": true,
-        "zero_day_score": -7.673534,
+        "zero_day_score": -7.801682,
         "zero_day_score_crossed": false,
         "zero_day_flagged": false,
         "shap_top1": "xss_strong_r"
@@ -292,9 +292,9 @@
         "ua": "p8-probe/1.0",
         "body_len": 29,
         "action": "allow",
-        "supervised_score": 0.330947,
+        "supervised_score": 0.461046,
         "supervised_flagged": false,
-        "zero_day_score": -7.647206,
+        "zero_day_score": -7.679879,
         "zero_day_score_crossed": false,
         "zero_day_flagged": false,
         "shap_top1": "val_special_r"
@@ -305,9 +305,9 @@
         "ua": "p8-probe/1.0",
         "body_len": 200005,
         "action": "allow",
-        "supervised_score": 0.300173,
+        "supervised_score": 0.196083,
         "supervised_flagged": false,
-        "zero_day_score": -6.798639,
+        "zero_day_score": -6.845705,
         "zero_day_score_crossed": true,
         "zero_day_flagged": false,
         "shap_top1": "max_repeat"
@@ -318,9 +318,9 @@
         "ua": "p8-probe/1.0",
         "body_len": 2048,
         "action": "allow",
-        "supervised_score": 0.032388,
+        "supervised_score": 0.011787,
         "supervised_flagged": false,
-        "zero_day_score": -8.495755,
+        "zero_day_score": -8.648932,
         "zero_day_score_crossed": false,
         "zero_day_flagged": false,
         "shap_top1": "val_special_r"
@@ -335,5 +335,5 @@
     "`pred` 是拿**上线模型**（训练集带 body 记录 = 0 条）对真实流量算的诊断值，**不能当验收指标**；",
     "阈值必须在真实本地良性留出流量上重标定（python/thresholds.py --pool file:...）"
   ],
-  "tmp_dir": "C:\\Users\\lenovo\\AppData\\Local\\Temp\\p8_proxy_ylojomcq"
+  "tmp_dir": "C:\\Users\\lenovo\\AppData\\Local\\Temp\\p8_proxy_062tw6ag"
 }

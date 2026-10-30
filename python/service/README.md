@@ -3,7 +3,7 @@
 WAF 控制台的后端。**单机 + 账号 RBAC + 审计**，FastAPI + SQLite。取证包解压 br/zstd 依赖可选的 `brotli` / `zstandard`；缺失时返回明确的 `*_unsupported`，仍可下载原始字节。
 
 ```bash
-cd F:\waf\python
+cd python
 py -3.10 -m pip install -r requirements-service.txt   # 只需一次
 py -3.10 -m service.bootstrap             # 幂等建库 + admin（不启动服务）
 py -3.10 -m service.run                   # http://127.0.0.1:8090/docs
@@ -17,7 +17,7 @@ py -3.10 -m service.run                   # http://127.0.0.1:8090/docs
 登录后立刻改密码：`POST /api/auth/password`（改密后旧 token 立即失效）。
 登录失败超过阈值会返回 429；登出同样会使该用户全部旧 token 失效。
 
-开发前端时另起 `cd F:\waf\web && npm run dev`（5173，`/api` 已代理到 8090）。
+开发前端时另起 `cd web && npm run dev`（5173，`/api` 已代理到 8090）。
 生产：`npm run build` 后 FastAPI 直接托管 `web/dist`，单端口 8090。
 
 ---
@@ -464,8 +464,10 @@ path/trash 同时存在、symlink、stat 不匹配都不会自动删；连续 5 
    训练件（`xgb_model.json` / `iforest_model.joblib`）与曲线。
 2. **训练成功自动登记**（`auto_register`）为一代：产物快照到
    `artifacts/models/<channel>/gen-XXXX-<sha>/`，写 `model_registry`（通道 / 代次 / 父代 /
-   指标 / 曲线 / 特征维度），并按保留策略清理最老的**非现役**快照。
+   指标 / 曲线 / 特征维度 / **`trainable`**），并按保留策略清理最老的**非现役**快照。
    被清理的行不删（`status='pruned'`，`snapshot_dir=NULL`），血缘与曲线仍可查。
+   **`trainable=0` 表示该代缺训练件**（`xgb_model.json` / `iforest_model.joblib`），
+   不能作为 warm start 父代；规划器会自动降级为全量重训并在任务里写明 `parent_fallback`。
 3. **warm start**：`--parent-model` 从上一代继续训练（XGBoost 追加树；
    IsolationForest `warm_start=True` 增量树）。校验特征版本 / 维度 / 标签一致，不一致拒绝。
    曲线 x 轴用「总树数」右移，多代可对比。
@@ -634,6 +636,7 @@ path/trash 同时存在、symlink、stat 不匹配都不会自动删；连续 5 
 
 ```bash
 py -3.10 -X utf8 -m service.smoke          # 需要服务已启动；39 项
+py -3.10 -X utf8 -m unittest discover -p "test_*.py"   # 全部 Python 单测；279 项
 py -3.10 -X utf8 -m unittest service.test_packet -v   # packet 纯函数测试
 py -3.10 -X utf8 -m service.test_rule_spans -v        # 规则命中精确标位测试
 py -3.10 -X utf8 -m service.test_rules_bulk -v        # 按 ID 批量规则操作测试

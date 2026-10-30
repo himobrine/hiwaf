@@ -2,6 +2,7 @@
 name = "waf-collector"
 version = "0.1.0"
 edition = "2021"
+license = "AGPL-3.0-or-later"
 description = "S4/工作项 F 采集数据面：Pingora 反向代理 + HTTP/流级采集（只采原始记录，标签留给出处规则）"
 
 [[bin]]

@@ -2,8 +2,14 @@
 
 > 目的：用 PRD 指定的公开数据集（PRD 5.4「公开数据集打底：CSIC 2010、HTTP Params 2015」）
 > 替换此前"合成数据"，检验模型在真实流量上的真实能力。
-> 数据位于 `F:\waf\traindata`，加载器 `python/realdata.py`，评估脚本
+> 数据位于 `traindata/`，加载器 `python/realdata.py`，评估脚本
 > `python/eval_http_params.py`（XGBoost）与 `python/eval_csic.py`（Isolation Forest）。
+>
+> **⚠️ 历史文档说明（2026-10-30 追加）**：本文记录的是 **g1（2000 棵树）** 时代的评估过程与
+> 结论，绝大多数数字仍是 g1 口径。**现役是 g2（4000 棵树 / 23,664 节点）**，监督 1%FPR 阈值
+> `0.721004`、零日 `-7.359740`，规则集 91 条 / 41 block。**不要跨代比较阈值数字**；
+> 现役门禁与产物快照见根 `README.md`「当前状态」与 `python/artifacts/decision_policy.json`。
+> 最新一代的状态补充见 §12。
 
 ---
 
@@ -42,12 +48,12 @@
 | 29 | **红队流量只能靠"时间窗"打标**：Burp/SQLmap 打 DVWA 的来源 IP 与浏览器同为 `127.0.0.1`，IP 规则无法区分。新增 `--redteam-window START,END`（出处规则，非内容规则），且**时间戳解析失败即报错退出** —— 静默把红队流量当良性会污染良性池（比漏标更糟） | §8.7.2 |
 | 30 | **datacon2025 正式降级为"链路自检"**：`reportable: false` 写进 `datacon_report.json` 与 `p6_body_ablation.json`，p6 表格后打印"禁止引用其召回率"。OOD 评估改用 CSIC 2010（应用层）+ CIC-IDS2017（流级） | §8.7.3 |
 | 31 | **F0 流级采集点定为 Proxy 近似**（长期再补 eBPF）：既然基座是 Pingora，同一上下文即同时拿到 header/body 与连接时长/字节数/RTT。eBPF 在 Windows 不可用，NetFlow 看不到应用层 | §8.7.5 |
-| 32 | **采集数据面已落地并端到端验证通过（28/28）**：`proxy/`（Pingora 0.9 + rustls）挂真实业务前当反向代理，把每个请求的 **method/path/query/body/UA/status + 流级 dur_ms/bytes_in/bytes_out/src_ip** 写成原始 jsonl。证明：攻击 body **逐字节**保留（含中文/引号/反斜杠/制表转义），20 万字节 body 触发 `body_truncated=true` 且 `body_len` 仍为**真实总长**（截断不改计数），下游按**蜜罐路径出处**打出 2 攻击/4 良性；dry-run 判定下 **SHAP Top-8 已随记录落盘** | §8.8.1–8.8.2、§8.8.4 |
+| 32 | **采集数据面已落地并端到端验证通过（43/43）**：`proxy/`（Pingora 0.9 + rustls）挂真实业务前当反向代理，把每个请求的 **method/path/query/body/UA/status + 流级 dur_ms/bytes_in/bytes_out/src_ip** 写成原始 jsonl。证明：攻击 body **逐字节**保留（含中文/引号/反斜杠/制表转义），20 万字节 body 触发 `body_truncated=true` 且 `body_len` 仍为**真实总长**（截断不改计数），下游按**蜜罐路径出处**打出 2 攻击/4 良性；dry-run 判定下 **SHAP Top-8 已随记录落盘** | §8.8.1–8.8.2、§8.8.4 |
 | 33 | **采集端刻意"不打标签、不阻断、不静默丢数据"**：原始记录里**没有 label 字段**（用内容正则打标=把要替换的规则抄进训练集）；写盘走有界队列，满了**丢记录并计数**（采集永不阻塞转发）。**`pred` 与 `label` 在结构上分离**：`parse_jsonl` 只保留已知键 ⇒ 模型输出在标注产物里消失，不可能变成训练标签（已作断言） | §8.8.1、§8.8.2 |
 | 34 | **dry-run 判定已接线，且判定代码只有一份**：`rust/` 拆成 lib `waf_ai_proto` + bin 门禁，`proxy/` path 依赖复用同一份 `features.rs`/`decision.rs`（**禁止复制**，否则 200×80 逐位门禁失去意义）。拆库后门禁数字**完全一致**（BIT-EXACT 200×80、融合动作 200/200、SHAP 8.106e-6）。判定在 `logging` 阶段做（不占真实请求延迟），**只写 `pred`、永不阻断**，失败只降级为纯采集 | §8.8.4 |
 | 35 | **安全降级不是纸面文章**：在同一批里，200KB 的**良性上传**被零日通道原始穿阈（-6.799 > -7.2627）—— 若开关开着就是一次误报。`zero_day_enabled=false` 实测挡下了它；同时"困难良性"`msg=中文"quote\back<TAB>tab&x=1` 得分 **0.3309**，比同类良性 `msg=hello&x=1`（0.0021）高**两个数量级**，印证长文本/特殊字符参数是最难的一类良性 | §8.8.2、§8.7.1 |
-| 36 | **控制台（业务层）已落地**：控制面 API（FastAPI + SQLite + 账号 RBAC + 审计）自检 **12/12 PASS**；前端 SPA（React/AntD/ECharts，FastAPI 单端口托管）**10 个路由全部渲染、0 条控制台错误**。刷新按要求用**手动/定时轮询**（不用 SSE）；SHAP 进 `event_shap` 表在事件详情画图；告警用即时 SQL 聚合（**未做攻击链关联**）。阈值**不允许界面手改**，只能「选池→预览→提升」，预览写临时文件 | §8.9、`python/service/README.md` |
-| 37 | **`schema` 与 `version` 职责分离（修正门禁）**：引入控制台后 `version` 会被重标定累加，而 Rust 原用 `version != 1` 当结构守卫 ⇒ 正常重标定被判"不兼容"（实测策略 v3 时门禁失败）。改为 `schema`=结构兼容版本（数据面守卫）、`version`=策略修订号（门禁与 `testvec.decision.policy_version` 交叉核对同源）。修正后三件套重跑全绿、`p8` **28/28** | §8.9.1 |
+| 36 | **控制台（业务层）已落地**：控制面 API（FastAPI + SQLite + 账号 RBAC + 审计）自检 **39/39 PASS**；前端 SPA（React/AntD/ECharts，FastAPI 单端口托管）**16 个路由全部渲染、0 条控制台错误**。刷新按要求用**手动/定时轮询**（不用 SSE）；SHAP 进 `event_shap` 表在事件详情画图；告警用即时 SQL 聚合 + 攻击链关联 + 服务端搜索/筛选。阈值**不允许界面手改**，只能「选池→预览→提升」，预览写临时文件 | §8.9、`python/service/README.md` |
+| 37 | **`schema` 与 `version` 职责分离（修正门禁）**：引入控制台后 `version` 会被重标定累加，而 Rust 原用 `version != 1` 当结构守卫 ⇒ 正常重标定被判"不兼容"（实测策略 v3 时门禁失败）。改为 `schema`=结构兼容版本（数据面守卫）、`version`=策略修订号（门禁与 `testvec.decision.policy_version` 交叉核对同源）。修正后三件套重跑全绿、`p8` **43/43** | §8.9.1 |
 
 > ⚠️ **阈值数字很脆，FPR 反而很稳**：同一个 1% FPR，两个标定池给出 `0.488107` 与 `0.699765`
 > （差 43%），因为 score 在 1% 分位附近密度极陡。**永远不要跨批次比较阈值数值**，只比较同一 FPR 下的指标（§8.4）。
@@ -619,7 +625,7 @@ CSIC（多为无参裸 GET）训练的 IF 把 **28.2%** 的 lexical 良性长文
 
 ```bat
 set PYTHONIOENCODING=utf-8
-cd F:\waf\python
+cd python
 py -3.10 collect_http_log.py --src <nginx_access.log> --name local_lab --provenance benign_lab --scrub
 py -3.10 collect_http_log.py --src <apache_error.log> --format apache-error --name inwild ^
     --provenance indicator --label-pattern-file ioc_inwild_attack.txt --scrub
@@ -797,7 +803,7 @@ canonical 400 轮曲线，同一批次同时记三个集合的 mlogloss：
 
 ```bat
 set PYTHONIOENCODING=utf-8
-cd F:\waf\python
+cd python
 py -3.10 export_datacon.py
 py -3.10 p6_body_ablation.py
 py -3.10 p5_flow_spike.py --stride 20
@@ -963,7 +969,7 @@ HTTP Body 生命周期钩子，自研 hyper 要自己处理 chunked / keep-alive
 复现：
 
 ```bat
-cd F:\waf\proxy_spike
+cd proxy_spike
 call build.bat build --release      :: 若报 generator 错，确认 CMAKE_GENERATOR=Ninja 生效
 call build.bat run --release        :: 另开窗口发请求，见 README.md
 ```
@@ -988,7 +994,7 @@ call build.bat run --release        :: 另开窗口发请求，见 README.md
 §8.6.5 的 body 消融给出的结论是硬的：CSIC 异常里**带 body 的 9,977 条，带 body 命中 1,903 / 去掉 body 命中 0**
 （§8.6.4–8.6.5）。而工作项 F 第一约束正是"**access log 里没有请求体**"。
 §8.7.4 已证明 Pingora 能在 Windows 上拿到 body；本节把这件能力**落成产品**：
-`F:\waf\proxy\`（crate `waf-collector`，Pingora 0.9 + rustls）挂在真实业务前当反向代理，
+`proxy/`（crate `waf-collector`，Pingora 0.9 + rustls）挂在真实业务前当反向代理，
 把流过的请求写成原始 jsonl。验证脚本 `python/p8_proxy_e2e.py` → `artifacts/p8_proxy_e2e.json`。
 
 #### 8.8.1 采什么 / 不采什么
@@ -1003,7 +1009,7 @@ call build.bat run --release        :: 另开窗口发请求，见 README.md
 一个采集点同时产出两路通道（HTTP 与流级）—— 这正是 §8.7.5 选 Proxy 近似的理由，
 `collect_http_log.py` 新增 `FLOW_KEYS` 透传，标注后流级字段不丢。
 
-#### 8.8.2 端到端验证（27/27 通过）
+#### 8.8.2 端到端验证（43/43 通过）
 
 链路：`请求（含攻击 body）→ waf-collector → 原始 jsonl（无 label）→ collect_http_log.py --canary-prefix → 有 label 的数据集`。
 **全程不依赖任何内容正则打标签。**
@@ -1120,10 +1126,10 @@ e2e p50 **0.636ms** / p99 **1.185ms**。
 （CPU/内存/QPS/延迟）仍归 Grafana + Prometheus（PRD §4.9.2），此处不重复。
 
 * **控制面 API**（FastAPI + SQLite，见 `python/service/README.md`）：
-  `total 12/12 PASS`（`py -3.10 -m service.smoke`）——登录 / me / 总览 / 事件 / 策略 /
+  `total 39/39 PASS`（`py -3.10 -m service.smoke`）——登录 / me / 总览 / 事件 / 策略 /
   告警聚合 / 规则 / 模型 / 采集面 / 审计 / 任务 / 降级。
 * **前端 SPA**（`web/`，React 18 + AntD 5 + ECharts，`vite build` 后由 FastAPI 单端口托管）：
-  10 个路由全部渲染成功、**0 条控制台错误**（`/` `/events` `/alerts` `/policy`
+  16 个页面（15 个业务路由 + 登录页）全部渲染成功、**0 条控制台错误**（`/` `/events` `/alerts` `/policy`
   `/feedback` `/rules` `/models` `/tasks` `/degradation` `/audit`）。
 * **刷新策略**：按要求用**手动 / 定时轮询**（总览可选 15s、顶栏模式 30s、任务日志 2s），不用 SSE。
 * **SHAP 进台账**：采集端 `Pred.shap_topk`（Top-8，对预测类）→ `event_shap` 表 →
@@ -1145,7 +1151,7 @@ e2e p50 **0.636ms** / p99 **1.185ms**。
 门禁相应改为 `dref.policy_version == cfg.revision`（不再硬编码 1）。
 修正后三件套（策略 / testvec / Rust）重跑全绿：特征 **BIT-EXACT**、xgboost **4.172e-7**、
 argmax **200/200**、iforest **5.722e-6**、阈值交叉校验 **0.000e0**、融合 **200/200**、
-SHAP **8.106e-6**；`p8` 采集面 **28/28 PASS**。
+SHAP **8.106e-6**；`p8` 采集面 **43/43 PASS**。
 
 > 附带一条**实践观察**：控制台的「零日开关」与「规则启停」是**立即写现役状态**的
 > （零日开关会重跑 `thresholds.py` 并刷新 `testvec.json`）。本次会话中这两处被真实点击过，
@@ -1267,7 +1273,7 @@ sklearn↔ONNX 的差异从 **2.77e-4 降到 8.94e-7**（此前那个差值只�
 ## 11. 复现
 
 ```bat
-cd F:\waf\python
+cd python
 set PYTHONIOENCODING=utf-8
 py -3.10 realdata.py                  :: 数据核对（含 WEB_APPLICATION_PAYLOADS / datacon2025）
 py -3.10 train_realdata.py --ab       :: 特征 v1 vs v2 + 学习曲线
@@ -1291,6 +1297,37 @@ py -3.10 export_shap_ref.py           :: pred_contribs 参考
 :: 用本地真实良性流量重标定（上线前必做）
 py -3.10 thresholds.py --pool file:..\traindata\local\local_lab_benign.jsonl
 
-cd F:\waf\rust
+cd rust
 build.bat run --release               :: Rust 一致性校验（含融合动作）+ 延迟基准
 ```
+
+---
+
+## 12. 现役状态补充（2026-10-30，g2）
+
+本节只记录**在 §1–§11 之后发生的变化**，不覆盖历史结论。所有数字的**唯一事实来源**是
+`python/artifacts/decision_policy.json`。
+
+| 项 | 现役值 | 与 g1 的关系 |
+|---|---|---|
+| 策略版本 | **v20** | 每次重标定 +1 |
+| 监督通道 | XGBoost **g2**：4000 棵树 / 23,664 节点 / 深度 8，sha `eab7b73e1b04ba0d` | g1 为 2000 棵树 / 18,464 节点 |
+| 监督阈值 | **`0.721004`** @ 目标 FPR 1% | g1 为 `0.699765` |
+| 零日通道 | IForest **g2**：125 棵树，sha `1a6967a746eaa40e` | g1 为 100 棵树 |
+| 零日阈值 | **`-7.359740`** @ 目标 FPR 1% | g1 为 `-7.262677` |
+| 零日开关 | `zero_day_enabled = false` | 未变：分数留证，不产生 alert |
+| 规则集 | **91 条 / 41 block**，sha `5425465fd0085457` | g1 时 89 条 / 34 block |
+| 阻断误报预算 | 0.06398%（从监督目标 1% 里扣掉） | 监督目标因此是 0.936% |
+
+**门禁（g2，全部通过）**：特征 BIT-EXACT 200×80；xgboost max\|diff\| ≈ **4.17e-7**、
+argmax 200/200；IForest ≈ **5.7e-6**；TreeSHAP ≈ **8.1e-6**；阈值交叉 **0**；融合动作 **200/200**。
+
+**尚未复测**：延迟 p50 0.64 ms / p99 1.18 ms 与真实流量拦截率仍是 **g1 口径**；g2 换模型后
+必须按 `p4_local.py` + 压测重跑。零日检出率（CSIC @FPR 1%）g1 26.0% → g2 **26.6%**。
+
+**训练方式**：g2 从 g1 **warm start** 继续加树（`--parent-model`），不是重新全量训练；
+父代缺训练件时会降级全量重训并在任务里写明 `parent_fallback`。切换经过
+`switch#2`（零日 v18→v19）与 `switch#3`（监督 v19→v20），门禁全过后采集器 `in_sync`。
+
+**新增测试基线**：Python 单测 **279 项**、控制面 smoke **39 项**、p8 e2e **43 项**、
+Rust lib **18 项**、数据目录自检 **29 项**。这些数字只会增加，对不上说明代码/数据漂了。

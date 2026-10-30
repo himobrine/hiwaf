@@ -38,20 +38,20 @@ Pingora 反向代理 + **HTTP/流级采集**。这是工作项 F 第一约束（
 ## 构建与运行
 
 ```bat
-cd F:\waf\proxy
+cd proxy
 call build.bat build --release
 ```
 
 Linux（需要 gcc/make/cmake/ninja）：
 
 ```bash
-cd waf/proxy
+cd proxy
 ./build.sh build --release
 ```
 
 `build.bat` / `build.sh` 会自动找 MSVC/cargo、设置 `CMAKE_GENERATOR=Ninja`，并把
-`CARGO_TARGET_DIR` 统一到共享缓存（Windows 优先 `E:\waf-target`，否则
-`%LOCALAPPDATA%\waf-cargo-target`；Linux `~/.cache/waf-cargo-target`）。
+`CARGO_TARGET_DIR` 统一到共享缓存（Windows 默认 `%LOCALAPPDATA%\waf-cargo-target`
+（作者本机指向 `E:\waf-target`，见 `SETUP.md` 附录 A）；Linux `~/.cache/waf-cargo-target`）。
 一键安装的 `-WithRust` / `--with-rust` 会调用同一套脚本。
 
 构建成功后脚本会把 `waf-collector[.exe]` 复制到仓库 `bin/`，控制台优先从那里加载
@@ -119,7 +119,7 @@ call build.bat run --release -- ^
 所以 body 类拦截时**上游可能已收到请求头、但收不到 body**。这是流式反向代理的固有限制。
 
 **模型只告警、规则才阻断（`--no-supervised-block`）**：监督模型在 CSIC 上标定，跨分布到本地
-业务可能系统性误报（实测本机 sqli-labs：任何 `?id=` 的 GET 都被判成 `cmdi` ≈ 0.999，阈值 0.6998）。
+业务可能系统性误报（实测本机 sqli-labs：任何 `?id=` 的 GET 都被判成 `cmdi` ≈ 0.999，g1 阈值 0.6998 / 现役 g2 阈值 0.7210）。
 关掉这个开关后，模型命中只写 `action=alert`（分数、穿阈、SHAP、规则证据都保留），
 **只有规则通道达到 `min_weight_to_block` 才 403**；规则命中时仍是 `block`。
 
@@ -127,7 +127,16 @@ call build.bat run --release -- ^
 只覆盖 GET 的 `?id=1'--+`；POST `id=1'--+&submit=Submit` 由 `custom_sqli_quote_comment`
 （`(?i)['"]\s*(?:--|#|/\*)`，scope=`full`，`action=block`）覆盖。该规则经三关校验
 （良性池 0/6190、攻击池 724/25119）与人工确认后由 `rule_promote` 落盘，
-现役规则集 89 条 / 34 block，sha1_16 `c751648fe6f88b3c`。
+现役规则集 91 条 / 41 block，sha1_16 `5425465fd0085457`（阻断误报预算 0.06398%）。
+
+**IP 黑白名单（判定前先过）**：采集器每轮热重载都会读 `python/artifacts/ip_lists.json`，
+顺序固定为 **白名单 → 黑名单 → 规则/模型**：
+
+- **白名单优先**：命中直接放行（跳过规则与模型，仍写事件留证）；
+- **黑名单**：`enforce` 下返回 403，`dry_run` 只记录，`off` 纯采集不应用；
+- 支持 IPv4/IPv6 与 CIDR；变更由控制台「IP 黑白名单」页写入，采集器 ≤5s 生效；
+- **自动拉黑只统计** `block` + **有规则命中的** `alert`（模型单独 alert 不算），白名单 IP 永不自动拉黑，
+  手工条目不会被自动覆盖；默认 24h 过期（`0` = 永久）。
 
 完整步骤、nginx 示例与故障排查见 `SETUP.md` §8.2 / §8.7。
 
@@ -202,7 +211,8 @@ nginx/Caddy 终止 TLS 后转 HTTP 给采集器，否则只能看到 CONNECT 元
 > `*`；只有显式「显示敏感值」才重新读取并写审计；90 天保留清理见 `python/service/README.md`。
 
 > **构建缓存放在 `E:\waf-target`**：F: 盘几乎满了，而 `ort`(ONNX Runtime) 的编译产物很大。
-> `build.bat` 把 `CARGO_TARGET_DIR` 指到 `WAF_CARGO_TARGET`（默认 `E:\waf-target`），
+> `build.bat` 把 `CARGO_TARGET_DIR` 指到 `WAF_CARGO_TARGET`（默认 `%LOCALAPPDATA%\waf-cargo-target`，
+> 作者本机指向 `E:\waf-target`），
 > 且 `rust/` 与 `proxy/` **共用同一个目录** —— 于是 `ort` 只编译一次，而不是每个 crate 各编一次。
 > 想改位置就设 `WAF_CARGO_TARGET`；`python/p8_proxy_e2e.py` 会按环境变量/默认值自动找到采集器。
 
@@ -211,8 +221,8 @@ nginx/Caddy 终止 TLS 后转 HTTP 给采集器，否则只能看到 CONNECT 元
 `--block-mode dry_run|enforce` 时每条记录多一个 `pred`：
 
 ```json
-"pred": {"action":"allow","supervised_score":0.0112,"supervised_threshold":0.699765,
-         "supervised_flagged":false,"zero_day_score":-3.14,"zero_day_threshold":-7.262677,
+"pred": {"action":"allow","supervised_score":0.0112,"supervised_threshold":0.721004,
+         "supervised_flagged":false,"zero_day_score":-3.14,"zero_day_threshold":-7.359740,
          "zero_day_score_crossed":false,"zero_day_flagged":false,"zero_day_enabled":false,
          "attack_label":0,
          "shap_topk":[{"feature":"sql_weak_r","value":0.0,"contribution":-0.42}],
@@ -226,7 +236,7 @@ nginx/Caddy 终止 TLS 后转 HTTP 给采集器，否则只能看到 CONNECT 元
   `decision_policy.json.supervised.labels`，由控制面解释。
 * `shap_topk` 是 TreeSHAP Top-8（对预测类），**诊断/可解释性用，不参与判定**。
   需要 `xgb_trees.json` + `feature_names_v2.json`；缺任一个就为空（不报错、不影响判定）。
-  代价约 **0.5 ms/请求**（2000 棵树），仍在 `logging` 阶段，不占真实请求延迟。
+  代价约 **0.5 ms/请求**（g1 2000 棵树；现役 g2 4000 棵，需复测），仍在 `logging` 阶段，不占真实请求延迟。
 
 * **不是标签**。下游 `collect_http_log.py` 的 `parse_jsonl` 只保留已知键，`pred` 在标注产物里
   **结构性消失** —— 模型输出不可能变成训练标签（这是刻意的，见 `p8_proxy_e2e.py` 的断言）。

@@ -12,11 +12,11 @@ React 18 + TypeScript + Ant Design 5 + ECharts，Vite 构建。
 
 ```bash
 # 1) 后端
-cd F:\waf\python
+cd python
 py -3.10 -m service.run                 # 8090
 
 # 2) 前端（开发）
-cd F:\waf\web
+cd web
 npm ci
 npm run dev                             # 5173，/api 已代理到 8090
 
@@ -36,12 +36,14 @@ npm run build                           # 产物 web/dist
 - **ECharts 按需**：统一在 `src/echarts.ts` 注册实际用到的图表与组件
   （bar / pie / line / tree + grid / tooltip / legend / title + canvas）。
   新增图表类型时**只改这一处**，不要在页面里 `import 'echarts-for-react'`（会打进全量 ECharts）。
-- 当前构建产物：`antd ≈ 1.15 MB`、`echarts ≈ 578 KB`（仅图表页加载）、
-  各路由 chunk 2–56 KB、入口 `index ≈ 20 KB`。
+- 当前构建产物：`antd ≈ 1.27 MB`、`echarts ≈ 578 KB`（仅图表页加载）、
+  各路由 chunk 2–63 KB、入口 `index ≈ 26 KB`。
 - 构建后自检：`npm run typecheck && npm run build`；浏览器打开 `/` 与 `/#/models`，
   确认控制台无报错、代际树正常渲染。
 
 ## 页面
+
+共 **16 个页面**（15 个业务路由 + 登录页）。除总览外均按路由懒加载。
 
 | 路由 | 页面 | 说明 |
 | --- | --- | --- |
@@ -57,12 +59,15 @@ npm run build                           # 产物 web/dist
 | `/suppressions` | 抑制策略 | 实体级误报抑制：草案 → admin 审批（TTL）→ 撤销/过期；可从人工确认误报生成草案；只折叠控制台告警可见性 |
 | `/policy` | 策略中心 | 现役阈值、版本历史、**预览 → 提升**、零日通道开关 |
 | `/feedback` | 反馈台账 | 人工结论列表 + 导出 JSON |
-| `/rules` | 规则管理 | `rule_candidates.json` 的评审结论 + 启停 |
-| `/models` | 模型与门禁 | 产物 sha1、训练元数据、**模型代际传承树**、学习曲线、保留策略 |
-| `/tasks` | 训练任务 | 白名单任务 + 2s 轮询日志 |
+| `/rules` | 规则管理 | 四层生命周期（草稿 → 测试中 → 合格 → 现役）+ 三关校验 + 三级熔断；含在线证据与历史回放 |
+| `/models` | 模型与门禁 | 产物 sha1、训练元数据、**模型代际传承树**、学习曲线、保留策略、切换/回滚 |
+| `/datasets` | 训练数据 | 上传原始 HTTP 请求（CSV/JSON/JSONL/HAR/pcap）或从事件勾选建数据集；解析状态与统计 |
+| `/tasks` | 训练任务 | 白名单任务 + 2s 轮询日志；可「官方 + 上传」或「仅上传」 |
 | `/degradation` | 降级状态 | dry-run / 零日开关 / 阈值 / 降级备忘 |
 | `/proxy` | 采集代理 | 进程状态/指标/输出目录、配置表单、启动/停止/重启、日志尾部、反向代理接入手册 |
 | `/audit` | 审计 | 登录、策略、开关、body 查看等留痕（admin） |
+| `/users` | 用户管理 | 新建/改角色/禁用/重置密码/删除；至少保留一个启用 admin（admin） |
+| `/ip-lists` | IP 黑白名单 | 单条/批量导入、导出、启停、自动拉黑；白名单优先，黑名单在 enforce 下 403 |
 
 **采集代理页**（`/proxy`）：状态卡 5s 轮询，运行中日志 2s 轮询；配置保存只落库，
 页面用 `restart_keys` 标出「需重启生效」。viewer 只读，analyst 可看日志，admin 可改配置/启停；
@@ -95,6 +100,11 @@ npm run build                           # 产物 web/dist
 - **显示已抑制**：两个页签都有开关。默认折叠生效中的实体级抑制，只提示「另有 N 组
   被折叠」；打开后保留行、置灰并标「已抑制」，悬停看到抑制原因、审批人与到期时间。
   抑制只影响控制台可见性，数据面仍照常拦截/告警。
+- **服务端搜索 / 筛选**：`q` 覆盖源 IP、UA、路径、规则名；另有源 IP / 动作 / 攻击类型 /
+  方法 / Host / 规则 / 最低分 / 时间范围 / 状态。筛选在**服务端**做（不是前端过滤整表），
+  聚合与攻击链共用同一套 `_where`；结果被截断时页面明确提示 `truncated`。
+- **自动刷新**：可选 10s/30s/60s 或关闭；**页面隐藏时暂停**，回到前台再继续。
+  筛选条件会持久化到 `localStorage`，刷新页面不丢。
 
 **抑制策略页（`/suppressions`）**：
 
@@ -116,6 +126,8 @@ npm run build                           # 产物 web/dist
 | 总览 | 手动（可选 15s 自动） |
 | 顶栏运行模式 | 30s |
 | 任务日志 | 2s（任务结束即停） |
+| 告警 / 攻击链 | 可选 10s / 30s / 60s / 关闭；页面隐藏暂停 |
+| 规则 incident | 默认 10s，有 open 时 5s |
 | 其余表格 | 手动刷新按钮 |
 
 ## 红线（前端不要越线）

@@ -1,14 +1,14 @@
 {
   "schema": 1,
-  "generated_at": "2026-10-20 15:58:40",
+  "generated_at": "2026-10-30 11:02:36",
   "root": "F:\\waf\\traindata",
   "coverage": {
     "cic_scanned": true,
     "pools_computed": true
   },
   "totals": {
-    "files": 40,
-    "bytes": 955608937
+    "files": 59,
+    "bytes": 989414254
   },
   "corpora": [
     {
@@ -919,10 +919,10 @@
       "title": "采集器落盘样本（proxy/）",
       "path": "traindata/proxy/",
       "role": "**运行样本，不是语料**（有 pred、无 label）",
-      "provenance": "`proxy` 采集器 dry-run 输出（2 个 raw 分片 + metrics）",
+      "provenance": "`proxy` 采集器 dry-run 输出（多个 raw 分片 + metrics）",
       "consumers": "人工排查 / p8 e2e 观察",
-      "usable": "不能进池（20 条、无标签）",
-      "scale": "20 条",
+      "usable": "不能进池（无标签；只是运行样本）",
+      "scale": "3538 条",
       "notes": [
         "字段含 `pred`（action/attack_label/score）与 `body_truncated`",
         "与 `events` 表结构不同：这里是采集器原始记录，别当训练数据"
@@ -930,7 +930,7 @@
       "table": [
         {
           "file": "traindata/proxy/collector-metrics.json",
-          "bytes": "379 B",
+          "bytes": "1.4 KB",
           "rows": "-",
           "note": "with_pred=-"
         },
@@ -945,17 +945,125 @@
           "bytes": "11.5 KB",
           "rows": "10",
           "note": "with_pred=10"
+        },
+        {
+          "file": "traindata/proxy/raw-20261022-00000.jsonl",
+          "bytes": "23.8 KB",
+          "rows": "10",
+          "note": "with_pred=10"
+        },
+        {
+          "file": "traindata/proxy/raw-20261022-00001.jsonl",
+          "bytes": "24.1 KB",
+          "rows": "10",
+          "note": "with_pred=10"
+        },
+        {
+          "file": "traindata/proxy/raw-20261029-00000.jsonl",
+          "bytes": "0 B",
+          "rows": "0",
+          "note": "with_pred=0"
+        },
+        {
+          "file": "traindata/proxy/raw-20261029-00001.jsonl",
+          "bytes": "0 B",
+          "rows": "0",
+          "note": "with_pred=0"
+        },
+        {
+          "file": "traindata/proxy/raw-20261029-00002.jsonl",
+          "bytes": "0 B",
+          "rows": "0",
+          "note": "with_pred=0"
+        },
+        {
+          "file": "traindata/proxy/raw-20261029-00003.jsonl",
+          "bytes": "1.9 KB",
+          "rows": "1",
+          "note": "with_pred=1"
+        },
+        {
+          "file": "traindata/proxy/raw-20261029-00004.jsonl",
+          "bytes": "45.8 KB",
+          "rows": "7",
+          "note": "with_pred=7"
+        },
+        {
+          "file": "traindata/proxy/raw-20261029-00005.jsonl",
+          "bytes": "6.6 KB",
+          "rows": "3",
+          "note": "with_pred=3"
+        },
+        {
+          "file": "traindata/proxy/raw-20261029-00006.jsonl",
+          "bytes": "8.6 KB",
+          "rows": "4",
+          "note": "with_pred=4"
+        },
+        {
+          "file": "traindata/proxy/raw-20261029-00007.jsonl",
+          "bytes": "2.7 KB",
+          "rows": "1",
+          "note": "with_pred=1"
+        },
+        {
+          "file": "traindata/proxy/raw-20261029-00008.jsonl",
+          "bytes": "1.9 KB",
+          "rows": "1",
+          "note": "with_pred=1"
+        },
+        {
+          "file": "traindata/proxy/raw-20261029-00009.jsonl",
+          "bytes": "11.7 KB",
+          "rows": "3",
+          "note": "with_pred=3"
+        },
+        {
+          "file": "traindata/proxy/raw-20261029-00010.jsonl",
+          "bytes": "138.7 KB",
+          "rows": "62",
+          "note": "with_pred=62"
+        },
+        {
+          "file": "traindata/proxy/raw-20261029-00011.jsonl",
+          "bytes": "8.2 MB",
+          "rows": "3170",
+          "note": "with_pred=3170"
+        },
+        {
+          "file": "traindata/proxy/raw-20261029-00012.jsonl",
+          "bytes": "35.4 KB",
+          "rows": "12",
+          "note": "with_pred=12"
+        },
+        {
+          "file": "traindata/proxy/raw-20261029-00013.jsonl",
+          "bytes": "588.5 KB",
+          "rows": "232",
+          "note": "with_pred=232"
+        },
+        {
+          "file": "traindata/proxy/raw-20261029-00014.jsonl",
+          "bytes": "0 B",
+          "rows": "0",
+          "note": "with_pred=0"
+        },
+        {
+          "file": "traindata/proxy/raw-20261029-00015.jsonl",
+          "bytes": "5.4 KB",
+          "rows": "2",
+          "note": "with_pred=2"
         }
       ],
       "stats": {
-        "n_files": 3
+        "n_files": 21
       },
       "files": [
         {
           "path": "traindata/proxy/collector-metrics.json",
-          "bytes": 379,
-          "mtime": "2026-10-19 14:27",
-          "sha1": "2621003def8e88535dd39b4d2b7d2b8f340656e5"
+          "bytes": 1391,
+          "mtime": "2026-10-29 20:17",
+          "sha1": "8b2bd4a2252648d37438cf7c3eda7766b087df1f"
         },
         {
           "path": "traindata/proxy/raw-1792389542171-00000.jsonl",
@@ -976,6 +1084,233 @@
           "with_pred": 10,
           "with_body": 4,
           "has_label_field": false
+        },
+        {
+          "path": "traindata/proxy/raw-20261022-00000.jsonl",
+          "bytes": 24343,
+          "mtime": "2026-10-22 09:13",
+          "sha1": "c9cc53f747c3ad1699b8423eee52523388760464",
+          "rows": 10,
+          "with_pred": 10,
+          "with_body": 4,
+          "has_label_field": false
+        },
+        {
+          "path": "traindata/proxy/raw-20261022-00001.jsonl",
+          "bytes": 24645,
+          "mtime": "2026-10-22 09:13",
+          "sha1": "14d08c07faadd91a9eec538b7109c292b10a0aaf",
+          "rows": 10,
+          "with_pred": 10,
+          "with_body": 4,
+          "has_label_field": false
+        },
+        {
+          "path": "traindata/proxy/raw-20261029-00000.jsonl",
+          "bytes": 0,
+          "mtime": "2026-10-29 09:48",
+          "sha1": "da39a3ee5e6b4b0d3255bfef95601890afd80709",
+          "rows": 0,
+          "with_pred": 0,
+          "with_body": 0,
+          "has_label_field": false
+        },
+        {
+          "path": "traindata/proxy/raw-20261029-00001.jsonl",
+          "bytes": 0,
+          "mtime": "2026-10-29 09:52",
+          "sha1": "da39a3ee5e6b4b0d3255bfef95601890afd80709",
+          "rows": 0,
+          "with_pred": 0,
+          "with_body": 0,
+          "has_label_field": false
+        },
+        {
+          "path": "traindata/proxy/raw-20261029-00002.jsonl",
+          "bytes": 0,
+          "mtime": "2026-10-29 09:52",
+          "sha1": "da39a3ee5e6b4b0d3255bfef95601890afd80709",
+          "rows": 0,
+          "with_pred": 0,
+          "with_body": 0,
+          "has_label_field": false
+        },
+        {
+          "path": "traindata/proxy/raw-20261029-00003.jsonl",
+          "bytes": 1966,
+          "mtime": "2026-10-29 10:37",
+          "sha1": "0aa02bde38568f6d9bec13504b36b8798b5dd5ce",
+          "rows": 1,
+          "with_pred": 1,
+          "with_body": 0,
+          "has_label_field": false
+        },
+        {
+          "path": "traindata/proxy/raw-20261029-00004.jsonl",
+          "bytes": 46855,
+          "mtime": "2026-10-29 11:21",
+          "sha1": "b6e85d6c0b761efd8ba3a13ab8faf7928733bf52",
+          "rows": 7,
+          "with_pred": 7,
+          "with_body": 0,
+          "has_label_field": false
+        },
+        {
+          "path": "traindata/proxy/raw-20261029-00005.jsonl",
+          "bytes": 6734,
+          "mtime": "2026-10-29 11:27",
+          "sha1": "0ff9f912a556b551bfa9f5cfa46ce50da9c78e52",
+          "rows": 3,
+          "with_pred": 3,
+          "with_body": 0,
+          "has_label_field": false
+        },
+        {
+          "path": "traindata/proxy/raw-20261029-00006.jsonl",
+          "bytes": 8794,
+          "mtime": "2026-10-29 11:28",
+          "sha1": "232208344fce9aa625e92bada10e86cc2977f58f",
+          "rows": 4,
+          "with_pred": 4,
+          "with_body": 1,
+          "has_label_field": false
+        },
+        {
+          "path": "traindata/proxy/raw-20261029-00007.jsonl",
+          "bytes": 2779,
+          "mtime": "2026-10-29 11:31",
+          "sha1": "1c8c61c6f70bc172d3d158e72c7fc0b0b33d94bd",
+          "rows": 1,
+          "with_pred": 1,
+          "with_body": 0,
+          "has_label_field": false
+        },
+        {
+          "path": "traindata/proxy/raw-20261029-00008.jsonl",
+          "bytes": 1971,
+          "mtime": "2026-10-29 11:36",
+          "sha1": "413d2a9180da6312330138ade99f55fa57f8aca1",
+          "rows": 1,
+          "with_pred": 1,
+          "with_body": 0,
+          "has_label_field": false
+        },
+        {
+          "path": "traindata/proxy/raw-20261029-00009.jsonl",
+          "bytes": 11948,
+          "mtime": "2026-10-29 11:54",
+          "sha1": "f67cc2f6a970359b00d496f1db80ed71b78097b7",
+          "rows": 3,
+          "with_pred": 3,
+          "with_body": 0,
+          "has_label_field": false
+        },
+        {
+          "path": "traindata/proxy/raw-20261029-00010.jsonl",
+          "bytes": 142072,
+          "mtime": "2026-10-29 12:04",
+          "sha1": "badff55bac041597e35f03fee771cd8f11f73f66",
+          "rows": 62,
+          "with_pred": 62,
+          "with_body": 3,
+          "has_label_field": false
+        },
+        {
+          "path": "traindata/proxy/raw-20261029-00011.jsonl",
+          "bytes": 8616005,
+          "mtime": "2026-10-29 12:05",
+          "sha1": "2e57a650b95cc2639adb5dfd4793ba793f6e3d06",
+          "rows": 3170,
+          "with_pred": 3170,
+          "with_body": 18,
+          "has_label_field": false
+        },
+        {
+          "path": "traindata/proxy/raw-20261029-00012.jsonl",
+          "bytes": 36252,
+          "mtime": "2026-10-29 18:56",
+          "sha1": "0ef915c90db798375911d50f0e4dd908cdc5bf96",
+          "rows": 12,
+          "with_pred": 12,
+          "with_body": 0,
+          "has_label_field": false
+        },
+        {
+          "path": "traindata/proxy/raw-20261029-00013.jsonl",
+          "bytes": 602670,
+          "mtime": "2026-10-29 20:10",
+          "sha1": "ab7783f32e307b142c20cea4adbfe840237e4409",
+          "rows": 232,
+          "with_pred": 232,
+          "with_body": 0,
+          "has_label_field": false
+        },
+        {
+          "path": "traindata/proxy/raw-20261029-00014.jsonl",
+          "bytes": 0,
+          "mtime": "2026-10-29 20:10",
+          "sha1": "da39a3ee5e6b4b0d3255bfef95601890afd80709",
+          "rows": 0,
+          "with_pred": 0,
+          "with_body": 0,
+          "has_label_field": false
+        },
+        {
+          "path": "traindata/proxy/raw-20261029-00015.jsonl",
+          "bytes": 5503,
+          "mtime": "2026-10-29 20:18",
+          "sha1": "6b8a22eee4ff41f4017a447bd6ef88053f776fd1",
+          "rows": 2,
+          "with_pred": 2,
+          "with_body": 0,
+          "has_label_field": false
+        }
+      ]
+    },
+    {
+      "id": "enhanced_security",
+      "title": "enhanced_security_dataset_clear.json（名字像安全数据集，实际是代码问答）",
+      "path": "traindata/enhanced_security_dataset_clear.json",
+      "role": "**不可训练**：不是 HTTP 请求，只可当知识库素材",
+      "provenance": "来源不明；无许可证文件（见 THIRD_PARTY_NOTICES §2）",
+      "consumers": "**无**（上传解析实测 767 条全部 `missing_path`、`rows_kept=0`）",
+      "usable": "禁止入训练、禁止当良性池；没有 method/path/query/body，无法转成 80 维特征",
+      "scale": "767 条 `instruction`/`output` 问答",
+      "notes": [
+        "内容是 Java 代码漏洞问答（Jenkins / Spring 源码片段），不是请求报文",
+        "字段只有 `instruction`、`output`",
+        "`upload_parse.py` 会把它全部标为 `missing_path`；这是**解析器的正确行为**，不要为了让它「能用」而放宽解析"
+      ],
+      "table": [
+        {
+          "file": "traindata/enhanced_security_dataset_clear.json",
+          "bytes": "23.1 MB",
+          "rows": "767",
+          "note": "has_http_fields=False"
+        }
+      ],
+      "stats": {
+        "present": true,
+        "rows": 767,
+        "keys": {
+          "instruction": 767,
+          "output": 767
+        },
+        "has_http_fields": false
+      },
+      "files": [
+        {
+          "path": "traindata/enhanced_security_dataset_clear.json",
+          "bytes": 24271768,
+          "mtime": "2026-10-29 20:03",
+          "sha1": "fcc62d38c9ae0092dfe5b7e4ef80a10259fbac73",
+          "rows": 767,
+          "keys": {
+            "instruction": 767,
+            "output": 767
+          },
+          "has_http_fields": false,
+          "is_list": true
         }
       ]
     }
@@ -1141,6 +1476,11 @@
   },
   "issues": [
     {
+      "id": "enhanced_security_not_http",
+      "severity": "warn",
+      "detail": "enhanced_security_dataset_clear.json 有 767 条，字段只有 `instruction`、`output` —— 是 Java 代码漏洞问答，**没有 method/path/query/body**。名字像安全数据集，但 `upload_parse.py` 会把它们全部判为 `missing_path`（rows_kept=0）。禁止入训练、禁止当良性池。"
+    },
+    {
       "id": "payload_full_is_derived",
       "severity": "info",
       "detail": "payload_full.csv 只是 train+test 的拼接（31,067 行），无脚本消费；改任何一侧都会让它过期，别当独立语料引用。"
@@ -1198,7 +1538,7 @@
     {
       "id": "proxy_samples_in_traindata",
       "severity": "info",
-      "detail": "proxy/ 下有 20 条采集器输出（有 pred、无 label），是**运行样本**不是语料；别混进池子。"
+      "detail": "proxy/ 下有 3538 条采集器输出（有 pred、无 label），是**运行样本**不是语料；别混进池子。"
     },
     {
       "id": "zip_duplicates",
@@ -1218,5 +1558,5 @@
     "本机真实流量 body 覆盖为 0，根因是日志源（access/error log 不带请求体）；要补 body 只能在采集器侧落 `event_bodies`，别再指望历史日志。",
     "需要更宽的攻击语料时，优先级：① 真实本机良性到 ≥2,000 ② 采集器带 body 的真实攻击 ③ CIC-IDS2017 流级消费者。datacon 完整版未公开，不要等它。"
   ],
-  "elapsed_s": 17.9
+  "elapsed_s": 12.8
 }

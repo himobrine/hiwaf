@@ -4,6 +4,10 @@
 > 验证环境：**本机 i5-12500H（12 核 / 16 线程，无 GPU）**，Windows，Python 3.10.10 (MSVC x64)
 > 验证日期：2026-10-16
 > 结论一句话：**推理链路完全可行且性能远超预期；但"零日检测率 >70%"与"pred_contribs 进 ONNX"两条 PRD 假设不成立，需调整方案。**
+>
+> **⚠️ 历史报告说明（2026-10-30 追加）**：本文是 2026-10-16 的可行性验证记录，结论与数字
+> 均按当时的 **g1（2000 棵树）** 产物。后续已用真实数据修正（见 `REALDATA_EVALUATION.md`），
+> 现役为 **g2（4000 棵树）**、策略 v20。本文不重写，仅保留为决策依据。
 
 ---
 
@@ -151,7 +155,7 @@
 
 ```bat
 set PYTHONIOENCODING=utf-8
-cd F:\waf\python
+cd python
 py -3.10 train_xgboost.py
 py -3.10 train_iforest.py
 py -3.10 iforest_lean_onnx.py --data synthetic --export

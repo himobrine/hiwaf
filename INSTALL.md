@@ -29,7 +29,8 @@
 - 初始密码：`python/service/.admin_password`（首次创建 admin 时生成）
 - 采集器二进制：`bin/waf-collector.exe`（Windows）/ `bin/waf-collector`（Linux）；
   `proxy/build.bat|sh build --release` 成功后自动复制到这里，控制台优先使用它
-- Rust 构建缓存：Windows 优先 `E:\waf-target`，否则 `%LOCALAPPDATA%\waf-cargo-target`；
+- Rust 构建缓存：Windows 默认 `%LOCALAPPDATA%\waf-cargo-target`（作者本机指向 `E:\waf-target`，
+  见 `SETUP.md` 附录 A）；
   Linux 为 `~/.cache/waf-cargo-target`
 
 ---
@@ -52,8 +53,8 @@ install.bat -WithRust -Port 8091 :: 连 Rust/采集器一起构建，端口 8091
 安装完成后前台启动：
 
 ```bat
-cd F:\waf\python
-.venv\Scripts\python.exe -m service.run --host 127.0.0.1 --port 8090
+cd python
+..\.venv\Scripts\python.exe -m service.run --host 127.0.0.1 --port 8090
 ```
 
 浏览器打开 <http://127.0.0.1:8090>，接口文档在 `/docs`。
@@ -84,9 +85,9 @@ Windows 脚本**不注册系统服务**，默认前台运行。需要常驻时�
 
 1. 创建任务 → 触发器「登录时」或「启动时」；
 2. 操作「启动程序」：
-   - 程序：`F:\waf\.venv\Scripts\python.exe`
+   - 程序：`<repo>\.venv\Scripts\python.exe`
    - 参数：`-m service.run --host 127.0.0.1 --port 8090`
-   - 起始于：`F:\waf\python`
+   - 起始于：`<repo>\python`
 3. 勾选「不管用户是否登录都要运行」时需要给账号「作为服务登录」权限；
    更简单的做法是「只在用户登录时运行」。
 
@@ -206,10 +207,10 @@ Windows 对应 `install.bat -NoRust -Verify`。
 手动验证：
 
 ```bat
-cd F:\waf\python
+cd python
 set PYTHONIOENCODING=utf-8
 set WAF_CONSOLE_BASE=http://127.0.0.1:8090
-.venv\Scripts\python.exe -m service.smoke
+..\.venv\Scripts\python.exe -m service.smoke
 ```
 
 ```bash
@@ -265,7 +266,7 @@ Nginx/Caddy 之后，并配置 HTTPS 与访问控制。
 只删虚拟环境不会动业务数据：
 
 ```bat
-rmdir /s /q F:\waf\.venv
+rmdir /s /q .venv
 ```
 
 ```bash

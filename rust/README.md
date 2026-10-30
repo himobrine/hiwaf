@@ -12,8 +12,9 @@
 
 > v2 更新：特征通道已按 `REALDATA_EVALUATION.md` 的根因重写（v1 → v2，78 → 80 维），
 > 正式模型改为**真实数据集（HTTP Params 2015）训练**，并**烘入困难良性负样本**
-> （lexical 正常前一半 500 条，见 `REALDATA_EVALUATION.md` §8/§9），
-> 规模 2000 棵树 / 18,464 节点 / 深度 8。下表数值与延迟均为该正式产物口径。
+> （lexical 正常前一半 500 条，见 `REALDATA_EVALUATION.md` §8/§9）。
+> **现役监督模型是 g2：4000 棵树 / 23,664 节点 / 深度 8**（g1 是 2000 棵树 / 18,464 节点）。
+> 下文延迟表仍是 **g1（2000 棵树）** 口径，g2 尚未复测，不要直接引用为现役延迟。
 
 | 验证项 | 结果 |
 |---|---|
@@ -24,6 +25,7 @@
 | **TreeSHAP 可解释性** vs XGBoost 原生 `pred_contribs` | ✅ max\|diff\| = **8.1e-6** |
 | TreeSHAP 自洽性 `Σφ = raw margin` | ✅ max\|diff\| = 1.24e-5 |
 | **决策规则：双通道 + 融合（S7）** | ✅ 原型已实现并校验：`rust/src/decision.rs` 读 `artifacts/decision_policy.json`（由 `python/thresholds.py` 生成），监督 `score = 1-P(normal)`、零日 `score = -avg_path_len` 各自与标定阈值比较，融合为 **block/alert/allow**；**`argmax` 降级为攻击类型归类**。校验：两通道 score 差 **1.19e-7 / 5.7e-6**、标记 **200/200**、**融合动作 200/200**、策略↔testvec 阈值差 0（断言）。**生产数据面接线后须用本地留出流量重标定。** |
+| **规则通道融合（FUSION_3）** | ✅ `decision.rs` 同时解析 `rules` 块（`enabled` / `min_weight_to_block` / `ruleset_sha1_16` / `n_rules` / `n_block_rules`）；规则权重和 ≥ 阻断线 → **block**，有命中但不够线 → **alert**。策略自相矛盾（`fusion.policy=FUSION_3` 但 `rules.enabled=false`，或反之）直接拒绝加载；规则集指纹与磁盘不一致时规则证据按 0 处理（只少拦不误拦）。现役 91 条 / 41 block。 |
 | **判定策略的标定池守卫** | ✅ 由 `python/thresholds.py` 代码级拒绝含训练样本的校准池（实测：合法池通过、`payload_train` 池 100% 重叠被拒） |
 | **产物错配检测（防"文档≠产物"）** | ✅ `main.rs` 断言策略里的产物名 = 实际加载文件名，且零日阈值与 `iforest_meta.json` 训练记录一致（本轮真出现过 canonical IF 是合成产物训练的 bug） |
 
@@ -31,7 +33,9 @@
 > **0.8%–3.0%** 之间乱跳，PRD 的 FPR<3% 无法稳定达成。现改为「两条通道各自取分数、与策略文件里的
 > 标定阈值比较，再按融合策略给出动作」：监督命中 → **block**，仅零日命中 → **alert**（不阻断，
 > 因为它的误报语义是"没见过"而非"确认是攻击"）。三个档位可配（0.1%/1%/3%），换预算不需重训。
-> **遗留**：(a) `rust/src/main.rs` 目前仍是一致性 harness，真正的数据面（S4 反向代理基座）尚未开始；
+> **遗留**：(a) 数据面已在 `../proxy/`（crate `waf-collector`）落地，判定代码通过 path 依赖
+> 复用本 lib 的 `features.rs` / `decision.rs`，不再有"复制一份判定逻辑"的风险；
+> `rust/src/main.rs` 保留为一致性 harness；
 > (b) 上线前两条阈值必须在**本地留出流量**上重标定，且校准池绝不能含训练样本
 > （`thresholds.py` 会拒绝这种池）；(c) 零日通道**跨分布迁移很差**（CSIC 训练的 IF 对 lexical
 > 良性误报 **28.2%**，§8.4），在采到本地良性流量重训之前只应"记录不告警"。
@@ -41,9 +45,9 @@
 | 阶段 | p50 | p99 |
 |---|---|---|
 | 特征提取（80 维，纯 Rust） | 0.0059 ms | 0.0083 ms |
-| XGBoost（ONNX/ort，2000 棵树） | 0.0188 ms | 0.0701 ms |
+| XGBoost（ONNX/ort，g1 2000 棵树） | 0.0188 ms | 0.0701 ms |
 | Isolation Forest（精简 ONNX/ort） | 0.0040 ms | 0.0084 ms |
-| TreeSHAP（2000 棵树 / 5 类） | 0.57 ms | 1.25 ms |
+| TreeSHAP（g1 2000 棵树 / 5 类） | 0.57 ms | 1.25 ms |
 | **端到端（特征+双模型+TreeSHAP）** | **≈0.70 ms** | **≈1.40 ms** |
 
 > 同一机器多次复跑波动 ±10–20%（长跑后更慢）：端到端实测区间 p50 0.61–0.75ms / p99 1.19–1.53ms。
@@ -53,7 +57,8 @@ XGBoost 原生 `pred_contribs` **0.46ms**（1000 棵树口径）。
 
 > 关键结论：Rust 侧 TreeSHAP 与 XGBoost 自带的 `pred_contribs`（C++）**同级延迟**，
 > 且无需在数据面嵌入 C++ XGBoost 运行时。模型规模翻倍（1000 → 2000 棵树）后端到端
-> p99 ≈ 1.2–1.4ms，相对 PRD 的 10ms 预算仍有 **约 7–8 倍** 余量。
+> p99 ≈ 1.2–1.4ms，相对 PRD 的 10ms 预算仍有 **约 7–8 倍** 余量。现役 g2 是 4000 棵树，
+> 延迟需按同一口径复测后再更新本表。
 
 ---
 
@@ -67,7 +72,7 @@ rust/
 └── src/
     ├── main.rs          # 加载模型 → 一致性校验（含阈值判定）→ 延迟基准
     ├── features.rs      # 80 维特征提取的 Rust 移植（对齐 python/features.py v2）
-    ├── decision.rs      # 判定规则：score = 1 - P(normal) + 标定阈值（替代 argmax）
+    ├── decision.rs      # 三通道融合：监督/零日阈值 + 规则权重和（FUSION_2/FUSION_3）
     └── shap.rs          # TreeSHAP（path-dependent）Rust 实现
 ```
 
@@ -105,11 +110,12 @@ Python 侧配套产物（`../python/artifacts/`）：
 
 ## 3. 构建与运行
 
-工具链不需要手工加 PATH：`build.bat` / `build.sh` 会依次尝试 `vswhere`、本机历史路径
-`D:\visual_studio`、VS 2022 默认安装目录，并把 `%USERPROFILE%\.cargo\bin` 补进 PATH。
+工具链不需要手工加 PATH：`build.bat` / `build.sh` 会依次尝试 `vswhere`、常见 VS 安装目录
+（作者本机在 `D:\visual_studio`，见 `../SETUP.md` 附录 A），并把
+`%USERPROFILE%\.cargo\bin` 补进 PATH。
 
 ```bat
-cd F:\waf\rust
+cd rust
 build.bat run --release
 build.bat test --release --lib
 ```
@@ -117,14 +123,14 @@ build.bat test --release --lib
 Linux（需要 gcc/make/cmake/ninja）：
 
 ```bash
-cd waf/rust
+cd rust
 ./build.sh build --release
 ./build.sh test --release --lib
 ```
 
 构建缓存由 `WAF_CARGO_TARGET` 控制，默认：
 
-- Windows：有 `E:\` 时用 `E:\waf-target`，否则 `%LOCALAPPDATA%\waf-cargo-target`；
+- Windows：`%LOCALAPPDATA%\waf-cargo-target`（作者本机指向 `E:\waf-target`，见 `../SETUP.md` 附录 A）；
 - Linux：`~/.cache/waf-cargo-target`。
 
 `proxy/` 与 `rust/` 必须共用这份缓存（ort/ONNX-Runtime 树很大，否则会编两遍）。
@@ -133,7 +139,7 @@ cd waf/rust
 ### 重新生成模型与参考数据
 
 ```bat
-cd F:\waf\python
+cd python
 py -3.10 train_realdata.py --features v2 --hard-neg lexical --export  :: 监督通道（含困难负样本）
 py -3.10 iforest_lean_onnx.py --data csic --export  :: 零日通道（CSIC 正常 30,000，80 维）
 py -3.10 thresholds.py --pool csic                 :: 标定两条阈值 -> decision_policy.json
@@ -181,8 +187,8 @@ XGBoost 的 `pred_contribs` 使用的是 **path-dependent TreeSHAP**，
 - **Oracle 是 `pred_contribs`，不是 `SHAP` 包**：本机无 `shap`，验证基准为 XGBoost 原生实现；
   两者均实现 path-dependent TreeSHAP，理论一致。
 - **仅主效应**：未实现交互效应（`condition != 0`）。
-- **深树已压测**：正式模型 2000 棵树 / 18,464 节点 / 深度 8，TreeSHAP 一致性 8.1e-6 ✅
-  （v1 时代仅 1000 树 / 3218 节点 / 深度 ≤3，该限制已消除）。
+- **深树已压测**：g1 2000 棵树 / 18,464 节点 / 深度 8，TreeSHAP 一致性 8.1e-6 ✅
+  （现役 g2 为 4000 棵树 / 23,664 节点，一致性门禁同样通过；v1 时代仅 1000 树 / 3218 节点 / 深度 ≤3）。
 - **跨平台特征一致性**：当前在 **Windows/MSVC + 200 条混合请求上逐位一致**。
   熵使用 `log2`、长度对数使用 `ln_1p`，在 Linux（不同 libm）上可能出现 **1 ULP 级**差异，
   CI 断言应使用数值容差而非"位精确"。

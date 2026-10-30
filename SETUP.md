@@ -10,13 +10,17 @@
 > **只想把控制台跑起来**：Windows 用 `install.bat`，Linux 用 `./install.sh`，
 > 见 **`INSTALL.md`**。脚本默认创建 `.venv`、只装控制面依赖（`requirements-service.txt`）、
 > 前台启动；训练/评估/改 Rust 仍按本文的手工步骤。
+>
+> **路径约定**：本文所有命令都假设当前目录是**仓库根目录**，`cd python` / `cd rust`
+> 等均为相对路径。作者本机把仓库放在 `F:\waf`、构建缓存放 `E:\waf-target`，
+> 这些机器相关路径集中列在 **附录 A**，正文不再出现。
 
 ---
 
 ## 0. 总览与目录结构
 
 ```
-F:\waf\
+<repo>/
 ├─ prd.md                      产品需求（唯一需求源）
 ├─ ENGINEERING_PLAN.md         工程计划（S1…S12、工作项 F/F0）
 ├─ REALDATA_EVALUATION.md      真实数据评估（所有数字与坑的唯一出处）
@@ -33,8 +37,8 @@ F:\waf\
     └─ local\                  真实采集流量（良性/攻击/unlabeled）
 ```
 
-构建缓存统一由 `WAF_CARGO_TARGET` 控制（Windows 优先 `E:\waf-target`，否则
-`%LOCALAPPDATA%\waf-cargo-target`；Linux `~/.cache/waf-cargo-target`）。`rust/` 与
+构建缓存统一由 `WAF_CARGO_TARGET` 控制（Windows 默认 `%LOCALAPPDATA%\waf-cargo-target`，
+Linux 默认 `~/.cache/waf-cargo-target`；作者本机指向 `E:\waf-target`，见附录 A）。`rust/` 与
 `proxy/` 必须共用一份，否则 ort/ONNX-Runtime 会编两遍。
 
 ---
@@ -45,12 +49,12 @@ F:\waf\
 
 | 组件 | 版本 / 位置 | 说明 |
 |---|---|---|
-| Visual Studio | `D:\visual_studio` | 需 **C++ 桌面开发**工作负载（提供 `cl.exe` / Windows SDK） |
-| CMake | 4.1.2（`C:\Program Files\mingw64\bin\cmake.exe`） | 见坑 #2 |
-| Ninja | 1.13.1（同上目录，已在 PATH） | Pingora 的 zlib-ng 编译需要它 |
-| Rust | rustc/cargo **1.99.0** | `C:\Users\lenovo\.cargo\bin`（**不在 PATH**，靠 `build.bat` 注入） |
+| Visual Studio | 任意安装路径（本机 `D:\visual_studio`） | 需 **C++ 桌面开发**工作负载（提供 `cl.exe` / Windows SDK） |
+| CMake | 4.1.2（本机在 `C:\Program Files\mingw64\bin`） | 见坑 #2 |
+| Ninja | 1.13.1（同上目录，需在 PATH） | Pingora 的 zlib-ng 编译需要它 |
+| Rust | rustc/cargo **1.99.0** | `%USERPROFILE%\.cargo\bin`（**不在 PATH**，靠 `build.bat` 注入） |
 | Python | **3.10.10**（`py -3.10`） | 见坑 #1 |
-| Git | 2.47.0 | 已接入 GitHub 私有仓库 `himobrine/hiwaf`；秘密与大数据/模型产物已忽略 |
+| Git | 2.47.0 | 上游仓库 `himobrine/hiwaf`；秘密与大数据/模型产物已忽略 |
 | Perl | **无** | 因此 Pingora 必须用 rustls，不能用 openssl |
 
 > 若 Rust 未装：`curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`（`prd.md` §451）。
@@ -77,7 +81,7 @@ cmake/ninja（Linux）环境。包装脚本会自动找 `vcvars64.bat`、补 `ca
 
 ```bat
 set PYTHONIOENCODING=utf-8
-cd F:\waf\python
+cd python
 py -3.10 realdata.py
 ```
 
@@ -88,7 +92,7 @@ py -3.10 realdata.py
 
 ```bat
 set PYTHONIOENCODING=utf-8
-cd F:\waf\python
+cd python
 py -3.10 traindata_catalog.py              :: 全量，含 CIC 全表扫描，约 20s
 py -3.10 traindata_catalog.py --skip-cic   :: 秒级（不数 CIC 行）
 ```
@@ -107,17 +111,26 @@ py -3.10 traindata_catalog.py --skip-cic   :: 秒级（不数 CIC 行）
   它只能看"命中率"，算 FPR 会把数字算低；
 * `traindata\proxy\` 是采集器落盘样本（有 `pred`、无 `label`），不是语料。
 
-当前盘点结论（2026-10-20）：9 组语料 / 40 个文件 / 911 MB，
+当前盘点结论（重新生成后以 `CATALOG.md` 为准）：9 组语料 + 采集器样本，
 `unified_benign` 6,190（CSIC 留出 6,000 + 本机 190）、
 `unified_attack` 25,119（CSIC 异常 25,065 + 在野 12 + datacon 42），
-14 条已知坑见 `CATALOG.md §4`。
+已知坑见 `CATALOG.md §4`。
+
+### 2.4 不可用于训练的「像数据集」文件
+
+| 文件 | 实际内容 | 结论 |
+|---|---|---|
+| `traindata\enhanced_security_dataset_clear.json` | 767 条 `{instruction, output}` **Java 代码漏洞问答**（Jenkins/Spring 源码片段） | **不是 HTTP 流量**。`upload_parse.py` 实测 767 条全部 `missing_path`、`rows_kept=0`；没有 method/path/body，无法转成 80 维特征。**禁止入训练、禁止当良性池**，只可当知识库素材 |
+
+> 判断一个文件能不能训练，只看一条：**它能不能解析出 `method/path/query/body`**。
+> 解析器（`upload_parse.py`）会给出 `stats.json` 的 `skip_reasons`，不要靠文件名猜。
 
 ---
 
 ## 3. 第一步：安装 Python 依赖
 
 ```bat
-cd F:\waf\python
+cd python
 py -3.10 -m pip install -r requirements.txt
 ```
 
@@ -128,11 +141,11 @@ py -3.10 -m pip install -r requirements.txt
 py -3.10 -m pip install -r requirements-service.txt
 ```
 
-> **推荐用 venv**：一键安装默认建 `F:\waf\.venv`。手工安装也可以：
+> **推荐用 venv**：一键安装默认在仓库根建 `.venv`。手工安装也可以：
 >
 > ```bat
-> py -3.10 -m venv F:\waf\.venv
-> F:\waf\.venv\Scripts\python.exe -m pip install -r requirements-service.txt
+> py -3.10 -m venv .venv
+> .venv\Scripts\python.exe -m pip install -r python\requirements-service.txt
 > ```
 >
 > 之后把本文所有 `py -3.10` 换成 `.venv\Scripts\python.exe` 即可（训练依赖同理）。
@@ -153,15 +166,27 @@ psutil 7.2.2 / redis 8.1.0 / python-multipart 0.0.32 / scapy 2.7.0。
 官方配方（**唯一正式产物口径**）：
 
 ```bat
-cd F:\waf\python
+cd python
 py -3.10 train_realdata.py --features v2 --hard-neg lexical --export
 ```
 
 - `--features v2`：80 维特征契约（v1 78 维冻结在 `features_v1.py`，只做 A/B）。
 - `--hard-neg lexical`：烘入困难良性负样本（lexical 正常前一半 500 条）。
 - `--export`：导出 `xgboost_v*.onnx` + `xgb_model.json` + `xgb_trees.json`。
-- 规模：**2000 棵树 / 18,464 节点 / 深度 8**。
+- 规模：**400 轮 × 5 类 = 2000 棵树 / 18,464 节点 / 深度 8**（g1）。
+  现役 **g2** 是从 g1 warm start 到 **800 轮 = 4000 棵树 / 23,664 节点**。
 - **每次训练都会产出学习曲线** → `artifacts\curves\<run>_curve.{json,csv,png}`。
+
+增量训练（warm start，从上一代继续加树）：
+
+```bat
+:: 父代训练件在 artifacts\models\supervised\gen-XXXX-<sha>\xgb_model.json
+py -3.10 train_realdata.py --features v2 --hard-neg lexical --export ^
+    --parent-model artifacts\models\supervised\gen-0001-<sha>\xgb_model.json
+```
+
+> 父代缺 `xgb_model.json` 时会**降级为全量重训**，并在任务参数/日志里写明
+> `parent_fallback` 的原因；不会假装是增量。曲线 x 轴用「总树数」，多代可对比。
 
 诊断/对照（不覆盖正式产物）：
 
@@ -186,29 +211,42 @@ py -3.10 train_realdata.py --ab                                       :: v1/v2 A
 ## 5. 第三步：训练零日通道（IForest）
 
 ```bat
-cd F:\waf\python
+cd python
 py -3.10 iforest_lean_onnx.py --data csic --export
 ```
 
 - 用 CSIC 正常 30,000 训练，导出精简 IForest（`iforest_lean_v*.onnx` + `iforest_meta.json`）。
-- 常用参数：`--trees 100 --max-samples 256 --seed 42`；`--data {csic,synthetic,local}`。
+- 常用参数：`--trees 100 --max-samples 256 --seed 42`；`--data {csic,synthetic,local,upload}`。
 - 换真实本地良性重训：`--data local`（产出 `iforest_lean_local_*.onnx` / `iforest_meta_local.json`，
   不覆盖正式名）。
+- 增量训练（warm start，树数必须**大于**父代）：
+
+  ```bat
+  py -3.10 iforest_lean_onnx.py --data csic --export --trees 125 ^
+      --parent-model artifacts\models\zero_day\gen-0001-<sha>\iforest_model.joblib
+  ```
+
+  父代缺 `iforest_model.joblib` 时同样降级为全量重训（任务里 `parent_fallback` 会写明）。
+  现役 g2 就是这样从 100 棵树加到 125 棵。
 
 ---
 
 ## 6. 第四步：阈值标定（**唯一事实来源**）
 
 ```bat
-cd F:\waf\python
+cd python
 py -3.10 thresholds.py --pool csic
 ```
 
 - 产出 **`artifacts\decision_policy.json`** —— 判定规则的**唯一事实来源**。
 - **阈值只在留出良性上标定，绝不在训练数据上标。** 两通道各自 `score >= threshold`。
-- 推荐档 `--fpr 0.01`。策略档位：
-  - 监督：`0.001→0.814499`，`0.01→0.699765`（推荐），`0.03→0.137536`
-  - 零日：`0.001→-6.578375`，`0.01→-7.262677`，`0.03→-7.473629`
+- 推荐档 `--fpr 0.01`。**现役 g2 的 1% 档**：
+  - 监督：`0.721004`（g1 为 `0.699765`）
+  - 零日：`-7.359740`（g1 为 `-7.262677`）
+  - 其它档位（0.1% / 3% / 5% / 10%）见 `decision_policy.json` 的 `thresholds`，
+    或在策略页「预览」里看，**不要凭记忆抄**。
+  - ⚠️ 阈值数字随代际/标定池漂移很剧烈（同一个 1% FPR 换池能差 40%+），
+    **只比同 FPR 下的指标，不要跨代比阈值**。
 - 会同时写顶层 `zero_day_enabled` 与 `effective_fused_fpr_on_pool`；
   `--zero-day {on,off}`（**默认 off**）控制零日通道是否进入融合。
 - `--pool file:..\traindata\local\local_lab_benign.jsonl` 用本地真实良性重标定（**上线前必做**）。
@@ -236,7 +274,7 @@ Rust 侧 = **lib `waf_ai_proto` + bin `waf-ai-proto`**；`proxy/` 通过 path �
 **判定逻辑只有这一处，禁止复制**（复制会让 200×80 逐位一致的门禁失效）。
 
 ```bat
-cd F:\waf\rust
+cd rust
 call build.bat run --release
 ```
 
@@ -294,7 +332,7 @@ Pingora 反向代理 + HTTP/流级采集。它把请求原样转发给真实后�
 curl -i "http://127.0.0.1:6188/?x=1"
 
 :: 应看到 raw 文件；控制台「采集代理」页的 written 应 +1
-dir F:\waf\traindata\proxy\raw-*.jsonl
+dir traindata\proxy\raw-*.jsonl
 ```
 
 **多端口 / 多站点（单进程多路由）**：控制台「采集代理 → 配置 → 路由」可加多条
@@ -330,9 +368,9 @@ Windows 上监听 80/443 需要管理员权限；**系统防火墙放行需自�
 它走的是**同一条人工通道**（建规则 → 启用编译 → 三关校验 → 人工确认合格 → `rule_promote`），
 标定时在真实良性池 `csic_norm_holdout(6000)+local_benign(190)` 上 **0 命中**、
 攻击池命中 724/25119，占用阻断预算 Wilson 上界 0.062%（cap 0.3%），
-`sup_target_fpr` 由 1.0% 收紧到 0.936%。现役规则集 **89 条 / 34 block**，
-sha1_16 = `c751648fe6f88b3c`。因此 `id=1'--+&submit=Submit` 现在由规则直接 403，
-不依赖模型阻断，也就不必为了它重新打开模型阻断（那会带回上面的 GET 误报）。
+`sup_target_fpr` 由 1.0% 收紧到 0.936%。现役规则集 **91 条 / 41 block**，
+sha1_16 = `5425465fd0085457`（阻断误报预算 0.06398%）。因此 `id=1'--+&submit=Submit`
+现在由规则直接 403，不依赖模型阻断，也就不必为了它重新打开模型阻断（那会带回上面的 GET 误报）。
 
 **nginx 前置（可选）**：客户端仍访问 80，nginx 把请求转给采集器，采集器再转给后端。
 
@@ -386,7 +424,7 @@ server {
 ### 8.4 构建与命令行运行
 
 ```bat
-cd F:\waf\proxy
+cd proxy
 call build.bat build --release        :: 构建
 :: 单路由（旧写法仍兼容）
 call build.bat run --release -- --listen 0.0.0.0:6188 --upstream 127.0.0.1:80 ^
@@ -441,7 +479,7 @@ call build.bat run --release -- ^
 端到端自检（自起假上游 + 代理 + 标注 + dry-run 判定，**43 项断言**）：
 
 ```bat
-cd F:\waf\python
+cd python
 py -3.10 -X utf8 p8_proxy_e2e.py
 ```
 
@@ -451,7 +489,7 @@ py -3.10 -X utf8 p8_proxy_e2e.py
 
 ```bat
 set WAF_PROXY_LIVE_TEST=1
-cd F:\waf\python
+cd python
 py -3.10 -m unittest service.test_proxy_live -v
 ```
 
@@ -494,7 +532,7 @@ py -3.10 -m unittest service.test_proxy_live -v
 每个文件传一次该参数，逗号拼接无效。
 
 ```bat
-cd F:\waf\python
+cd python
 
 :: 1) 日志 -> jsonl（--scrub 脱敏）
 py -3.10 collect_http_log.py --src <nginx_access.log> --name prod --provenance benign_lab --scrub
@@ -531,17 +569,20 @@ py -3.10 collect_http_log.py --format jsonl --src ..\traindata\proxy\raw-*.jsonl
 ## 10. 第八步：真实流量评估
 
 ```bat
-cd F:\waf\python
+cd python
 py -3.10 p4_local.py
 ```
 
-产出 `artifacts\p4_local.json`。**当前真实流量基准（不要四舍五入）**：
+产出 `artifacts\p4_local.json`。**历史基准（g1 口径，2026-10-17，不要四舍五入）**：
 
 - 本机良性 block **4.21%**，alert **0.00%**
 - 公网 105,730 请求 **6.54% blocked**
 - 12 IOC 攻击 **7/12**（n 太小，别引用 58.3%）
 
-阈值会随重标定漂移（监督 0.699765→0.946859，零日 -7.262677→-7.042185），
+> 这是 g1 产物 + 当时策略的实测。换模型后**必须重跑**再引用；数字随标定池与代际变化，
+> 不要把它当成现役指标。现役门禁数字见 README「当前状态」。
+
+阈值会随重标定漂移（同一次 run 里监督 0.699765→0.946859，零日 -7.262677→-7.042185），
 **别跨 run 比阈值数字，只比 FPR**。
 
 ---
@@ -549,7 +590,7 @@ py -3.10 p4_local.py
 ## 11. 第九步：上线前重标定与启用零日通道
 
 ```bat
-cd F:\waf\python
+cd python
 
 :: 1) 用真实本地良性重标定（良性池要 >=2000 条，否则分位抖动大）
 py -3.10 thresholds.py --pool file:..\traindata\local\local_lab_benign.jsonl
@@ -585,13 +626,13 @@ CPU/内存/QPS/延迟这类**基础设施运维指标仍归 Grafana + Prometheus
 py -3.10 -m pip install -r requirements-service.txt
 
 :: 2) 构建前端（产物 web\dist，由 FastAPI 单端口托管）
-cd F:\waf\web
+cd web
 npm ci
 npm run typecheck
 npm run build
 
 :: 3) 初始化 DB/admin（幂等；已有账号/密码不会覆盖）
-cd F:\waf\python
+cd python
 py -3.10 -m service.bootstrap
 
 :: 4) 起后端（默认 8090；首次启动会创建 admin 并把初始密码写入 service\.admin_password）
@@ -604,13 +645,13 @@ py -3.10 -m service.run --port 8090
 开发前端时另开一个口：
 
 ```bat
-cd F:\waf\web && npm run dev      :: 5173，/api 已代理到 8090；改代码热更新
+cd web && npm run dev      :: 5173，/api 已代理到 8090；改代码热更新
 ```
 
 自检与造数：
 
 ```bat
-cd F:\waf\python
+cd python
 py -3.10 -m service.smoke         :: 39 项 API 自检（需要服务已启动；含聚合下钻/筛选与代际树）
 py -3.10 -m service.demo_seed     :: 起假上游 + 采集器 + 判定，灌一批真实采集数据
 ```
@@ -683,6 +724,23 @@ py -3.10 upload_parse.py --input cap.pcap --out %TEMP%\up2 --role benign --defau
 `/api/auth/*`（改密/登出/me），其他接口一律 403，前端会弹出"必须先修改密码"，
 改完必须用新密码重新登录。老账号第一次登录就会遇到。
 
+**模型代际与增量训练**（菜单「模型与门禁」）：
+
+- 训练**只写** `artifacts\staging\task_<id>\`；成功后自动登记为一代，快照到
+  `artifacts\models\<channel>\gen-XXXX-<sha>\`，写 `model_registry`（通道/代次/父代/
+  指标/曲线/特征维度/`trainable`），并按保留策略清理最老的**非现役**快照。
+- **warm start**：训练时 `--parent-model` 指向父代训练件（XGBoost `xgb_model.json`、
+  IForest `iforest_model.joblib`）。父代缺训练件 → `trainable=0` → 规划器**降级为全量重训**
+  并写明 `parent_fallback`；不会静默假装增量。
+- **切换现役**（admin，后台任务）：备份现役 → 目标快照写入固定槽位 → `thresholds.py`
+  重标定 → `export_testvec.py` →（监督通道）`export_shap_ref.py` → `waf-ai-proto` 门禁 →
+  更新登记表。**任一步失败全量回滚**，没有绕门禁的快速恢复。
+- **切换后必须重启采集器**：数据面按固定文件名加载 ONNX，且 `reload_policy` 会比对
+  策略里的 `artifact_sha1_16` 与已加载文件的 sha；不一致时控制台标 `pending_restart`。
+  只换阈值/规则不需要重启（≤5s 热重载）。
+- 现役示例：`switch#2`（零日 v18→v19）、`switch#3`（监督 v19→v20），门禁全过后
+  采集器 `in_sync`。
+
 **刷新策略**：按要求用**手动 / 定时轮询**（总览可选 15s、顶栏运行模式 30s、任务日志 2s、
 规则 incident 默认 10s 且有 open 时 5s），**没有 SSE**。
 
@@ -736,8 +794,8 @@ py -3.10 upload_parse.py --input cap.pcap --out %TEMP%\up2 --role benign --defau
    | 改 Rust 代码本身 | 重跑门禁 + 重建两个 crate |
 
    ```bat
-   cd F:\waf\rust  && call build.bat run --release
-   cd F:\waf\proxy && call build.bat build --release     :: 重建采集器并发布到 ..\bin
+   cd rust  && call build.bat run --release
+   cd proxy && call build.bat build --release     :: 重建采集器并发布到 ..\bin
    ```
    重建采集器前先在控制台「采集代理」页停止它（Windows 会锁定正在运行的 exe，
    否则 `bin\waf-collector.exe` 复制失败，只警告不报错）。
@@ -824,8 +882,11 @@ py -3.10 smoke_test.py
 
 ## 15. 验收 / 门禁清单（新机器搭建完成后逐条跑）
 
+> 下列计数是 **2026-10-30** 的现役口径；测试项只会增加，数字对不上说明代码/数据漂了。
+
 - [ ] `py -3.10 realdata.py` 数据核对通过
-- [ ] `py -3.10 traindata_catalog.py --self-test` **27/27 PASS**（数据目录没漂）
+- [ ] `py -3.10 traindata_catalog.py --self-test` **29/29 PASS**（数据目录没漂）
+- [ ] `py -3.10 -m unittest discover -p "test_*.py"` **279 项全 PASS**
 - [ ] `train_realdata.py --features v2 --hard-neg lexical --export` 产出 ONNX + 学习曲线
 - [ ] `iforest_lean_onnx.py --data csic --export` 产出精简 IForest
 - [ ] `thresholds.py --pool csic` 产出 `decision_policy.json`（含 `zero_day_enabled`）
@@ -834,7 +895,7 @@ py -3.10 smoke_test.py
 - [ ] `rust: call build.bat test --release --lib` **18/18 PASS**（判定/熔断守卫）
 - [ ] `proxy: call build.bat build --release` 编译通过
 - [ ] `py -3.10 -X utf8 p8_proxy_e2e.py` **43/43 PASS**
-- [ ] `py -3.10 -m service.smoke` **34/34 PASS**（需服务已启动）
+- [ ] `py -3.10 -m service.smoke` **39/39 PASS**（需服务已启动）
 - [ ] 控制面 `PRAGMA user_version == 2`，且 `/api/rules` 的 `custom_state` 字段齐全
 - [ ] `py -3.10 p4_local.py` 数值与上次一致（或解释差异）
 
@@ -847,6 +908,10 @@ py -3.10 smoke_test.py
 | `decision_policy.json` | `python\artifacts\` | **判定规则唯一事实来源** |
 | `rules_authoritative.json` | 同上 | **现役规则集唯一来源**（只由 `rule_promote` / 熔断 patch 写） |
 | `rules_testvec.json` | 同上 | 规则集门禁输入（熔断窗口内可能滞后） |
+| `ip_lists.json` | 同上 | IP 黑白名单（控制台写、采集器 ≤5s 热重载；白名单优先） |
+| `models\<channel>\gen-XXXX-<sha>\` | 同上 | **模型代际快照**（只读）；含 `xgb_model.json` / `iforest_model.joblib` 等训练件，warm start 的父代来源 |
+| `staging\task_<id>\` | 同上 | 训练临时目录（**从不直接生效**）；成功后才登记代次 |
+| `switch_backup\<ts>\` | 同上 | 切换现役前的自动备份（回滚用，按保留策略清理） |
 | `xgb_model.json` / `xgb_trees.json` / `xgboost_v*.onnx` | 同上 | 正式监督模型 |
 | `xgboost_meta.json` | 同上 | 训练记录（其 `decision_threshold` **仅供参考**） |
 | `iforest_lean_v*.onnx` / `iforest_meta.json` | 同上 | 正式零日通道 |
@@ -1047,3 +1112,29 @@ py -3.10 import_waf_rules.py --write-db         # 写成草稿（enabled=0 / act
    35 条池内无样本的规则保持草稿，等真实流量补在线证据后再确认合格。
 8. **在线证据需要新采集记录**：旧 `raw-*.jsonl` 没有 `rules.hits[]`，重启新采集器前
    `event_rules` / `rule_hits_daily` 会一直是空的（规则页在线证据全 0，熔断也不会触发）。
+9. **g2 指标尚未复测**：现役监督模型是 4000 棵树（g2），但 README 里的 p50/p99 延迟与
+   真实流量拦截率仍是 **g1（2000 棵）** 口径。换模型后要按 `p4_local.py` + 压测重跑，
+   不要跨代引用数字。
+10. **对外分发前处理 Scapy**：控制台的 pcap 解析用 `scapy`（GPL-2.0-only），与 AGPLv3
+   不兼容。内部使用无碍；若要分发，先替换为宽松许可实现或把该功能拆成独立可选组件
+   （见 `THIRD_PARTY_NOTICES.md` §3）。
+
+---
+
+## 附录 A. 作者本机的机器相关路径
+
+正文只写相对仓库根的路径；下表是作者机器上的具体位置，**换机器时整表替换**，不要照抄。
+
+| 项 | 本机值 | 说明 |
+|---|---|---|
+| 仓库根 | `F:\waf` | 正文里的 `cd python` 等都是相对它 |
+| Cargo 构建缓存 | `E:\waf-target`（`WAF_CARGO_TARGET`） | 不要放 `F:`；`rust/` 与 `proxy/` 共用 |
+| Rust 工具链 | `C:\Users\lenovo\.cargo\bin` | 不在 PATH，由 `build.bat` 注入 |
+| Visual Studio | `D:\visual_studio` | 需 C++ 桌面开发工作负载 |
+| CMake / Ninja | `C:\Program Files\mingw64\bin` | 需在 PATH |
+| Python | `py -3.10`（3.10.10） | 一键安装会在仓库根建 `.venv` |
+| 前端构建 | `web\dist` | 由 FastAPI 托管 |
+| 运行态 DB | `python\service\console.db` | 已 gitignore |
+
+> 这些路径**不进入**任何提交内容；`.gitignore` 已排除 `traindata/`、`python/artifacts/models/`、
+> `*.onnx`、`console.db` 等。克隆仓库后按 §3–§6 重新训练即可得到本机产物。

@@ -10,8 +10,7 @@
 
 ## 环境
 
-- Python **3.10**（本机：`C:\Program Files\Python310\python.exe`；
-  注意 PATH 上的 `python` 可能是 IDA 的 3.8，勿用）
+- Python **3.10**（用 `py -3.10`；PATH 上的 `python` 可能是 IDA 的 3.8，勿用）
 - 依赖见 `requirements.txt`（关键：xgboost 3.2.0 / onnx 1.23.2 / skl2onnx 1.20.0 /
   onnxmltools 1.16.0 / matplotlib 3.9.2）
 - Windows 控制台建议 `set PYTHONIOENCODING=utf-8`
@@ -41,8 +40,8 @@ v2 的关键修复（v1 用子串计数 + 未归一化，导致正常英文长�
 | `features_v1.py` | v1 特征（78 维），仅用于 A/B |
 | `dataset.py` | 合成请求数据（链路自检用） |
 | `realdata.py` | **真实数据加载器**：CSIC 2010 报文解析 + HTTP Params payload + `WEB_APPLICATION_PAYLOADS.jsonl` 攻击字典 + **datacon2025 原始 HTTP 字节**（base64+zlib）→ 统一请求格式 |
-| `traindata_catalog.py` | **`traindata/` 数据目录（只读盘点）**：逐语料登记角色/行数/标签分布/sha1/消费方，池成分**直接 import `calibrate_rules`**（不复制定义），产出 `traindata/CATALOG.md` + `artifacts/traindata_catalog.json`；`--self-test` 27 项断言把硬数字钉死，数据一漂立刻发现 |
-| `train_realdata.py` | **正式训练**：HTTP Params 训练/测试 + lexical 门槛集；`--hard-neg {none,lexical,csic}` 并入困难良性负样本；`--lexical-split {random,grouped}` + `--seed` 控制切分；`--dict` 并入攻击字典；**`--es N` + `--es-set {valid,lexical,local}` + `--valid-frac F`** early stopping（**固定监控 `mlogloss`**，运行期自检 `best_iteration == argmin(mlogloss)`；`--valid-frac` 从 `payload_train` 按同源簇+分层切出干净验证集，记录 `es_monitored`/`es_metric`/`valid_frac`）；**`--balance {weight,over,under,none}`** 类别不平衡（逆频加权 / 过采样 / 欠采样）；**`--local [--local-benign --local-attack --local-hard-neg]`** 接入真实本地流量；**`--upload-manifest/--upload-mode add|only/--calib-mode/--calib-dataset-id`** 接入控制台上传数据（见「自上传训练数据」）；`--ab` 做 v1/v2 对比；`--export` 导出产物 |
+| `traindata_catalog.py` | **`traindata/` 数据目录（只读盘点）**：逐语料登记角色/行数/标签分布/sha1/消费方，池成分**直接 import `calibrate_rules`**（不复制定义），产出 `traindata/CATALOG.md` + `artifacts/traindata_catalog.json`；`--self-test` **29 项**断言把硬数字钉死，数据一漂立刻发现（含 `enhanced_security_dataset_clear.json` 的「不是 HTTP 流量」告警） |
+| `train_realdata.py` | **正式训练**：HTTP Params 训练/测试 + lexical 门槛集；`--hard-neg {none,lexical,csic}` 并入困难良性负样本；`--lexical-split {random,grouped}` + `--seed` 控制切分；`--dict` 并入攻击字典；**`--es N` + `--es-set {valid,lexical,local}` + `--valid-frac F`** early stopping（**固定监控 `mlogloss`**，运行期自检 `best_iteration == argmin(mlogloss)`；`--valid-frac` 从 `payload_train` 按同源簇+分层切出干净验证集，记录 `es_monitored`/`es_metric`/`valid_frac`）；**`--balance {weight,over,under,none}`** 类别不平衡（逆频加权 / 过采样 / 欠采样）；**`--local [--local-benign --local-attack --local-hard-neg]`** 接入真实本地流量；**`--parent-model <xgb_model.json> [--parent-meta ...]`** warm start（父代缺训练件则降级全量重训并写明原因）；**`--upload-manifest/--upload-mode add|only/--calib-mode/--calib-dataset-id`** 接入控制台上传数据（见「自上传训练数据」）；`--ab` 做 v1/v2 对比；`--export` 导出产物 |
 | `upload_parse.py` | **用户上传数据解析**（控制台「训练数据」页调用）：CSV / JSON / JSONL / HAR / pcap / pcapng → 统一 `{method,path,query,body,label}`；pcap 只支持**明文 HTTP/1.x**（scapy TCP 重组，TLS/HTTP2 跳过并计数，整份文件一个标签）；输出 `requests.jsonl` + `stats.json` |
 | `collect_http_log.py` | **工作项 F 采集端**：把**真实**日志变成可训练 jsonl。支持 apache/nginx combined、IIS W3C、通用 JSONL、**apache error log**（`--format apache-error`，从 `referer:`/`script '...' not found` 里挖在野攻击 URL 与扫描探测路径）。**攻击标签只来自出处**（`--canary-prefix` / `--attacker-ip` / **`--redteam-window START,END`** / `--review` / `--provenance`），内容正则标注须显式 `--label-pattern` 且只许造测试集；含脱敏（敏感 query 参数、IP）与唯一化。`--redteam-window` 是标注**本机红队流量**的唯一干净方式（`127.0.0.1` 与浏览器同源，IP 规则区分不了），时间戳解析失败即报错退出 |
 | `p4_local.py` | **真实流量实测**（REALDATA §8.5）：现役产物在本机良性 / 真实在野攻击 / 公网在野流量上的命中率与融合动作；阈值改标定在本机池的漂移；本地重训零日通道的对照 |
@@ -50,7 +49,7 @@ v2 的关键修复（v1 用子串计数 + 未归一化，导致正常英文长�
 | `p6_body_ablation.py` | **body 消融**（REALDATA §8.6.5）：训练集 body 覆盖率（=0 条）+ 上线模型"带 body vs `body=""`"在 CSIC 良性/异常、datacon 上的检出率与翻转，量化请求体的实测价值与误报代价 |
 | `p5_flow_spike.py` | **流级通道 spike**（REALDATA §8.6.6，工作项 F0）：CIC-IDS2017 抽样；随机切分 vs **跨文件**留出两种协议 + 去 `Destination Port` 对照，回答"流级特征到底有没有可分性" |
 | `p7_rule_mining.py` | **字典 → 规则候选**（REALDATA §8.6.7）：容错解析损坏的 `WEB_APPLICATION_PAYLOADS.jsonl`；每条候选规则在 37,000 条真实良性文本上量误报，产出 `artifacts/rule_candidates.json`（含**原文 vs URL 解码**对照与"池支持度"） |
-| `p8_proxy_e2e.py` | **采集数据面端到端验证**（REALDATA §8.8）：起上游+起 `waf-collector` → 发含攻击 body 的请求 → 校验原始 jsonl（**无 label**、body 逐字节、截断后 `body_len` 仍为真实总长、流级字段、转义往返）→ 跑 `collect_http_log.py --canary-prefix` 按**出处**标注 → 阶段 B 用 `--score` 验证**dry-run 判定**（不阻断、`zero_day_enabled=false` ⇒ 不告警、`pred` 进不了标签、**SHAP Top-8 已写入**）→ `artifacts/p8_proxy_e2e.json`（当前 **28/28 PASS**） |
+| `p8_proxy_e2e.py` | **采集数据面端到端验证**（REALDATA §8.8）：起上游+起 `waf-collector` → 发含攻击 body 的请求 → 校验原始 jsonl（**无 label**、body 逐字节、截断后 `body_len` 仍为真实总长、流级字段、转义往返）→ 跑 `collect_http_log.py --canary-prefix` 按**出处**标注 → 阶段 B 用 `--score` 验证**dry-run 判定**（不阻断、`zero_day_enabled=false` ⇒ 不告警、`pred` 进不了标签、**SHAP Top-8 已写入**）→ `artifacts/p8_proxy_e2e.json`（当前 **43/43 PASS**） |
 | `export_feature_names.py` | **80 维特征名的单一来源**：从 `features.py` 导出 `artifacts/feature_names_v2.json`，Rust 采集面（归因贴名）与前端共用；启动期断言维度 = 80 |
 | `service/` | **控制面 API**（FastAPI + SQLite + JWT/RBAC + 审计）：总览/事件/告警/策略/反馈/规则/模型/任务/审计；见 `service/README.md` |
 | `ioc_inwild_attack.txt` | 从 error log 挖真实在野攻击用的 IOC 正则（**只用于造测试集，禁止用于训练标签**） |
@@ -61,7 +60,7 @@ v2 的关键修复（v1 用子串计数 + 未归一化，导致正常英文长�
 | `p3_fusion.py` | **双通道融合评估**（REALDATA §8.4）：同池标定后比召回、跨池误报、旧阈值回代、零日通道迁移性 |
 | `train_xgboost.py` | 合成数据 XGBoost 训练（产物写 `*_synthetic*`，不覆盖正式产物） |
 | `train_iforest.py` | 合成数据 Isolation Forest 训练 + skl2onnx 导出（meta 写 `iforest_meta_synthetic.json`） |
-| `iforest_lean_onnx.py` | **零日通道精简 IF 导出**：`--data csic`（正式，CSIC 正常 30,000）/ `--data synthetic`（链路自检）/ `--data local`（真实本地良性，验证 S9 处方）/ `--data upload`（控制台上传良性）；**`--upload-manifest/--upload-mode add|only/--calib-mode`**；单 `TreeEnsembleRegressor`，单样本 ~8us |
+| `iforest_lean_onnx.py` | **零日通道精简 IF 导出**：`--data csic`（正式，CSIC 正常 30,000）/ `--data synthetic`（链路自检）/ `--data local`（真实本地良性，验证 S9 处方）/ `--data upload`（控制台上传良性）；**`--trees N` + `--parent-model <iforest_model.joblib>`** warm start（树数必须大于父代，父代缺训练件则降级全量重训）；**`--upload-manifest/--upload-mode add|only/--calib-mode`**；单 `TreeEnsembleRegressor`，单样本 ~8us |
 | `learning_curve.py` | **学习曲线**记录/绘图（JSON + CSV + PNG），所有训练脚本共用 |
 | `eval_http_params.py` | HTTP Params 上的多分类评估（每类 P/R/F1 + 混淆矩阵 + FPR 预算） |
 | `eval_csic.py` | CSIC 上的零日评估（IF 只用正常样本训练，含去偏子集对比） |
@@ -75,7 +74,7 @@ v2 的关键修复（v1 用子串计数 + 未归一化，导致正常英文长�
 
 ```bat
 set PYTHONIOENCODING=utf-8
-cd F:\waf\python
+cd python
 
 :: 数据核对
 py -3.10 realdata.py
@@ -112,8 +111,11 @@ py -3.10 upload_parse.py --input cap.pcap --out %TEMP%\up2 --role benign --defau
 
 :: 控制台（前端 + 控制面 API）
 py -3.10 -m service.run                                                          :: 8090，托管 web/dist
-py -3.10 -m service.smoke                                                        :: 17 项 API 自检
+py -3.10 -m service.smoke                                                        :: 39 项 API 自检
 py -3.10 -m service.demo_seed                                                    :: 灌一批真实采集数据
+
+:: 全部单测（279 项）
+py -3.10 -m unittest discover -p "test_*.py"
 
 :: Rust 侧所需参考数据
 py -3.10 export_testvec.py
@@ -218,7 +220,7 @@ py -3.10 p4_local.py
 
 :: 5) 挂采集代理后：代理只写原始 jsonl（无 label），标注仍走出处规则
 ::    先 build： cd ..\proxy && build.bat build --release
-::    （build 缓存默认在 E:\waf-target，可用 WAF_CARGO_TARGET 改；见 proxy/README.md）
+::    （build 缓存默认在 %WAF_CARGO_TARGET%，未设则用 %LOCALAPPDATA%\waf-cargo-target；见 proxy/README.md）
 ::    cd ..\proxy && build.bat run --release -- --listen 127.0.0.1:6188 ^
 ::        --upstream 127.0.0.1:80 --out ..\traindata\proxy
 py -3.10 collect_http_log.py --format jsonl --src ..\traindata\proxy\raw-*.jsonl ^
@@ -250,6 +252,10 @@ py -3.10 p8_proxy_e2e.py
 > `service/README.md` §3.1。
 
 ## 关键实测（真实数据 + v2 特征 + 正式配方）
+
+> ⚠️ 下表是 **g1（2000 棵树）** 的历史实测，用于说明方法与结论；现役是 **g2（4000 棵树）**，
+> 阈值与部分指标已变（监督 1%FPR 阈值 `0.721004`）。换模型后请按同口径重跑再引用，
+> 不要跨代比较阈值数字。现役门禁结果见根 `README.md`「当前状态」。
 
 > **正式产物配方**：`train_realdata.py --features v2 --hard-neg lexical --export`
 > （payload_train + lexical 正常前一半 500 条；评估用 lexical 留出的后一半 500 条 + 全部异常）。
@@ -301,17 +307,24 @@ py -3.10 p8_proxy_e2e.py
    100 条只回答"能不能检出"，不报任何"率"。
 9. **S4 基座已定 Pingora（≥0.9），采集数据面已落地，dry-run 判定已接线**：
    Windows MSVC 门禁已通过（`../proxy_spike/`），采集数据面 `../proxy/`（crate `waf-collector`）
-   已建成并端到端验证 **27/27**（§8.8）：`request_body_filter` 里限长截断
+   已建成并端到端验证 **43/43**（§8.8）：`request_body_filter` 里限长截断
    （20 万字节 → `body_truncated=true`，`body_len` 仍为真实总长）→ 写原始 jsonl（**无 label**）
    → `collect_http_log.py` 按出处标注。`--score` 已把 `rust/` 的双通道判定接进来
    （`rust/` 拆 lib `waf_ai_proto` + bin 门禁，代理复用**同一份**判定代码），
    **dry-run 只写 `pred`、永不阻断**。
    **仍待做**：等真实本地良性池够大后重标定阈值，再把 dry-run 变成真阻断。
    ⚠️ 锁 `pingora = "0.9"`（0.4.0 在 `pingora-core` 里编译不过）+ `features=["proxy","rustls"]`
-   + `CMAKE_GENERATOR=Ninja`；build 缓存走 `WAF_CARGO_TARGET`（默认 `E:\waf-target`，
-   与 `rust/` 共用，避免 `ort` 编译两遍 —— F: 盘几乎满）；Windows 属上游"community best effort"，
+   + `CMAKE_GENERATOR=Ninja`；build 缓存走 `WAF_CARGO_TARGET`（默认
+   `%LOCALAPPDATA%\waf-cargo-target`，本机指向 `E:\waf-target`，与 `rust/` 共用，
+   避免 `ort` 编译两遍 —— F: 盘几乎满）；Windows 属上游"community best effort"，
    须纳入回归门禁。
 10. **真实本地良性池只有 190 条**（目标 ≥2,000）：挂上 `proxy/` 采集后用
     `collect_http_log.py --follow --append` 持续累积，再用 `thresholds.py --pool file:...`
     替换标定作业点（否则分位数抖动，别用 190 条的阈值）。§8.8.2 已给出这类样本的**压力证据**：
     `msg=中文"quote\back<TAB>tab&x=1` 得分 0.3309，比同类良性 `msg=hello&x=1`（0.0021）高两个数量级。
+11. **`enhanced_security_dataset_clear.json` 不能训练**：767 条 `{instruction, output}`
+    Java 代码漏洞问答，没有 method/path/query/body；`upload_parse.py` 实测全部 `missing_path`、
+    `rows_kept=0`。只可当知识库素材，**禁止入训练、禁止当良性池**（`traindata_catalog.py`
+    已把它登记为第 10 组语料并给出告警）。
+12. **测试规模基线（2026-10-30）**：Python 单测 **279 项**、控制面 smoke **39 项**、
+    p8 e2e **43 项**、Rust lib **18 项**、数据目录自检 **29 项**。改代码后这些数字只应增加。

@@ -2,6 +2,7 @@
 name = "waf-ai-proto"
 version = "0.1.0"
 edition = "2024"
+license = "AGPL-3.0-or-later"
 
 # 判定代码拆成 lib：门禁程序（bin）与采集代理（proxy/）共用同一份，
 # 避免"复制一份判定逻辑"导致两侧漂移、门禁失去意义。

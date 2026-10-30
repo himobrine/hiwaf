@@ -1,4 +1,13 @@
 WAF + AI 自动检测告警系统 PRD（产品需求文档）
+
+> **实现状态横幅（2026-10-30）**：本文是**需求源**，不是实现报告。当前代码已覆盖大部分
+> P0 需求，但若本文与代码/产物冲突，以 `README.md`「当前状态」、
+> `python/artifacts/decision_policy.json` 与 `REALDATA_EVALUATION.md` 为准。
+> 已知偏差：零日「>70%」不成立（CSIC @FPR 1% ≈26.6%）；`pred_contribs` 无法进 ONNX，
+> 改用 Rust TreeSHAP；「<3% FPR」需本业务良性流量重标定后才可承诺。
+> 现役：策略 v20、监督 g2（4000 棵树，阈值 `0.721004`）、零日 g2（125 棵树，
+> `zero_day_enabled=false`）、规则 91 条 / 41 block。
+
 文档信息
 项目	内容
 产品名称	WAF + AI 自动检测告警系统

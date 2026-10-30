@@ -364,11 +364,19 @@ def main():
             check("B: 零日**原始穿阈**证据仍保留（有 crossed 也不告警）",
                   all("zero_day_score_crossed" in p for p in preds),
                   f"crossed={sum(1 for p in preds if p['zero_day_score_crossed'])}/{len(preds)}")
-            check("B: 阈值与 policy 同源（监督 0.699765 / 零日 -7.262677）",
-                  all(abs(p["supervised_threshold"] - 0.699765) < 1e-4 for p in preds)
-                  and all(abs(p["zero_day_threshold"] - (-7.262677)) < 1e-4 for p in preds),
+            # 阈值期望值**从现役策略读**，不在测试里写死：换模型/重标定后代际会变，
+            # 写死等于让门禁在每次正常升级后必然失败。
+            _pol_path = os.path.join(ARTIFACTS_DIR, "decision_policy.json")
+            with open(_pol_path, "r", encoding="utf-8") as _f:
+                _pol = json.load(_f)
+            exp_sup = float(_pol["supervised"]["threshold"])
+            exp_zd = float(_pol["zero_day"]["threshold"])
+            check(f"B: 阈值与 policy 同源（监督 {exp_sup:.6f} / 零日 {exp_zd:.6f}）",
+                  all(abs(p["supervised_threshold"] - exp_sup) < 1e-4 for p in preds)
+                  and all(abs(p["zero_day_threshold"] - exp_zd) < 1e-4 for p in preds),
                   f"sup={sorted({round(p['supervised_threshold'], 6) for p in preds})} "
-                  f"zd={sorted({round(p['zero_day_threshold'], 6) for p in preds})}")
+                  f"zd={sorted({round(p['zero_day_threshold'], 6) for p in preds})} "
+                  f"policy={exp_sup:.6f}/{exp_zd:.6f}")
             check("B: **SHAP Top-K 归因**已写入记录（控制台详情页的「为什么」）",
                   all(isinstance(p.get("shap_topk"), list) and len(p["shap_topk"]) == 8
                       for p in preds)
