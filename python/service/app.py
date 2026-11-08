@@ -49,7 +49,11 @@ async def lifespan(_app: FastAPI):
     try:
         model_registry.ensure_dirs()
         if not db.one("SELECT id FROM model_registry LIMIT 1"):
-            model_registry.register_live("bootstrap")
+            # 随仓库发布的预置代次清单（含血缘）优先；没有清单或清单校验失败才退回
+            # 「把现役槽位登记为一代」的兼容路径。
+            seeded = model_registry.import_seed("bootstrap")
+            if not seeded.get("imported"):
+                model_registry.register_live("bootstrap")
         model_registry.prune(actor="system")
     except Exception:  # noqa: BLE001 - 登记失败不能挡住控制台启动
         pass

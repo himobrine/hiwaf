@@ -54,7 +54,7 @@ Linux 默认 `~/.cache/waf-cargo-target`；作者本机指向 `E:\waf-target`，
 | Ninja | 1.13.1（同上目录，需在 PATH） | Pingora 的 zlib-ng 编译需要它 |
 | Rust | rustc/cargo **1.99.0** | `%USERPROFILE%\.cargo\bin`（**不在 PATH**，靠 `build.bat` 注入） |
 | Python | **3.10.10**（`py -3.10`） | 见坑 #1 |
-| Git | 2.47.0 | 上游仓库 `himobrine/hiwaf`；秘密与大数据/模型产物已忽略 |
+| Git | 2.47.0 | 上游仓库 `himobrine/hiwaf`；秘密与数据集已忽略，**预置模型产物随仓库发布** |
 | Perl | **无** | 因此 Pingora 必须用 rustls，不能用 openssl |
 
 > 若 Rust 未装：`curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`（`prd.md` §451）。
@@ -162,6 +162,9 @@ psutil 7.2.2 / redis 8.1.0 / python-multipart 0.0.32 / scapy 2.7.0。
 ---
 
 ## 4. 第二步：训练正式监督模型（XGBoost）
+
+> **可选**：仓库已自带 v20 预置产物（`python/artifacts/` + 两代快照），只想跑起来可以
+> 跳过第 4-6 步，直接看第 7 步「启动」。只有要复现、换数据或做增量训练时才需要往下走。
 
 官方配方（**唯一正式产物口径**）：
 

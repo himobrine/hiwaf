@@ -199,9 +199,16 @@ cd proxy
 └─ INSTALL.md            一键安装说明
 ```
 
-`traindata/`、`python/artifacts/models/`、`*.onnx`、`console.db` 等运行态与大文件都在
-`.gitignore` 里。**克隆仓库后没有模型二进制**，需要按 `SETUP.md` 训练一次，或从你自己的
-发布渠道获取产物。
+`traindata/`（数据集）、`console.db`、日志、上传件等运行态与大文件都在 `.gitignore` 里。
+
+**仓库自带预置模型产物（v20）**：两个现役 ONNX、零日 warm start 训练件，以及
+`python/artifacts/models/` 下两代快照（含血缘清单 `registry_seed.json`）。
+克隆后直接启动控制台即可看到模型在跑、代次树完整，**不需要先训练**。
+预置代次清单的校验规则见 [`python/artifacts/PRESET.md`](python/artifacts/PRESET.md)；
+要复现、增量训练或换成自己的数据，再按 [`SETUP.md`](SETUP.md) 走一遍。
+
+> 只有「随仓库发布的预置代次」被 `.gitignore` 白名单放行；你本地新训练出来的代次
+> 默认仍不入库（见 `.gitignore` 里 `python/artifacts/models/*` 那一段）。
 
 ## 训练与上线
 

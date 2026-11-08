@@ -1,0 +1,333 @@
+{
+  "schema": 1,
+  "generated_by": "service.export_registry_seed",
+  "generated_at": 1794151261954,
+  "note": "随仓库发布的预置代次清单：只描述 artifacts/models/ 下实际入库的快照。首次启动且 model_registry 为空时由 model_registry.import_seed() 导入；schema/字段说明见 model_registry.SEED_MODEL_KEYS。",
+  "models": [
+    {
+      "channel": "supervised",
+      "variant": "official",
+      "generation": 1,
+      "display_name": "XGBoost g1",
+      "artifact_name": "xgboost_v20261015_001.onnx",
+      "snapshot_dir": "models/supervised/gen-0001-f5da765a27b7",
+      "sha1_16": "f5da765a27b73d4b",
+      "bytes": 601504,
+      "meta_path": "models/supervised/gen-0001-f5da765a27b7/xgboost_meta.json",
+      "curve_path": null,
+      "trainable": true,
+      "parent_generation": null,
+      "inherit_mode": "full",
+      "features_version": "v2",
+      "feature_dim": 80,
+      "labels": {
+        "0": "normal",
+        "1": "sqli",
+        "2": "xss",
+        "3": "cmdi",
+        "4": "traversal"
+      },
+      "metrics": {
+        "test": {
+          "n": 10355,
+          "accuracy": 0.9992274263640754,
+          "auc_binary": 0.999993063184401,
+          "budgets": {
+            "0.001": {
+              "detect": 0.9997449630196379,
+              "fpr": 0.0010879701585327945
+            },
+            "0.01": {
+              "detect": 0.9997449630196379,
+              "fpr": 0.010102580043518807
+            },
+            "0.03": {
+              "detect": 1.0,
+              "fpr": 0.029996891513832762
+            },
+            "0.05": {
+              "detect": 1.0,
+              "fpr": 0.05439850792663973
+            }
+          },
+          "normal_recall": 0.9995337270749145
+        },
+        "lexical": {
+          "n": 606,
+          "accuracy": 0.8663366336633663,
+          "auc_binary": 0.9423679245283019,
+          "budgets": {
+            "0.001": {
+              "detect": 0.08490566037735849,
+              "fpr": 0.002
+            },
+            "0.01": {
+              "detect": 0.4339622641509434,
+              "fpr": 0.01
+            },
+            "0.03": {
+              "detect": 0.660377358490566,
+              "fpr": 0.03
+            },
+            "0.05": {
+              "detect": 0.7452830188679245,
+              "fpr": 0.05
+            }
+          },
+          "normal_recall": 0.992
+        },
+        "n_trees": 2000,
+        "n_nodes": 18464,
+        "train_seconds": 3.62
+      },
+      "recipe": {
+        "n_estimators": 400,
+        "max_depth": 8,
+        "lr": 0.1,
+        "early_stopping_rounds": 0,
+        "best_iteration": -1,
+        "class_weight": "balanced (inverse frequency)",
+        "hard_neg": "lexical",
+        "hard_neg_added": 500,
+        "hard_neg_note": "同分布自适应：lexical 正常一半进训练，评估用留出一半",
+        "lexical_split": "random(seed=11)",
+        "seed": 11,
+        "dict_augmentation": null,
+        "extra_benign": 0,
+        "local_benign_added": 0,
+        "local_benign_source": null,
+        "local_eval_n": 0,
+        "local_eval_n_attack": 0,
+        "balance": "weight",
+        "es_monitored": null,
+        "es_metric": null,
+        "valid_frac": 0.0,
+        "n_valid": 0,
+        "n_train": 21212,
+        "dataset": "HTTP Params 2015 (payload_train/test) + lexical 正常一半",
+        "inherit_mode": "full",
+        "parent_id": null,
+        "parent_sha1_16": null,
+        "base_trees": null,
+        "total_trees": null
+      },
+      "status": "archived",
+      "created_at": 1792902680268,
+      "updated_at": 1793275859287,
+      "activated_at": 1792902729233,
+      "retired_at": 1793275859287
+    },
+    {
+      "channel": "supervised",
+      "variant": "official",
+      "generation": 2,
+      "display_name": "XGBoost g2",
+      "artifact_name": "xgboost_v20261015_001.onnx",
+      "snapshot_dir": "models/supervised/gen-0002-eab7b73e1b04",
+      "sha1_16": "eab7b73e1b04ba0d",
+      "bytes": 777504,
+      "meta_path": "models/supervised/gen-0002-eab7b73e1b04/xgboost_meta.json",
+      "curve_path": "models/supervised/gen-0002-eab7b73e1b04/curve.json",
+      "trainable": true,
+      "parent_generation": 1,
+      "inherit_mode": "warm_start",
+      "features_version": "v2",
+      "feature_dim": 80,
+      "labels": {
+        "0": "normal",
+        "1": "sqli",
+        "2": "xss",
+        "3": "cmdi",
+        "4": "traversal"
+      },
+      "metrics": {
+        "test": {
+          "n": 10355,
+          "accuracy": 0.9992274263640754,
+          "auc_binary": 0.9999893767623971,
+          "budgets": {
+            "0.001": {
+              "detect": 0.9997449630196379,
+              "fpr": 0.0010879701585327945
+            },
+            "0.01": {
+              "detect": 0.9997449630196379,
+              "fpr": 0.010102580043518807
+            },
+            "0.03": {
+              "detect": 0.9997449630196379,
+              "fpr": 0.029996891513832762
+            },
+            "0.05": {
+              "detect": 1.0,
+              "fpr": 0.05004662729250855
+            }
+          },
+          "normal_recall": 0.9995337270749145
+        },
+        "lexical": {
+          "n": 606,
+          "accuracy": 0.8663366336633663,
+          "auc_binary": 0.9461132075471698,
+          "budgets": {
+            "0.001": {
+              "detect": 0.09433962264150944,
+              "fpr": 0.002
+            },
+            "0.01": {
+              "detect": 0.4339622641509434,
+              "fpr": 0.01
+            },
+            "0.03": {
+              "detect": 0.6886792452830188,
+              "fpr": 0.03
+            },
+            "0.05": {
+              "detect": 0.7641509433962265,
+              "fpr": 0.05
+            }
+          },
+          "normal_recall": 0.992
+        },
+        "n_trees": 4000,
+        "n_nodes": 23664,
+        "train_seconds": 3.11
+      },
+      "recipe": {
+        "n_estimators": 400,
+        "max_depth": 8,
+        "lr": 0.1,
+        "early_stopping_rounds": 0,
+        "best_iteration": -1,
+        "base_trees": 400,
+        "total_trees": 800,
+        "inherit_mode": "warm_start",
+        "class_weight": "balanced (inverse frequency)",
+        "hard_neg": "lexical",
+        "hard_neg_added": 500,
+        "hard_neg_note": "同分布自适应：lexical 正常一半进训练，评估用留出一半",
+        "lexical_split": "random(seed=11)",
+        "seed": 11,
+        "dict_augmentation": null,
+        "extra_benign": 0,
+        "local_benign_added": 0,
+        "local_benign_source": null,
+        "local_eval_n": 0,
+        "local_eval_n_attack": 0,
+        "balance": "weight",
+        "es_monitored": null,
+        "es_metric": null,
+        "valid_frac": 0.0,
+        "n_valid": 0,
+        "n_train": 21212,
+        "dataset": "HTTP Params 2015 (payload_train/test) + lexical 正常一半",
+        "upload_mode": null,
+        "upload_datasets": null,
+        "upload_calib": null,
+        "parent_id": 1,
+        "parent_sha1_16": "f5da765a27b73d4b"
+      },
+      "status": "active",
+      "created_at": 1793275059360,
+      "updated_at": 1793275859287,
+      "activated_at": 1793275859287,
+      "retired_at": null
+    },
+    {
+      "channel": "zero_day",
+      "variant": "official",
+      "generation": 1,
+      "display_name": "IForest g1",
+      "artifact_name": "iforest_lean_v20261015_001.onnx",
+      "snapshot_dir": "models/zero_day/gen-0001-c3af8fc61410",
+      "sha1_16": "c3af8fc61410b008",
+      "bytes": 358739,
+      "meta_path": "models/zero_day/gen-0001-c3af8fc61410/iforest_meta.json",
+      "curve_path": null,
+      "trainable": true,
+      "parent_generation": null,
+      "inherit_mode": "full",
+      "features_version": "v2",
+      "feature_dim": 80,
+      "labels": {},
+      "metrics": {
+        "trees": 100,
+        "max_samples": 256,
+        "detect": {
+          "0.001": 0.14829443447037702,
+          "0.01": 0.2599241970875723,
+          "0.03": 0.31697586275683226,
+          "0.05": 0.40083782166367443,
+          "0.1": 0.47500498703371236
+        },
+        "thresholds": {
+          "0.001": -6.578374363899227,
+          "0.01": -7.262677192687988,
+          "0.03": -7.4736292552948,
+          "0.05": -7.76795048713684,
+          "0.1": -8.102951049804688
+        }
+      },
+      "recipe": {
+        "inherit_mode": "full",
+        "parent_id": null,
+        "parent_sha1_16": null,
+        "base_trees": null,
+        "total_trees": null
+      },
+      "status": "archived",
+      "created_at": 1792902680732,
+      "updated_at": 1793275829019,
+      "activated_at": 1792902680915,
+      "retired_at": 1793275829019
+    },
+    {
+      "channel": "zero_day",
+      "variant": "official",
+      "generation": 2,
+      "display_name": "IForest g2",
+      "artifact_name": "iforest_lean_v20261015_001.onnx",
+      "snapshot_dir": "models/zero_day/gen-0002-1a6967a746ea",
+      "sha1_16": "1a6967a746eaa40e",
+      "bytes": 446463,
+      "meta_path": "models/zero_day/gen-0002-1a6967a746ea/iforest_meta.json",
+      "curve_path": null,
+      "trainable": true,
+      "parent_generation": 1,
+      "inherit_mode": "warm_start",
+      "features_version": "v2",
+      "feature_dim": 80,
+      "labels": {},
+      "metrics": {
+        "trees": 125,
+        "max_samples": 256,
+        "detect": {
+          "0.001": 0.15866746459206063,
+          "0.01": 0.2663076002393776,
+          "0.03": 0.3213245561539996,
+          "0.05": 0.39429483343307403,
+          "0.1": 0.47520446838220626
+        },
+        "thresholds": {
+          "0.001": -6.618366536617266,
+          "0.01": -7.359739780426025,
+          "0.03": -7.575781335830689,
+          "0.05": -7.833298754692077,
+          "0.1": -8.180851936340332
+        }
+      },
+      "recipe": {
+        "inherit_mode": "warm_start",
+        "parent_id": 2,
+        "parent_sha1_16": "c3af8fc61410b008",
+        "base_trees": 100,
+        "total_trees": 125
+      },
+      "status": "active",
+      "created_at": 1793275707119,
+      "updated_at": 1793275829019,
+      "activated_at": 1793275829019,
+      "retired_at": null
+    }
+  ]
+}

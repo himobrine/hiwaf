@@ -1,7 +1,8 @@
 # 一键安装（Windows / Linux）
 
-> 只想**把控制台跑起来**：用这里的脚本。需要训练模型、复现评估或改 Rust 数据面，
-> 再回头看 `SETUP.md` 的对应章节。
+> 只想**把控制台跑起来**：用这里的脚本。仓库已自带 v20 预置模型（两个 ONNX + 代次快照，
+> 见 `python/artifacts/PRESET.md`），**不需要先训练**；需要复现评估、增量训练或改 Rust
+> 数据面，再回头看 `SETUP.md` 的对应章节。
 >
 > 脚本只做「装依赖 → 建 venv → 装 Python 包 → 构建前端 → 初始化 DB/admin →
 > （可选）构建 Rust/采集器 → 启动」。**不会覆盖**已有的 `console.db`、`.secret`、
@@ -25,7 +26,10 @@
 产物位置：
 
 - 控制台入口：`web/dist`（由 FastAPI 单端口托管）
-- 数据库：`python/service/console.db`
+- 数据库：`python/service/console.db`（**不入库**；首次启动会把仓库自带的预置代次清单
+  `python/artifacts/registry_seed.json` 导入这张表）
+- 预置模型：`python/artifacts/`（两个 ONNX、零日训练件）+
+  `python/artifacts/models/{supervised,zero_day}/gen-*`（代次快照，见 `PRESET.md`）
 - 初始密码：`python/service/.admin_password`（首次创建 admin 时生成）
 - 采集器二进制：`bin/waf-collector.exe`（Windows）/ `bin/waf-collector`（Linux）；
   `proxy/build.bat|sh build --release` 成功后自动复制到这里，控制台优先使用它

@@ -558,6 +558,134 @@ def register_live(actor: str, channel: Optional[str] = None) -> Dict[str, Any]:
     return out
 
 
+# --------------------------------------------------------------------------- 预置代次
+#: `registry_seed.json` 里允许出现的字段：其余一律忽略（不把 task_id 之类本地状态带进仓库）。
+SEED_MODEL_KEYS = (
+    "channel", "variant", "generation", "display_name", "notes", "artifact_name",
+    "snapshot_dir", "sha1_16", "bytes", "meta_path", "curve_path", "trainable",
+    "parent_generation", "inherit_mode", "features_version", "feature_dim",
+    "labels", "metrics", "recipe", "status", "created_at", "updated_at",
+    "activated_at", "retired_at",
+)
+
+
+def import_seed(actor: str = "bootstrap",
+                seed_path: Optional[os.PathLike | str] = None) -> Dict[str, Any]:
+    """把随仓库发布的代次清单导入空库（幂等）。
+
+    只有 `model_registry` 为空时才动作：非空直接返回 `reason="not_empty"`，
+    避免覆盖用户自己的训练历史。
+
+    安全约束：
+      * 逐行校验 `snapshot_dir/model.onnx` 的实际 sha1 与清单一致，**不一致就跳过**，
+        防止清单与文件漂移后登记出一个磁盘上并不存在的代次；
+      * 父代按 `(channel, generation)` 引用，父代被跳过时子代降级为根（`parent_id=None`）；
+      * 每通道最多一个 `active`（与 `ux_model_one_active` 唯一索引一致），多余降级为
+        `archived` 并记入返回值的 `downgraded`。
+    """
+    out: Dict[str, Any] = {"imported": 0, "skipped": [], "downgraded": [], "reason": None}
+    if db.one("SELECT id FROM model_registry LIMIT 1"):
+        out["reason"] = "not_empty"
+        return out
+
+    path = Path(seed_path) if seed_path else config.REGISTRY_SEED
+    payload = _read_json(path, None)
+    items = payload.get("models") if isinstance(payload, dict) else None
+    if not isinstance(items, list) or not items:
+        out["reason"] = "no_seed"
+        return out
+
+    def _sort_key(m: dict) -> Tuple[int, int]:
+        try:
+            return (CHANNELS.index(m.get("channel")), int(m.get("generation") or 0))
+        except ValueError:
+            return (len(CHANNELS), int(m.get("generation") or 0))
+
+    ids: Dict[Tuple[str, int], int] = {}
+    active_cur: Dict[str, Tuple[int, int]] = {}
+    for it in sorted((x for x in items if isinstance(x, dict)), key=_sort_key):
+        ch = it.get("channel")
+        if ch not in CHANNELS:
+            out["skipped"].append({"channel": ch, "reason": "未知通道"})
+            continue
+        gen = int(it.get("generation") or 0)
+        if gen <= 0:
+            out["skipped"].append({"channel": ch, "generation": gen, "reason": "generation 非法"})
+            continue
+        snap = _artifact_path(it.get("snapshot_dir"))
+        want_sha = it.get("sha1_16")
+        if not it.get("snapshot_dir") or not want_sha:
+            out["skipped"].append({"channel": ch, "generation": gen, "reason": "缺 snapshot_dir/sha1_16"})
+            continue
+        disk_sha = sha1_16_file(snap / "model.onnx") if snap else None
+        if disk_sha is None:
+            out["skipped"].append({"channel": ch, "generation": gen, "reason": "快照文件缺失",
+                                   "snapshot_dir": it.get("snapshot_dir")})
+            continue
+        if disk_sha != want_sha:
+            out["skipped"].append({"channel": ch, "generation": gen, "reason": "sha1 不一致",
+                                   "expected": want_sha, "actual": disk_sha})
+            continue
+        meta_rel = it.get("meta_path") or f"{it['snapshot_dir']}/model_meta.json"
+        meta_p = _artifact_path(meta_rel)
+        if not meta_p or not meta_p.exists():
+            out["skipped"].append({"channel": ch, "generation": gen, "reason": "meta 缺失",
+                                   "meta_path": meta_rel})
+            continue
+
+        parent_gen = it.get("parent_generation")
+        pid = ids.get((ch, int(parent_gen))) if parent_gen else None
+        status = it.get("status") or "candidate"
+        if status not in ("candidate", "active", "archived", "pruned"):
+            status = "candidate"
+        if status == "pruned":
+            status = "archived"
+        if status == "active" and ch in active_cur:
+            # 清单里同一通道出现多个 active：保留代次更高的那个（上面的排序保证后来者更新），
+            # 旧的一条降级为 archived，避免撞 `ux_model_one_active`。
+            old_id, old_gen = active_cur.pop(ch)
+            db.execute(
+                "UPDATE model_registry SET status='archived', retired_at=?, updated_at=? "
+                "WHERE id=? AND status='active'", (now_ms(), now_ms(), old_id))
+            out["downgraded"].append({"channel": ch, "generation": old_gen,
+                                      "from": "active", "to": "archived"})
+        labels = it.get("labels")
+        metrics = it.get("metrics")
+        recipe = it.get("recipe")
+        created = int(it.get("created_at") or now_ms())
+        model_id = db.execute(
+            """INSERT INTO model_registry(
+                 channel, variant, generation, display_name, notes, artifact_name, snapshot_dir,
+                 sha1_16, bytes, meta_path, curve_path, trainable, parent_id, task_id, inherit_mode,
+                 features_version, feature_dim, labels_json, metrics_json, recipe_json,
+                 status, created_at, updated_at, activated_at, retired_at, actor)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (ch, it.get("variant") or "official", gen,
+             it.get("display_name") or f"{'XGBoost' if ch == 'supervised' else 'IForest'} g{gen}",
+             it.get("notes"), it.get("artifact_name") or config.LIVE_SLOTS[ch]["onnx"],
+             it.get("snapshot_dir"), want_sha, int(it.get("bytes") or 0), meta_rel,
+             it.get("curve_path"), 1 if it.get("trainable") else 0, pid, None,
+             it.get("inherit_mode") or "full", it.get("features_version") or "v2",
+             int(it["feature_dim"]) if it.get("feature_dim") else None,
+             json.dumps(labels, ensure_ascii=False) if labels is not None else None,
+             json.dumps(metrics, ensure_ascii=False) if metrics is not None else None,
+             json.dumps(recipe, ensure_ascii=False) if recipe is not None else None,
+             status, created, int(it.get("updated_at") or created),
+             it.get("activated_at"), it.get("retired_at"), actor),
+        )
+        ids[(ch, gen)] = int(model_id)
+        if status == "active":
+            active_cur[ch] = (int(model_id), gen)
+        out["imported"] += 1
+
+    _audit(actor, "model_seed_import", "models:seed",
+           {"imported": out["imported"], "skipped": out["skipped"],
+            "downgraded": out["downgraded"], "seed": str(path)})
+    if not out["imported"]:
+        out["reason"] = "nothing_imported"
+    return out
+
+
 # --------------------------------------------------------------------------- 保留策略
 def _delete_model_files(row: dict, keep_curves: bool) -> Optional[str]:
     """删除快照；返回保留下来的曲线路径（若有）。"""

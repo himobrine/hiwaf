@@ -55,6 +55,10 @@ RETENTION_DRY_RUN_FILE = Path(os.environ.get(
     "WAF_RETENTION_DRY_RUN_FILE", str(LOG_DIR / "retention-dry-run.json")))
 
 POLICY_JSON = ARTIFACTS / "decision_policy.json"
+#: 随仓库发布的预置代次清单。首次启动且 `model_registry` 为空时导入，
+#: 让 clone 下来的仓库直接拥有代次血缘（db 本身不入库）。
+REGISTRY_SEED = Path(os.environ.get(
+    "WAF_REGISTRY_SEED", str(ARTIFACTS / "registry_seed.json")))
 #: 时序规则（攻击链）JSON：文件缺失/非法时回退 `service.correlate.DEFAULT_RULES`。
 #: 默认指向 artifacts 下的可编辑文件；测试用 patch 指到临时目录。
 TEMPORAL_RULES_JSON = Path(os.environ.get(

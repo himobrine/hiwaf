@@ -11,6 +11,7 @@ from . import config, db, model_registry as reg
 
 
 class RegistryTest(unittest.TestCase):
+    """模型代际登记 / 保留策略 / 当前状态 测试（不触碰真实 console.db / artifacts）。"""
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         root = Path(self.tmp.name)
@@ -25,6 +26,7 @@ class RegistryTest(unittest.TestCase):
             mock.patch.object(config, "SWITCH_BACKUP", art / "switch_backup"),
             mock.patch.object(config, "CURVES", art / "curves"),
             mock.patch.object(config, "POLICY_JSON", art / "decision_policy.json"),
+            mock.patch.object(config, "REGISTRY_SEED", art / "registry_seed.json"),
             mock.patch.object(config, "FEATURE_NAMES", art / "feature_names_v2.json"),
             mock.patch.object(config, "COLLECTOR_METRICS", root / "collector-metrics.json"),
         ]
@@ -156,6 +158,104 @@ class RegistryTest(unittest.TestCase):
         b = self.register("iforest_csic", "e2")
         rows = reg.eligible_parents("zero_day")
         self.assertEqual({r["id"] for r in rows}, {a["id"], b["id"]})
+
+
+class SeedImportTest(unittest.TestCase):
+    """预置代次清单（随仓库发布）的导入。复用 RegistryTest 的临时环境夹具。"""
+
+    setUp = RegistryTest.setUp
+    tearDown = RegistryTest.tearDown
+    register = RegistryTest.register
+    make_staging = RegistryTest.make_staging
+
+    def make_snapshot(self, channel: str, gen: int, tag: str, trees: int = 5):
+        snap = config.MODELS / channel / f"gen-{gen:04d}-{tag}"
+        snap.mkdir(parents=True, exist_ok=True)
+        (snap / "model.onnx").write_bytes(f"onnx-{channel}-{gen}-{tag}".encode())
+        if channel == "supervised":
+            (snap / "xgboost_meta.json").write_text("{}", encoding="utf-8")
+            (snap / "xgb_model.json").write_text("{}", encoding="utf-8")
+        else:
+            (snap / "iforest_meta.json").write_text(
+                json.dumps({"trees": trees}), encoding="utf-8")
+            (snap / "iforest_model.joblib").write_bytes(b"joblib")
+        rel = f"models/{channel}/{snap.name}"
+        return snap, rel, reg.sha1_16_file(snap / "model.onnx")
+
+    def write_seed(self, items):
+        config.REGISTRY_SEED.write_text(
+            json.dumps({"schema": 1, "models": items}, ensure_ascii=False), encoding="utf-8")
+
+    def test_import_seed_builds_lineage(self):
+        snap1, rel1, sha1 = self.make_snapshot("supervised", 1, "aaaa11112222")
+        snap2, rel2, sha2 = self.make_snapshot("supervised", 2, "bbbb33334444")
+        self.write_seed([
+            {"channel": "supervised", "generation": 1, "display_name": "XGBoost g1",
+             "artifact_name": "xgboost_v20261015_001.onnx", "snapshot_dir": rel1,
+             "sha1_16": sha1, "bytes": 1, "meta_path": f"{rel1}/xgboost_meta.json",
+             "trainable": True, "parent_generation": None, "status": "archived",
+             "created_at": 1000, "activated_at": 1000, "retired_at": 2000},
+            {"channel": "supervised", "generation": 2, "display_name": "XGBoost g2",
+             "artifact_name": "xgboost_v20261015_001.onnx", "snapshot_dir": rel2,
+             "sha1_16": sha2, "bytes": 2, "meta_path": f"{rel2}/xgboost_meta.json",
+             "trainable": True, "parent_generation": 1, "inherit_mode": "warm_start",
+             "status": "active", "created_at": 2000, "activated_at": 2000},
+        ])
+        out = reg.import_seed("tester")
+        self.assertEqual(out["imported"], 2, out)
+        self.assertEqual(out["skipped"], [])
+
+        models = reg.list_models("supervised")
+        self.assertEqual([m["generation"] for m in models], [2, 1])
+        by_gen = {m["generation"]: m for m in models}
+        self.assertEqual(by_gen[2]["parent_id"], by_gen[1]["id"])
+        self.assertEqual(by_gen[2]["status"], "active")
+        self.assertTrue(by_gen[2]["snapshot_available"])
+        self.assertTrue(by_gen[2]["trainable"])
+        self.assertTrue(by_gen[1]["trainable"])
+
+        lin = reg.build_lineage(models, active_ids=[by_gen[2]["id"]])
+        ch = lin["channels"]["supervised"]
+        self.assertEqual(ch["orphans"], [])
+        self.assertEqual(ch["path_to_current"], [by_gen[1]["id"], by_gen[2]["id"]])
+        self.assertEqual(ch["stats"]["warm_start_edges"], 1)
+
+    def test_import_seed_skips_sha_mismatch(self):
+        snap, rel, sha = self.make_snapshot("zero_day", 1, "cccc55556666")
+        self.write_seed([{
+            "channel": "zero_day", "generation": 1, "snapshot_dir": rel,
+            "sha1_16": "0" * 16, "meta_path": f"{rel}/iforest_meta.json",
+            "status": "active",
+        }])
+        out = reg.import_seed("tester")
+        self.assertEqual(out["imported"], 0)
+        self.assertEqual(out["reason"], "nothing_imported")
+        self.assertEqual(out["skipped"][0]["reason"], "sha1 不一致")
+        self.assertEqual(out["skipped"][0]["actual"], sha)
+        self.assertEqual(reg.list_models(), [])
+
+    def test_import_seed_is_noop_when_not_empty(self):
+        self.register("train_realdata", "n1")
+        before = len(reg.list_models())
+        out = reg.import_seed("tester")
+        self.assertEqual(out["reason"], "not_empty")
+        self.assertEqual(len(reg.list_models()), before)
+
+    def test_import_seed_downgrades_second_active(self):
+        _, rel1, sha1 = self.make_snapshot("zero_day", 1, "dddd77778888")
+        _, rel2, sha2 = self.make_snapshot("zero_day", 2, "eeee99990000")
+        self.write_seed([
+            {"channel": "zero_day", "generation": 1, "snapshot_dir": rel1,
+             "sha1_16": sha1, "meta_path": f"{rel1}/iforest_meta.json", "status": "active"},
+            {"channel": "zero_day", "generation": 2, "snapshot_dir": rel2,
+             "sha1_16": sha2, "meta_path": f"{rel2}/iforest_meta.json",
+             "parent_generation": 1, "status": "active"},
+        ])
+        out = reg.import_seed("tester")
+        self.assertEqual(out["imported"], 2)
+        self.assertEqual(len(out["downgraded"]), 1)
+        actives = [m for m in reg.list_models("zero_day") if m["status"] == "active"]
+        self.assertEqual([m["generation"] for m in actives], [2])
 
 
 if __name__ == "__main__":
