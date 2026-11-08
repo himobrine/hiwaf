@@ -9,3 +9,8 @@
 *.rs  text eol=lf
 *.ts  text eol=lf
 *.tsx text eol=lf
+
+# 二进制产物不做换行归一化（预置模型随仓库发布）
+*.onnx   binary
+*.joblib binary
+*.png    binary
