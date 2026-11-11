@@ -58,7 +58,9 @@
 
 - Pingora 0.9 反向代理（rustls，不依赖 OpenSSL），HTTP + 流级双路采集；
 - `request_body_filter` 拿到完整请求体（access log 拿不到的最强特征）；
-- 判定在 `logging` 阶段完成，不占真实请求延迟；
+- 判定时机：`off` 完全不判定；`dry_run` 在 `logging` 阶段做（不给当前请求加延迟，但占
+  worker 线程）；`enforce` 在转发前做，直接计入首字节；
+- TreeSHAP 归因默认只对 alert/block 算，且只算预测类（`--shap-mode`，g2 实测省 93% 判定耗时）；
 - 策略 / 规则集 ≤5s 热重载，换模型才需要重启；
 - 三种模式：`off`（纯采集）/ `dry_run`（只记录）/ `enforce`（命中返回 403）。
 
@@ -131,8 +133,9 @@ flowchart LR
 | 阈值交叉核对 | 0.000e0 |
 | 融合动作一致性 | 200/200 |
 
-单请求延迟（release，i5-12500H，含 TreeSHAP；**g1 2000 树口径**，g2 待复测）：
-p50 ≈ 0.64 ms / p99 ≈ 1.18 ms。
+单请求延迟（release，i5-12500H；**g2 4000 树实测，2026-11-11**）：
+判定路径 **allow p50 ≈ 0.07 ms / p99 ≈ 0.15 ms**（不算 TreeSHAP），
+alert/block **p50 ≈ 0.35 ms / p99 ≈ 0.59 ms**（单类 TreeSHAP）。
 
 零日检出率（CSIC 2010，@FPR 1%）：g1 26.0% → **g2 26.6%**。
 

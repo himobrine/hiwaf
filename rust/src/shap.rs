@@ -67,6 +67,8 @@ pub struct Forest {
     pub base_scores: Vec<f32>,
     /// (class, tree)
     trees: Vec<(usize, Tree)>,
+    /// 所有树里最大的 TreeSHAP 路径缓冲长度：每次调用只分配一次，避免每棵树一次堆分配。
+    max_cap: usize,
 }
 
 impl Forest {
@@ -74,10 +76,12 @@ impl Forest {
         let raw = std::fs::read_to_string(path).with_context(|| format!("read {path}"))?;
         let rf: RawForest = serde_json::from_str(&raw).context("parse xgb_trees.json")?;
         let mut trees = Vec::with_capacity(rf.trees.len());
+        let mut max_cap = 0usize;
         for rt in &rf.trees {
             let mut t = build_tree(&rt.nodes);
             let d = compute_expectations(&mut t, 0);
             t.max_depth = d;
+            max_cap = max_cap.max(scratch_cap(&t));
             trees.push((rt.class, t));
         }
         Ok(Forest {
@@ -85,6 +89,7 @@ impl Forest {
             n_features: rf.n_features,
             base_scores: rf.base_scores,
             trees,
+            max_cap,
         })
     }
 
@@ -93,8 +98,9 @@ impl Forest {
     pub fn explain(&self, x: &[f32]) -> Vec<Vec<f32>> {
         let m = self.n_features;
         let mut out = vec![vec![0.0f32; m + 1]; self.num_class];
+        let mut scratch = vec![PathElement::default(); self.max_cap];
         for (c, t) in &self.trees {
-            tree_shap(t, x, &mut out[*c], m);
+            tree_shap(t, x, &mut out[*c], m, &mut scratch);
         }
         for c in 0..self.num_class {
             out[c][m] += self.base_scores[c];
@@ -102,8 +108,34 @@ impl Forest {
         out
     }
 
+    /// 只对**一个类**算贡献：返回长度 `n_features+1`（最后一位是该类偏置）。
+    ///
+    /// 判定只需要 `argmax` 那一类的归因（`engine::explain_topk`），而森林是
+    /// 「每类各一组树」。全类 `explain` 要把 5 组树全跑一遍，再丢掉其中 4 组 ——
+    /// 白跑 4/5。数据面每个请求都要走这条路径，所以单开一个单类入口。
+    pub fn explain_class(&self, cls: usize, x: &[f32]) -> Vec<f32> {
+        let m = self.n_features;
+        let mut out = vec![0.0f32; m + 1];
+        // 关键优化：整个调用只分配一次路径缓冲（以前是每棵树一次，800 棵树 = 800 次堆分配）。
+        let mut scratch = vec![PathElement::default(); self.max_cap];
+        for (c, t) in &self.trees {
+            if *c == cls {
+                tree_shap(t, x, &mut out, m, &mut scratch);
+            }
+        }
+        if let Some(b) = self.base_scores.get(cls) {
+            out[m] += *b;
+        }
+        out
+    }
+
     pub fn n_trees(&self) -> usize {
         self.trees.len()
+    }
+
+    /// 某一类的树数（诊断/基准用）。
+    pub fn n_trees_of_class(&self, cls: usize) -> usize {
+        self.trees.iter().filter(|(c, _)| *c == cls).count()
     }
 }
 
@@ -319,12 +351,22 @@ fn tree_shap_recursive(
 }
 
 /// 单树贡献累加到 `phi`（长度 n_features+1，最后一位是偏置）。
-fn tree_shap(t: &Tree, x: &[f32], phi: &mut [f32], m: usize) {
+/// `scratch` 由调用方复用（长度 ≥ `scratch_cap(t)`）。
+fn tree_shap(t: &Tree, x: &[f32], phi: &mut [f32], m: usize, scratch: &mut [PathElement]) {
     phi[m] += t.values[0];
+    let cap = scratch_cap(t);
+    let u = &mut scratch[..cap];
+    // 只清本树实际用到的长度；PathElement 是 Copy，这里比重新分配便宜得多。
+    for e in u.iter_mut() {
+        *e = PathElement::default();
+    }
+    tree_shap_recursive(t, x, phi, u, 0, 0, 1.0, 1.0, -1, 0);
+}
+
+/// 单棵树需要的路径缓冲长度。
+fn scratch_cap(t: &Tree) -> usize {
     let maxd = t.max_depth + 2;
-    let cap = (maxd * (maxd + 1)) / 2 + maxd + 4;
-    let mut u = vec![PathElement::default(); cap];
-    tree_shap_recursive(t, x, phi, &mut u, 0, 0, 1.0, 1.0, -1, 0);
+    (maxd * (maxd + 1)) / 2 + maxd + 4
 }
 
 /// 便捷函数：返回最大 |贡献| 的特征下标（不含偏置）

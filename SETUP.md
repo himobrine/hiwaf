@@ -296,7 +296,7 @@ call build.bat run --release
 | TreeSHAP vs `pred_contribs` | max\|diff\| ≈ **8.11e-6** |
 | 阈值交叉核对 | **0.000e0** |
 | 融合动作一致性 | **200/200** |
-| e2e 延迟 | p50 ≈ 0.64ms / p99 ≈ 1.18ms |
+| e2e 延迟（g2 4000 树，2026-11-11） | allow p50 ≈ 0.07ms / p99 ≈ 0.15ms（不算 SHAP）；alert/block p50 ≈ 0.35ms / p99 ≈ 0.59ms |
 
 ---
 
@@ -355,6 +355,9 @@ Windows 上监听 80/443 需要管理员权限；**系统防火墙放行需自�
 无 body 的请求（GET/HEAD 等）在请求头阶段完成判定，上游完全收不到请求；有 body 的请求
 必须等 body 收齐（或达到 `--body-limit`）才能判定，所以 body 类拦截时上游**可能已收到请求头、
 但收不到 body**（流式反向代理的固有限制）。
+
+例外：`Content-Type` 明确非文本的 body（上传/图片/压缩包）判定时**等于空串**，因此在请求头
+阶段就判定 —— 客户端不会传完整个文件才收到 403。
 
 **模型只告警、规则才阻断（`--no-supervised-block`）**：默认模型（监督通道）命中即可单独阻断。
 但监督模型是在 CSIC 上标定的，换到本地业务后可能出现**系统性误报**（实测：本机 sqli-labs 上
@@ -458,7 +461,12 @@ call build.bat run --release -- ^
 | `--listen <addr>` | `0.0.0.0:6188` | 单路由：客户端 → 本代理（未给 `--route` 时使用） |
 | `--upstream <addr>` | `127.0.0.1:8080` | 单路由：本代理 → 真实后端 |
 | `--upstream-tls` | off | 单路由：上游走 TLS |
-| `--block-mode <off\|dry_run\|enforce>` | `off` | `off` 纯采集；`dry_run` 只记录；`enforce` 命中 block 返回 403 |
+| `--block-mode <off\|dry_run\|enforce>` | `off` | `off` 纯采集（不判定、不跑规则）；`dry_run` 只记录；`enforce` 命中 block 返回 403 |
+| `--shap-mode <flagged\|all\|off>` | `flagged` | TreeSHAP 归因触发：只对 alert/block（`flagged`）/ 每条（`all`）/ 不算（`off`）；始终只算预测类 |
+| `--engine-pool <n>` | 自动（核数/2，1–8） | 判定实例数（每个持有独立 ONNX 会话）。每份额外约 10–20MB 内存；小于 worker 数会排锁 |
+| `--workers <n>` | 自动（= 逻辑核数） | Pingora worker 线程数。**默认只有 1 个事件循环线程**，不设会严重压制吞吐 |
+| `--perf-detail` | 关 | 判定分段耗时写进 `pred.timings`（features/xgb/iforest/shap），压测定位用 |
+| `--route ...,budget_ms=1` | `1` | 该站点 `route_ms` p99 预算（0=不设）；超预算弹窗，且 `workers < 核数` 时有限自动扩容 |
 | `--score` | — | 旧开关，等价于 `--block-mode dry_run`（显式 `--block-mode` 优先） |
 | `--supervised-block` / `--no-supervised-block` | 开 | 模型命中是否可单独阻断；关掉后模型只告警、只有规则通道能 403 |
 | `--out <dir>` | `../traindata/proxy` | 原始记录输出目录（控制台固定此项） |
@@ -1116,9 +1124,10 @@ py -3.10 import_waf_rules.py --write-db         # 写成草稿（enabled=0 / act
    35 条池内无样本的规则保持草稿，等真实流量补在线证据后再确认合格。
 8. **在线证据需要新采集记录**：旧 `raw-*.jsonl` 没有 `rules.hits[]`，重启新采集器前
    `event_rules` / `rule_hits_daily` 会一直是空的（规则页在线证据全 0，熔断也不会触发）。
-9. **g2 指标尚未复测**：现役监督模型是 4000 棵树（g2），但 README 里的 p50/p99 延迟与
-   真实流量拦截率仍是 **g1（2000 棵）** 口径。换模型后要按 `p4_local.py` + 压测重跑，
-   不要跨代引用数字。
+9. **g2 延迟已复测，拦截率未复测**：现役监督模型是 4000 棵树（g2）。2026-11-11 用
+   `rust/` 内置分段基准复测：全类 TreeSHAP 占判定 93%，数据面因此默认
+   `--shap-mode flagged`（allow p50 ≈0.07ms、alert/block ≈0.35ms）。
+   **真实流量拦截率仍是 g1 口径**，换模型后要按 `p4_local.py` 重跑，不要跨代引用数字。
 10. **对外分发前处理 Scapy**：控制台的 pcap 解析用 `scapy`（GPL-2.0-only），与 AGPLv3
    不兼容。内部使用无碍；若要分发，先替换为宽松许可实现或把该功能拆成独立可选组件
    （见 `THIRD_PARTY_NOTICES.md` §3）。

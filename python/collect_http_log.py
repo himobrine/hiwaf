@@ -96,7 +96,7 @@ REQ_KEYS = ("method", "path", "query", "body")
 # 采集代理（S4 / waf-collector）写入的流级与补充字段。
 # 解析与落盘都保留：这是"一个采集点同时产出 HTTP 通道与流级通道"（§8.7.5）不丢信息的前提。
 FLOW_KEYS = ("host", "src_port", "body_len", "body_truncated", "dur_ms",
-             "bytes_in", "bytes_out", "src_kind")
+             "decide_ms", "route_ms", "bytes_in", "bytes_out", "src_kind")
 
 # 日志时间戳的常见形态（用于"红队时间窗"标注；不引入时区库，比较**字面本地时间**）
 _TS_FORMATS = (

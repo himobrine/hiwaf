@@ -91,6 +91,17 @@ pub struct Record {
     pub status: u16,
     /// 端到端耗时（ms，代理视角）
     pub dur_ms: f64,
+    /// 判定本身花掉的 CPU 时间（ms）；`off` 模式恒为 0。
+    ///
+    /// `dry_run` 的判定发生在响应发出之后，`dur_ms` **不含**它；没有这个字段就无法
+    /// 从记录里判断"判定到底贵不贵"，也就无法验证降级有没有生效。
+    pub decide_ms: f64,
+    /// 请求在**本路由内**的总停留时间（ms）：进入路由 → `logging` 结束
+    /// （含上游往返、回包、以及回包之后的判定/序列化入队）。
+    ///
+    /// 这是容量口径：`dry_run` 下客户端已经收到回包，但 worker/连接要到 logging
+    /// 结束才释放。站点预算（`--route ...,budget_ms=`）比的就是它。
+    pub route_ms: f64,
     /// 客户端上行字节（近似：请求体）
     pub bytes_in: u64,
     /// 后端下行字节（响应体累计）
@@ -134,6 +145,19 @@ pub struct RulesOut {
 
 /// 单条请求的模型判定留证（dry-run）。
 #[derive(Debug, serde::Serialize)]
+pub struct PredTimings {
+    /// 规则通道匹配（解码 + 正则 + 命中证据构造）
+    pub rules_ms: f32,
+    /// 等引擎池锁（判定并行度不足时，它会直接变成 route_ms 的长尾）
+    pub lock_ms: f32,
+    pub feature_ms: f32,
+    pub xgb_ms: f32,
+    pub iforest_ms: f32,
+    pub shap_ms: f32,
+}
+
+/// 单条请求的模型判定留证（dry-run）。
+#[derive(Debug, serde::Serialize)]
 pub struct Pred {
     /// 融合动作：`allow` / `block` / `alert`
     pub action: String,
@@ -156,6 +180,9 @@ pub struct Pred {
     /// 树件/特征名缺失时为空，序列化时省略。
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub shap_topk: Vec<waf_ai_proto::engine::ShapItem>,
+    /// **压测/定位**：判定各阶段耗时（`--perf-detail` 时才写）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timings: Option<PredTimings>,
     /// 规则通道**被策略认可**的命中权重（未被认可时恒为 0）。
     /// 与顶层 `rules.weight` 的区别：那个是**证据**（多大都记），这个是**实际参与融合**的值。
     pub rule_weight: f64,
@@ -297,9 +324,14 @@ fn writer_loop(
     file_size: u64,
     stats: Arc<Stats>,
 ) {
+    /// 写缓冲：默认每条记录一次 `write` 系统调用，20k QPS 就是 20k syscall/s，
+    /// 实测在 ~22k 条/秒就开始丢（队列满）。缓冲后按时间/大小批量刷盘。
+    const WRITE_BUF: usize = 256 * 1024;
+    const FLUSH_EVERY: std::time::Duration = std::time::Duration::from_millis(200);
+
     let mut day = utc_day(now_ms());
     let (mut file, mut path, mut seq) = match open_rotated(&dir, &day, 0) {
-        Ok(v) => v,
+        Ok((f, p, s)) => (std::io::BufWriter::with_capacity(WRITE_BUF, f), p, s),
         Err(e) => {
             eprintln!("[sink] 无法在 {} 创建输出文件：{e}", dir.display());
             return;
@@ -307,16 +339,28 @@ fn writer_loop(
     };
     let mut cur: u64 = 0;
     let mut last_report = std::time::Instant::now();
+    let mut last_flush = std::time::Instant::now();
+    // 队列空时立刻刷盘（保证"写完即可见"：测试/控制台不用等定时器）；
+    // 有积压时继续按 buf/时间批量刷，兼顾高吞吐。
+    let mut pending: Option<Record> = None;
     eprintln!("[sink] -> {}", path.display());
 
-    while let Ok(rec) = rx.recv() {
+    loop {
+        let rec = match pending.take() {
+            Some(r) => r,
+            None => match rx.recv() {
+                Ok(r) => r,
+                Err(_) => break,
+            },
+        };
         // 跨 UTC 天先轮转；文件名里的日期也是清理任务按天聚合的依据。
         let rec_day = utc_day(rec.ts);
         if rec_day != day {
             day = rec_day;
             match open_rotated(&dir, &day, 0) {
                 Ok((f, p, s)) => {
-                    file = f;
+                    let _ = file.flush();
+                    file = std::io::BufWriter::with_capacity(WRITE_BUF, f);
                     path = p;
                     seq = s;
                     cur = 0;
@@ -350,7 +394,7 @@ fn writer_loop(
                 // 盘满/句柄失效时尝试换文件继续，避免永久性丢数据
                 if let Ok((f, p, s)) = open_rotated(&dir, &day, seq + 1) {
                     seq = s;
-                    file = f;
+                    file = std::io::BufWriter::with_capacity(WRITE_BUF, f);
                     path = p;
                     cur = 0;
                     eprintln!("[sink] 写失败后换文件继续 -> {}", path.display());
@@ -361,13 +405,26 @@ fn writer_loop(
         if cur >= file_size {
             match open_rotated(&dir, &day, seq + 1) {
                 Ok((f, p, s)) => {
+                    let _ = file.flush();
                     seq = s;
-                    file = f;
+                    file = std::io::BufWriter::with_capacity(WRITE_BUF, f);
                     path = p;
                     cur = 0;
                     eprintln!("[sink] 轮转 -> {}", path.display());
                 }
                 Err(e) => eprintln!("[sink] 轮转失败：{e}"),
+            }
+        }
+        if last_flush.elapsed() >= FLUSH_EVERY {
+            let _ = file.flush();
+            last_flush = std::time::Instant::now();
+        }
+        // 队列已空：立刻刷盘。有积压则留到下一条（继续批量写）。
+        match rx.try_recv() {
+            Ok(r) => pending = Some(r),
+            Err(_) => {
+                let _ = file.flush();
+                last_flush = std::time::Instant::now();
             }
         }
         if last_report.elapsed() > Duration::from_secs(60) {

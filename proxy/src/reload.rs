@@ -29,7 +29,6 @@ use std::time::Duration;
 
 use serde::Serialize;
 
-use waf_ai_proto::engine::Engine;
 use waf_ai_proto::hash::sha1_16_file;
 use waf_ai_proto::rules::RuleEngine;
 
@@ -67,7 +66,8 @@ pub struct ReloadState {
 
 pub struct ReloadShared {
     pub cfg: Arc<Config>,
-    pub scorer: Option<Arc<Mutex<Engine>>>,
+    /// 判定器会话池（与 `Collector` 共享同一个 `Arc`）。
+    pub scorer: Option<Arc<crate::engine_pool::EnginePool>>,
     pub rules: Option<Arc<RwLock<Arc<RuleEngine>>>>,
     /// IP 黑白名单（始终存在；空名单 = 不拦截）。
     pub ip_lists: Option<Arc<RwLock<Arc<IpList>>>>,
@@ -119,11 +119,7 @@ pub fn prime(shared: &ReloadShared) {
         .as_ref()
         .and_then(|p| sha1_16_file(p));
     if let Some(sc) = &shared.scorer {
-        let eng = match sc.lock() {
-            Ok(g) => g,
-            Err(p) => p.into_inner(),
-        };
-        st.policy_active_revision = Some(eng.policy_revision());
+        st.policy_active_revision = Some(sc.policy_revision());
     }
     if let Some(slot) = &shared.rules {
         let eng = match slot.read() {
@@ -177,11 +173,8 @@ fn tick(shared: &Arc<ReloadShared>) -> Result<(), String> {
 
     if change_policy {
         if let Some(sc) = &shared.scorer {
-            let mut eng = match sc.lock() {
-                Ok(g) => g,
-                Err(p) => p.into_inner(),
-            };
-            if let Err(e) = eng.reload_policy(&cfg.artifacts) {
+            // 池里所有实例共享同一份产物，校验是确定性的。
+            if let Err(e) = sc.reload_policy(&cfg.artifacts) {
                 err = Some(format!("策略重载被拒（继续用旧策略）：{e:#}"));
             }
         }
@@ -262,11 +255,7 @@ fn tick(shared: &Arc<ReloadShared>) -> Result<(), String> {
     st.policy_sha1_16 = disk_policy_sha;
     st.rules_sha1_16 = disk_rules_sha;
     if let Some(sc) = &shared.scorer {
-        let eng = match sc.lock() {
-            Ok(g) => g,
-            Err(p) => p.into_inner(),
-        };
-        st.policy_active_revision = Some(eng.policy_revision());
+        st.policy_active_revision = Some(sc.policy_revision());
     }
     if let Some(slot) = &shared.rules {
         let eng = match slot.read() {

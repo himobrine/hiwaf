@@ -33,8 +33,10 @@
 //!   * `--no-body` 隐私模式（只留元数据）。
 
 mod config;
+mod engine_pool;
 mod filters;
 mod iplist;
+mod perf;
 mod reload;
 mod sink;
 
@@ -60,33 +62,54 @@ fn main() {
         }
     };
 
-    let mut server = Server::new(None).expect("Server::new");
+    let mut server = {
+        // ⚠️ Pingora 0.9 的 `ServerConf::threads` 默认是 **1**（整个代理只有一个事件循环
+        // 线程）。不显式放宽时，判定（≈0.09ms CPU/请求）直接把吞吐从 ~16k 压到 ~5k，
+        // 且加引擎实例数完全无效。这里按 `--workers` / 逻辑核数设置。
+        let mut conf = pingora::server::configuration::ServerConf::default();
+        conf.threads = cfg.worker_threads();
+        eprintln!("[collector] worker 线程 {}", conf.threads);
+        Server::new_with_opt_and_conf(None, conf)
+    };
     server.bootstrap();
 
     // 判定（可选）。**失败不致命**（除非 enforce）：模型加载不了就降级成纯采集，
     // 绝不因为"判定器起不来"把采集面一起拖垮（采集是任务 F 的前提）。
     // 但 `block_mode=enforce` 时静默降级 = "以为在拦，其实没拦"，必须直接启动失败。
     let scorer = if cfg.block_mode.score_enabled() {
-        match waf_ai_proto::engine::Engine::load(&cfg.artifacts) {
-            Ok(e) => {
-                let pol = e.policy();
+        // 判定器实例数：单实例会把判定串行到一个核（实测 ~5k QPS 封顶），
+        // 所以默认按核数开 1–4 个；每份额外约 40–50MB RSS。
+        let pool_size = cfg.engine_pool_size();
+        match waf_ai_proto::engine::Engine::load_pool(&cfg.artifacts, pool_size) {
+            Ok(engines) => {
+                let pool = engine_pool::EnginePool::new(engines);
+                pool.set_shap_mode(cfg.shap_mode);
+                let (sup_thr, zd_thr, zd_on, pool_name) = pool.policy_snapshot();
                 eprintln!(
-                    "[collector] 判定已启用（{}）：产物 {} | 监督阈值 {:.6} / 零日阈值 {:.6} | 零日通道 {} | 标定池 {}",
+                    "[collector] 判定已启用（{}）：产物 {} | 引擎池 {} | 监督阈值 {:.6} / 零日阈值 {:.6} | 零日通道 {} | 归因 {} | 标定池 {}",
                     cfg.block_mode.as_str(),
-                    e.artifacts.display(),
-                    pol.supervised.threshold,
-                    pol.zero_day.threshold,
-                    if pol.zero_day_enabled { "开" } else { "关（安全降级）" },
-                    pol.calibration_pool,
+                    cfg.artifacts.display(),
+                    pool.len(),
+                    sup_thr,
+                    zd_thr,
+                    if zd_on { "开" } else { "关（安全降级）" },
+                    cfg.shap_mode.as_str(),
+                    pool_name,
                 );
-                Some(Arc::new(Mutex::new(e)))
+                Some(Arc::new(pool))
             }
             Err(e) => {
                 if cfg.block_mode == config::BlockMode::Enforce {
-                    eprintln!("[collector] ❌ enforce 模式下判定器加载失败，拒绝启动：{e:#}");
+                    eprintln!(
+                        "[collector] ❌ enforce 模式下判定器加载失败（池大小 {}），拒绝启动：{e:#}",
+                        pool_size
+                    );
                     std::process::exit(1);
                 }
-                eprintln!("[collector] ⚠️ 判定启用失败，已降级为**纯采集**：{e:#}");
+                eprintln!(
+                    "[collector] ⚠️ 判定启用失败（池大小 {}），已降级为**纯采集**：{e:#}",
+                    pool_size
+                );
                 None
             }
         }
@@ -99,6 +122,12 @@ fn main() {
     // 与模型判定**互相独立**：没有 `--score` 也能只跑规则。加载失败**不致命**
     // （降级为无规则通道），但要在 stderr 上讲清楚，不能默默变成"没有规则"。
     let rules: Option<Arc<RwLock<Arc<waf_ai_proto::rules::RuleEngine>>>> =
+        if !cfg.block_mode.score_enabled() {
+            // `off` = 纯采集。规则也是判定，不能在 off 模式下偷偷跑：
+            // 91 条正则 + 解码是每请求实打实的 CPU，而结果只写进记录、从不影响动作。
+            eprintln!("[collector] 规则通道：未启用（--block-mode off：纯采集，不判定也不跑规则）");
+            None
+        } else {
         match cfg.rules.as_ref() {
             None => {
                 eprintln!("[collector] 规则通道：未启用（--no-rules）");
@@ -139,6 +168,7 @@ fn main() {
                     None
                 }
             },
+        }
         };
 
     // ---- IP 黑白名单（人工维护，控制台写文件；热重载）----
@@ -185,12 +215,20 @@ fn main() {
     reload::prime(&reload_shared);
     reload::spawn(Arc::clone(&reload_shared));
 
+    // 每路由一份滑动窗口性能统计（budget_ms 来自 --route，默认 1ms）。
+    let perf: Vec<Arc<perf::RoutePerf>> = cfg
+        .routes
+        .iter()
+        .map(|r| Arc::new(perf::RoutePerf::new(&r.name, r.budget_ms)))
+        .collect();
+
     {
         let st = sink.stats();
         let se = Arc::clone(&score_errors);
         let ac = Arc::clone(&actions);
         let cfg2 = Arc::clone(&cfg);
         let rs = Arc::clone(&reload_shared);
+        let perf2: Vec<Arc<perf::RoutePerf>> = perf.clone();
         let interval_ms = cfg.stats_interval.max(1) * 1000;
         let artifacts = cfg.artifacts.display().to_string();
         let score_on = cfg.block_mode.score_enabled();
@@ -199,13 +237,21 @@ fn main() {
             .spawn(move || {
                 // 先写一次：让控制台在采集器刚起时就能读到指标文件。
                 if let Some(p) = &cfg2.stats_out {
-                    write_metrics(p, &cfg2, &st, &se, &ac, score_on, &artifacts, &rs);
+                    write_metrics(p, &cfg2, &st, &se, &ac, score_on, &artifacts, &rs, &perf2);
                 }
                 loop {
                     std::thread::sleep(std::time::Duration::from_millis(interval_ms));
                     eprintln!("[collector] {}", st.snapshot());
+                    for r in perf2.iter().map(|p| p.snapshot(10)) {
+                        eprintln!(
+                            "[perf] {} qps={:.1} p50={:.3}ms p95={:.3}ms p99={:.3}ms max={:.3}ms \
+                             inflight={} samples={} budget={}ms breach={}",
+                            r.route, r.qps, r.p50_ms, r.p95_ms, r.p99_ms, r.max_ms,
+                            r.inflight, r.samples, r.budget_ms, r.breach
+                        );
+                    }
                     if let Some(p) = &cfg2.stats_out {
-                        write_metrics(p, &cfg2, &st, &se, &ac, score_on, &artifacts, &rs);
+                        write_metrics(p, &cfg2, &st, &se, &ac, score_on, &artifacts, &rs, &perf2);
                     }
                 }
             })
@@ -213,7 +259,7 @@ fn main() {
     }
 
     // 每条路由一个 ProxyService，共享 sink / 模型 / 规则 / 指标。
-    for route in &cfg.routes {
+    for (i, route) in cfg.routes.iter().enumerate() {
         let collector = filters::Collector {
             cfg: Arc::clone(&cfg),
             route: Arc::new(route.clone()),
@@ -223,16 +269,22 @@ fn main() {
             actions: Arc::clone(&actions),
             rules: rules.clone(),
             ip_lists: Some(ip_lists.clone()),
+            perf: perf[i].clone(),
         };
         let mut svc = http_proxy_service(&server.configuration, collector);
         svc.add_tcp(&route.listen);
         server.add_service(svc);
         eprintln!(
-            "[collector] 路由 {}：监听 {}  ->  上游 {}{}",
+            "[collector] 路由 {}：监听 {}  ->  上游 {}{} | route_ms 预算 {}",
             route.name,
             route.listen,
             route.upstream,
             if route.upstream_tls { " (TLS)" } else { "" },
+            if route.budget_ms > 0.0 {
+                format!("{:.3}ms", route.budget_ms)
+            } else {
+                "关".to_string()
+            },
         );
     }
     eprintln!(
@@ -311,6 +363,14 @@ struct Metrics {
     rule_block_lines: u64,
     /// `--resp-body=off` 因评分失败被临时突破并采样留证的次数。
     resp_body_off_overrides: u64,
+    /// 判定器实例数（1 = 单实例串行；>1 = 会话池）。
+    engine_pool: usize,
+    /// Pingora worker 线程数（实际生效值）。
+    workers: usize,
+    /// TreeSHAP 归因触发策略（all/flagged/off）。
+    shap_mode: String,
+    /// 每路由的性能窗口（qps / route_ms 分位 / 预算是否破线）。控制台据此告警。
+    perf: Vec<crate::perf::RoutePerfOut>,
     /// 响应体采样模式（alert/all/off），控制台展示用。
     resp_body_mode: String,
     /// 已加载监督模型的槽位文件名（控制台"当前模型"卡片用）。
@@ -348,28 +408,23 @@ fn write_metrics(
     score_on: bool,
     artifacts: &str,
     reload: &reload::ReloadShared,
+    perf: &[std::sync::Arc<crate::perf::RoutePerf>],
 ) {
     use std::sync::atomic::Ordering;
     let now = filters::now_ms();
     let _ = MODELS_LOADED_TS.compare_exchange(0, now, Ordering::Relaxed, Ordering::Relaxed);
     let loaded_ts = MODELS_LOADED_TS.load(Ordering::Relaxed);
-    // 先读模型信息（锁 scorer），再读 reload.state —— 与 reload::tick 的加锁顺序一致，
+    // 先读模型信息（锁池里第一个引擎），再读 reload.state —— 与 reload::tick 的加锁顺序一致，
     // 避免两把锁交叉持有。
     let (model_xgb, model_xgb_sha1_16, model_if, model_if_sha1_16, models_loaded_ts) =
         match &reload.scorer {
-            Some(sc) => {
-                let eng = match sc.lock() {
-                    Ok(g) => g,
-                    Err(p) => p.into_inner(),
-                };
-                (
-                    Some(eng.xgb_artifact().to_string()),
-                    Some(eng.xgb_sha1_16().to_string()),
-                    Some(eng.if_artifact().to_string()),
-                    Some(eng.if_sha1_16().to_string()),
-                    Some(loaded_ts),
-                )
-            }
+            Some(sc) => (
+                Some(sc.xgb_artifact()),
+                Some(sc.xgb_sha1_16()),
+                Some(sc.if_artifact()),
+                Some(sc.if_sha1_16()),
+                Some(loaded_ts),
+            ),
             None => (None, None, None, None, None),
         };
     let reload_state = match reload.state.lock() {
@@ -408,6 +463,10 @@ fn write_metrics(
         rule_hits: st.rule_hits.load(Ordering::Relaxed),
         rule_block_lines: st.rule_block_lines.load(Ordering::Relaxed),
         resp_body_off_overrides: st.resp_body_off_overrides.load(Ordering::Relaxed),
+        engine_pool: reload.scorer.as_ref().map(|p| p.len()).unwrap_or(0),
+        workers: cfg.worker_threads(),
+        shap_mode: cfg.shap_mode.as_str().to_string(),
+        perf: perf.iter().map(|p| p.snapshot(10)).collect(),
         resp_body_mode: cfg.resp_body_mode.as_str().to_string(),
         model_xgb,
         model_xgb_sha1_16,

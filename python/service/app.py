@@ -72,6 +72,11 @@ async def lifespan(_app: FastAPI):
     except Exception:  # noqa: BLE001 - 不影响控制台启动
         pass
     ingest_scheduler.start()
+    # 有限自动扩容：预算破线且 workers < 核数时，最多 +2（5 分钟冷却 / 每小时 3 次）。
+    try:
+        proxy_manager.autoscale_start()
+    except Exception:  # noqa: BLE001 - 不影响控制台启动
+        pass
     # 误报监控（只在有真实命中 + 人工标签时才可能触发；默认 60s 一轮）。
     from . import rule_monitor
     rule_monitor.start()
@@ -998,8 +1003,72 @@ def overview(window_hours: int = Query(24, ge=1, le=24 * 90),
     }
 
 
+_PERF_STATE: dict = {}
+
+
+def _perf_alerts(metrics: Optional[dict]) -> list:
+    """性能异常（`route_ms` 破预算 / 吞吐骤降）。返回结构化列表，供弹窗与降级页。
+
+    口径：`route_ms` = 进入路由 → logging 结束（含回包后的判定）。它是容量指标，
+    不是用户体验指标 —— 预算按站点配置（`--route ...,budget_ms=`，默认 1ms）。
+    """
+    if not metrics:
+        return []
+    out = []
+    now = int(metrics.get("ts") or 0)
+
+    # 1) 站点预算破线
+    for p in metrics.get("perf") or []:
+        try:
+            budget = float(p.get("budget_ms") or 0)
+        except (TypeError, ValueError):
+            budget = 0.0
+        if budget > 0 and p.get("breach"):
+            out.append({
+                "id": f"budget:{p.get('route')}",
+                "kind": "route_budget",
+                "severity": "warning",
+                "route": p.get("route"),
+                "p99_ms": p.get("p99_ms"),
+                "budget_ms": budget,
+                "since": now,
+                "message": (
+                    f"站点 {p.get('route')} 的 route_ms p99="
+                    f"{float(p.get('p99_ms') or 0):.3f}ms 超过预算 {budget:g}ms"
+                    f"（{p.get('window_sec')}s 窗口 / {p.get('samples')} 样本）"
+                ),
+            })
+
+    # 2) 吞吐骤降（相对 EWMA；只在控制台持续轮询时才有基线）
+    perf = metrics.get("perf") or []
+    if perf:
+        qps = sum(float(p.get("qps") or 0) for p in perf)
+        st = _PERF_STATE
+        if st.get("ts") != now:
+            base = st.get("ema")
+            if base is not None and base >= 20 and qps < base * 0.5:
+                out.append({
+                    "id": "qps_drop",
+                    "kind": "qps_drop",
+                    "severity": "critical",
+                    "route": None,
+                    "qps": qps,
+                    "baseline_qps": round(base, 1),
+                    "since": now,
+                    "message": (
+                        f"数据面吞吐骤降：当前 {qps:.0f} req/s，基线约 {base:.0f} req/s"
+                        "（跌幅 >50%）。先看采集代理页的 dropped / 上游是否可用。"
+                    ),
+                })
+            st["ema"] = qps if base is None else base * 0.8 + qps * 0.2
+            st["ts"] = now
+    return out
+
+
 def _warnings(pol: dict, metrics: Optional[dict]) -> list:
     w = []
+    for a in _perf_alerts(metrics):
+        w.append(a["message"])
     if pol.get("zero_day_enabled") is False:
         w.append("零日通道已关闭（安全降级）：分数与原始穿阈仍留证，但不产生 alert。")
     n = (pol.get("calibration_pool") or {}).get("n") or 0
@@ -2949,6 +3018,7 @@ def degradation(user: dict = Depends(auth.current_user)):
         "mode": _mode_from_metrics(m),
         "enforce": _mode_from_metrics(m) == "enforce",
         "collector": m,
+        "perf_alerts": _perf_alerts(m),
         "warnings": _warnings(pol, m),
     }
 

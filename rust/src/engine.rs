@@ -8,6 +8,7 @@
 //! 因此拿它对真实流量算出的分数只能当**诊断**，不能当验收数字 ——
 //! 阈值必须在真实本地良性留出流量上重标定（`thresholds.py --pool file:...`）。
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Context, Result};
@@ -16,7 +17,7 @@ use ort::session::builder::GraphOptimizationLevel;
 use ort::session::Session;
 use ort::value::Tensor;
 
-use crate::decision::{DecisionConfig, Verdict};
+use crate::decision::{Action, DecisionConfig, Verdict};
 use crate::features;
 use crate::hash::sha1_16_file;
 use crate::shap;
@@ -35,6 +36,42 @@ pub const XGB_TREES_JSON: &str = "xgb_trees.json";
 pub const FEATURE_NAMES_JSON: &str = "feature_names_v2.json";
 /// 归因返回的特征数（**诊断展示用**，不参与判定）。
 pub const SHAP_TOPK: usize = 8;
+
+/// TreeSHAP 归因的触发策略。
+///
+/// 归因是**诊断**（详情页回答"为什么给这个分"），不是判定输入；但它是单请求
+/// 最贵的一步（g2 实测 ≈1.8ms，占判定总耗时 93%）。所以给三档：
+///
+/// * `All`：所有请求都算 —— 历史行为，回归/门禁用；
+/// * `Flagged`（数据面默认）：只在 `action != allow` 时算 —— allow 是绝大多数流量；
+/// * `Off`：完全不算。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShapMode {
+    All,
+    Flagged,
+    Off,
+}
+
+impl ShapMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::All => "all",
+            Self::Flagged => "flagged",
+            Self::Off => "off",
+        }
+    }
+
+    pub fn parse(s: &str) -> Result<Self> {
+        match s {
+            "all" => Ok(Self::All),
+            "flagged" | "flagged_only" => Ok(Self::Flagged),
+            "off" | "none" => Ok(Self::Off),
+            other => Err(anyhow!(
+                "shap mode 只支持 all|flagged|off，收到 {other:?}"
+            )),
+        }
+    }
+}
 
 /// 单条 TreeSHAP 归因项（Top-K，按 |contribution| 降序）。
 ///
@@ -105,14 +142,37 @@ pub struct Score {
     pub avg_path_len: f32,
     /// TreeSHAP Top-K 归因（**诊断**）；树件/特征名缺失时为空 Vec。
     pub shap_topk: Vec<ShapItem>,
+    /// 分段耗时（ms）。只有压测/定位时才写进记录（`--perf-detail`）。
+    pub timings: ScoreTimings,
 }
 
+/// 判定各阶段耗时（ms）。默认只用于内部统计/按需落盘，不参与判定。
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ScoreTimings {
+    pub feature_ms: f32,
+    pub xgb_ms: f32,
+    pub iforest_ms: f32,
+    pub shap_ms: f32,
+}
+
+/// 归因缓存条目：命中时直接复用（**同特征 → 同归因**，语义不变）。
+struct ShapCacheEntry {
+    features: Vec<f32>,
+    items: Vec<ShapItem>,
+}
+
+/// 归因缓存上限（条目）。每条 ~ (80×4B + 8 个 ShapItem)，1024 条约 1–2MB。
+const SHAP_CACHE_MAX: usize = 1024;
+
+/// 判定引擎：模型会话 + 策略 + （可选）归因缓存。
 pub struct Engine {
     xgb: Session,
     ifo: Session,
     cfg: DecisionConfig,
     /// 树件（TreeSHAP）。缺失则不产出归因。
     forest: Option<shap::Forest>,
+    /// 归因触发策略（默认 `All`，数据面按 CLI 覆盖）。
+    shap_mode: ShapMode,
     /// 特征名（与特征向量同序）。缺失或长度不符则不产出归因。
     names: Vec<String>,
     /// 产物目录（写进记录，便于回答"这条分数是哪套产物算的"）
@@ -122,11 +182,39 @@ pub struct Engine {
     xgb_sha1_16: String,
     /// 已加载零日模型的内容指纹。
     if_sha1_16: String,
+    /// TreeSHAP 归因缓存：`(特征 bit 哈希) -> (特征, Top-K)`。
+    ///
+    /// 归因是**特征向量的纯函数**：同一组 80 维特征、同一个预测类，结果完全一致。
+    /// 攻击流量高度重复（扫描器、同一 payload 的洪水），缓存命中时这一段直接归零，
+    /// 而且不影响任何未命中的请求。命中时仍逐位比对特征，杜绝哈希碰撞带来错归因。
+    shap_cache: HashMap<u64, ShapCacheEntry>,
 }
 
 impl Engine {
+    /// 单实例加载（门禁程序用）。**每进程只能调用一次**：ORT 只允许一个 Environment。
     pub fn load(artifacts: &Path) -> Result<Self> {
         let env = ap(ort::init().with_name("waf-ai-core").build())?;
+        Self::load_in(&env, artifacts)
+    }
+
+    /// 同一进程内加载 `n` 个独立引擎（会话池）。
+    ///
+    /// ORT **每进程只允许一个 Environment**（第二次 `ort::init().build()` 会失败：
+    /// "only one environment is allowed per process"），所以环境只建一次、所有会话共享；
+    /// 每个 `Engine` 仍持有自己的 `Session`，`run(&mut self)` 才能真并行。
+    pub fn load_pool(artifacts: &Path, n: usize) -> Result<Vec<Self>> {
+        if n == 0 {
+            anyhow::bail!("engine pool 至少需要 1 个实例");
+        }
+        let env = ap(ort::init().with_name("waf-ai-core").build())?;
+        let mut v = Vec::with_capacity(n);
+        for _ in 0..n {
+            v.push(Self::load_in(&env, artifacts)?);
+        }
+        Ok(v)
+    }
+
+    fn load_in(env: &Environment, artifacts: &Path) -> Result<Self> {
         let xgb_path = artifacts.join(XGB_ONNX);
         let if_path = artifacts.join(IF_ONNX);
         let xgb = load_session(&env, &xgb_path)?;
@@ -165,6 +253,8 @@ impl Engine {
             ifo,
             cfg,
             forest,
+            shap_mode: ShapMode::All,
+            shap_cache: HashMap::new(),
             names,
             artifacts: artifacts.to_path_buf(),
             xgb_sha1_16,
@@ -190,6 +280,15 @@ impl Engine {
     /// 归因是否可用（树件与特征名都就绪）。
     pub fn has_attribution(&self) -> bool {
         self.forest.is_some() && self.names.len() == features::FEATURE_DIM
+    }
+
+    /// 设置归因触发策略（数据面在 `Engine::load` 之后立刻覆盖）。
+    pub fn set_shap_mode(&mut self, mode: ShapMode) {
+        self.shap_mode = mode;
+    }
+
+    pub fn shap_mode(&self) -> ShapMode {
+        self.shap_mode
     }
 
     /// **只热重载策略**（阈值档位 / 零日开关 / 融合策略）。
@@ -238,7 +337,20 @@ impl Engine {
         Ok(())
     }
 
-    /// 当前策略修订号（控制台用来核对"采集器加载的是哪一版"）。
+    /// 归因缓存的键：预测类 + 特征（按 f32 位模式）。命中后仍会逐位比对，碰撞只会导致
+/// 一次未命中重算，不会返回错误的归因。
+fn shap_key(f: &[f32], cls: usize) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    cls.hash(&mut h);
+    f.len().hash(&mut h);
+    for v in f {
+        v.to_bits().hash(&mut h);
+    }
+    h.finish()
+}
+
+/// 当前策略修订号（控制台用来核对"采集器加载的是哪一版"）。
     pub fn policy_revision(&self) -> u32 {
         self.cfg.revision
     }
@@ -255,8 +367,11 @@ impl Engine {
         &self.cfg.calibration_pool
     }
 
-    /// TreeSHAP Top-K：对**预测类**（argmax proba）的 margin 取 |贡献| 最大的 K 个特征。
-    fn explain_topk(&self, f: &[f32], proba: &[f32]) -> Vec<ShapItem> {
+    /// TreeSHAP Top-K：对**预测类**（argmax）的 margin 取 |贡献| 最大的 K 个特征。
+    ///
+    /// 只遍历 `cls` 这一类的树（`Forest::explain_class`）：森林是每类一组树，
+    /// 全类跑完再丢掉 4/5 是纯浪费。
+    fn explain_topk(&mut self, f: &[f32], cls: usize) -> Vec<ShapItem> {
         let fo = match &self.forest {
             Some(x) => x,
             None => return Vec::new(),
@@ -264,17 +379,19 @@ impl Engine {
         if self.names.len() != f.len() {
             return Vec::new();
         }
-        let cls = proba
-            .iter()
-            .enumerate()
-            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
-            .map(|(i, _)| i)
-            .unwrap_or(0);
-        let phi = fo.explain(f);
-        let row = match phi.get(cls) {
-            Some(r) => r,
-            None => return Vec::new(),
-        };
+        // 先查缓存：命中时只做 80 个 f32 的逐位比对（不做任何树遍历）。
+        let key = Self::shap_key(f, cls);
+        if let Some(e) = self.shap_cache.get(&key) {
+            if e.features.len() == f.len()
+                && e.features
+                    .iter()
+                    .zip(f.iter())
+                    .all(|(a, b)| a.to_bits() == b.to_bits())
+            {
+                return e.items.clone();
+            }
+        }
+        let row = fo.explain_class(cls, f);
         let mut idx: Vec<usize> = (0..f.len()).collect();
         idx.sort_by(|&a, &b| {
             row[b]
@@ -282,14 +399,27 @@ impl Engine {
                 .partial_cmp(&row[a].abs())
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
-        idx.into_iter()
+        let items: Vec<ShapItem> = idx
+            .into_iter()
             .take(SHAP_TOPK)
             .map(|i| ShapItem {
                 feature: self.names[i].clone(),
                 value: f[i],
                 contribution: row[i],
             })
-            .collect()
+            .collect();
+        // 有界缓存：满了就整体清空（简单、无锁、开销可预期），不做 LRU。
+        if self.shap_cache.len() >= SHAP_CACHE_MAX {
+            self.shap_cache.clear();
+        }
+        self.shap_cache.insert(
+            key,
+            ShapCacheEntry {
+                features: f.to_vec(),
+                items: items.clone(),
+            },
+        );
+        items
     }
 
     pub fn policy(&self) -> &DecisionConfig {
@@ -314,9 +444,12 @@ impl Engine {
         req: &features::Request,
         rule_ev: &crate::decision::RuleEvidence,
     ) -> Result<Score> {
+        let t0 = std::time::Instant::now();
         let f = features::extract(req);
         let d = f.len();
+        let feature_ms = t0.elapsed().as_secs_f64() * 1000.0;
 
+        let t1 = std::time::Instant::now();
         let inp = Tensor::from_array(([1usize, d], f.clone().into_boxed_slice()))?;
         let outs = ap(self.xgb.run(ort::inputs!["input" => inp]))?;
         let (_s, probs) = outs["probabilities"]
@@ -327,24 +460,47 @@ impl Engine {
         if proba.len() < 2 {
             anyhow::bail!("xgboost 输出维度异常：期望 ≥2 类，得到 {}", proba.len());
         }
+        let xgb_ms = t1.elapsed().as_secs_f64() * 1000.0;
 
-        // 归因在**判定之外**算（同一套特征、同一棵树件），失败不影响判定。
-        let shap_topk = self.explain_topk(&f, &proba);
-
-        let inp2 = Tensor::from_array(([1usize, d], f.into_boxed_slice()))?;
+        let t2 = std::time::Instant::now();
+        let inp2 = Tensor::from_array(([1usize, d], f.clone().into_boxed_slice()))?;
         let outs2 = ap(self.ifo.run(ort::inputs!["input" => inp2]))?;
         let (_s2, e) = outs2["avg_path_len"]
             .try_extract_tensor::<f32>()
             .context("extract iforest avg_path_len")?;
         let avg_path_len = e.first().copied().unwrap_or(0.0);
         drop(outs2);
+        let iforest_ms = t2.elapsed().as_secs_f64() * 1000.0;
 
         let verdict = self.cfg.decide_with_rules(&proba, avg_path_len, rule_ev);
+
+        // 归因在**判定之后**算：先知道动作，才能按 `ShapMode` 决定要不要算。
+        // 它是这条链上最贵的一步（g2 实测 ≈1.8ms / 93%），而 allow 是绝大多数流量 ——
+        // 放在判定前无条件算，等于给每个放行请求都付一次诊断成本。
+        let want_shap = match self.shap_mode {
+            ShapMode::Off => false,
+            ShapMode::Flagged => verdict.action != Action::Allow,
+            ShapMode::All => true,
+        };
+        let t3 = std::time::Instant::now();
+        let shap_topk = if want_shap {
+            self.explain_topk(&f, verdict.label)
+        } else {
+            Vec::new()
+        };
+        let shap_ms = t3.elapsed().as_secs_f64() * 1000.0;
+
         Ok(Score {
             verdict,
             proba,
             avg_path_len,
             shap_topk,
+            timings: ScoreTimings {
+                feature_ms: feature_ms as f32,
+                xgb_ms: xgb_ms as f32,
+                iforest_ms: iforest_ms as f32,
+                shap_ms: shap_ms as f32,
+            },
         })
     }
 }

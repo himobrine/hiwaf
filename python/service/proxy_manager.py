@@ -79,7 +79,16 @@ def get_config() -> Dict[str, Any]:
             "listen": out.get("listen") or config.PROXY_DEFAULTS["listen"],
             "upstream": out.get("upstream") or config.PROXY_DEFAULTS["upstream"],
             "upstream_tls": bool(out.get("upstream_tls")),
+            "budget_ms": 1.0,
         }]
+    # 老配置里的路由没有 budget_ms：补默认值，保证 GET 与 PUT 回显逐字段一致。
+    routes = out.get("routes")
+    if isinstance(routes, list):
+        out["routes"] = [
+            ({**r, "budget_ms": float(r.get("budget_ms", 1.0))}
+             if isinstance(r, dict) else r)
+            for r in routes
+        ]
     # 旧字段始终是 routes[0] 的只读别名，避免控制台/测试读到两套不一致的值。
     routes = out.get("routes")
     if isinstance(routes, list) and routes and isinstance(routes[0], dict):
@@ -156,7 +165,7 @@ def _as_routes(name: str, v: Any) -> list[dict]:
     for i, item in enumerate(v):
         if not isinstance(item, dict):
             raise ValueError(f"{name}[{i}] 必须是对象")
-        unknown = set(item) - {"name", "listen", "upstream", "upstream_tls"}
+        unknown = set(item) - {"name", "listen", "upstream", "upstream_tls", "budget_ms"}
         if unknown:
             raise ValueError(f"{name}[{i}] 含未知字段：{sorted(unknown)}")
         rname = str(item.get("name") or f"route{i + 1}").strip()
@@ -173,12 +182,19 @@ def _as_routes(name: str, v: Any) -> list[dict]:
             raise ValueError(f"{name} 监听地址重复：{listen}（一个端口只能有一条路由）")
         names.add(rname)
         listens.add(listen)
+        try:
+            budget_ms = float(item.get("budget_ms", 1.0))
+        except (TypeError, ValueError):
+            raise ValueError(f"{name}[{i}].budget_ms 必须是数字（ms）")
+        if not (0.0 <= budget_ms <= 60000.0):
+            raise ValueError(f"{name}[{i}].budget_ms 必须在 0..=60000（0 = 不设预算）")
         out.append({
             "name": rname,
             "listen": listen,
             "upstream": upstream,
             "upstream_tls": _as_bool(
                 f"{name}[{i}].upstream_tls", item.get("upstream_tls", False)),
+            "budget_ms": budget_ms,
         })
     return out
 
@@ -215,6 +231,9 @@ def _validate_config(patch: Dict[str, Any]) -> Dict[str, Any]:
             "listen": cur["listen"],
             "upstream": cur["upstream"],
             "upstream_tls": cur["upstream_tls"],
+            "budget_ms": (base[0].get("budget_ms", 1.0)
+                          if isinstance(base, list) and base and isinstance(base[0], dict)
+                          else 1.0),
         }])
     out["routes"] = routes
     out["listen"] = routes[0]["listen"]
@@ -251,6 +270,15 @@ def _validate_config(patch: Dict[str, Any]) -> Dict[str, Any]:
     out["no_body"] = _as_bool("no_body", cur["no_body"])
     out["stats_interval"] = _as_int("stats_interval", cur["stats_interval"], 1, 3600)
     out["reload_interval"] = _as_int("reload_interval", cur["reload_interval"], 0, 3600)
+    # 0 = 自动（核数 / 核数÷4）；非 0 时按值下发。
+    out["workers"] = _as_int("workers", cur.get("workers", 0), 0, 256)
+    out["engine_pool"] = _as_int("engine_pool", cur.get("engine_pool", 0), 0, 32)
+    shap_mode = str(cur.get("shap_mode") or "flagged").strip().lower()
+    if shap_mode not in ("all", "flagged", "off"):
+        raise ValueError("shap_mode 只支持 all/flagged/off")
+    out["shap_mode"] = shap_mode
+    out["perf_detail"] = _as_bool("perf_detail", cur.get("perf_detail", False))
+    out["auto_workers"] = _as_bool("auto_workers", cur.get("auto_workers", True))
     out["artifacts"] = _as_root_path("artifacts", cur["artifacts"])
     out["rules"] = _as_root_path("rules", cur["rules"], allow_empty=True)
     return out
@@ -298,8 +326,9 @@ def build_argv(cfg: Dict[str, Any], binary: Path) -> list[str]:
     for r in cfg["routes"]:
         argv += [
             "--route",
-            "name={},listen={},upstream={},tls={}".format(
-                r["name"], r["listen"], r["upstream"], 1 if r["upstream_tls"] else 0),
+            "name={},listen={},upstream={},tls={},budget_ms={:g}".format(
+                r["name"], r["listen"], r["upstream"],
+                1 if r["upstream_tls"] else 0, float(r.get("budget_ms", 1.0))),
         ]
     argv += [
         "--block-mode", str(cfg["block_mode"]),
@@ -315,7 +344,14 @@ def build_argv(cfg: Dict[str, Any], binary: Path) -> list[str]:
         "--stats-out", str(config.COLLECTOR_METRICS),
         "--stats-interval", str(cfg["stats_interval"]),
         "--reload-interval", str(cfg["reload_interval"]),
+        "--shap-mode", str(cfg.get("shap_mode") or "flagged"),
     ]
+    if int(cfg.get("workers") or 0) > 0:
+        argv += ["--workers", str(cfg["workers"])]
+    if int(cfg.get("engine_pool") or 0) > 0:
+        argv += ["--engine-pool", str(cfg["engine_pool"])]
+    if cfg.get("perf_detail"):
+        argv.append("--perf-detail")
     if cfg["no_body"]:
         argv.append("--no-body")
     if not cfg.get("supervised_block", True):
@@ -544,6 +580,9 @@ def _effective(m: Optional[dict]) -> Optional[dict]:
         "blocked_requests": m.get("blocked_requests"),
         "artifacts": m.get("artifacts"),
         "resp_body": m.get("resp_body_mode"),
+        "workers": m.get("workers"),
+        "engine_pool": m.get("engine_pool"),
+        "shap_mode": m.get("shap_mode"),
     }
 
 
@@ -561,7 +600,11 @@ def _restart_keys(saved: dict, info: Optional[dict], effective: Optional[dict]) 
                 keys.add(k)
     if effective:
         for k in ("listen", "upstream", "routes", "score", "block_mode",
-                  "artifacts", "resp_body"):
+                  "artifacts", "resp_body", "workers", "engine_pool", "shap_mode"):
+            # workers/engine_pool 的 0 表示"自动"，指标里是解析后的实际值，
+            # 直接比会把"自动"误判成"配置漂移"。
+            if k in ("workers", "engine_pool") and not saved.get(k):
+                continue
             if k in effective and effective[k] is not None and effective[k] != saved.get(k):
                 keys.add(k)
     return sorted(keys)
@@ -788,6 +831,100 @@ def restart(actor: str, ip: Optional[str] = None) -> dict:
             stop(actor, force=False, ip=ip)
         _audit(actor, "proxy_restart", None, None, ip)
         return start(actor, ip=ip)
+
+
+# --------------------------------------------------------------------------- 有限自动扩容
+#
+# 背景：`route_ms` 超预算时，唯一能"调大并发度"的旋钮是 `--workers`，而 Pingora 的
+# 线程数在进程启动时固定 —— 所以扩容 = 重启进程（会中断 in-flight 请求）。
+# 因此只做**有限**动作：只增不减、5 分钟冷却、每小时最多 3 次、且只在
+# `workers < 逻辑核数` 时执行；到上限后不再重启（加线程只会更差），交给弹窗提示。
+_AUTOSCALE = {"last_ms": 0, "history": []}
+_AUTOSCALE_LOCK = threading.Lock()
+_AUTOSCALE_STARTED = False
+
+
+def _autoscale_path() -> Path:
+    return Path(config.LOG_DIR) / "proxy-autoscale.json"
+
+
+def _load_autoscale() -> dict:
+    try:
+        doc = json.loads(_autoscale_path().read_text(encoding="utf-8"))
+        if isinstance(doc, dict):
+            return {"last_ms": int(doc.get("last_ms") or 0),
+                    "history": [int(x) for x in (doc.get("history") or [])]}
+    except (OSError, ValueError):
+        pass
+    return {"last_ms": 0, "history": []}
+
+
+def _save_autoscale(doc: dict) -> None:
+    try:
+        _autoscale_path().parent.mkdir(parents=True, exist_ok=True)
+        _autoscale_path().write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def maybe_autoscale() -> Optional[dict]:
+    """预算破线 → 有限扩容。返回动作描述（None = 不动作，便于测试/日志）。"""
+    cfg = get_config()
+    if not cfg.get("auto_workers", True):
+        return None
+    m = metrics()
+    if not m:
+        return None
+    if not any(p.get("breach") for p in (m.get("perf") or [])):
+        return None
+    workers = int(m.get("workers") or 0)
+    cores = os.cpu_count() or 1
+    # 已到线程上限（或拿不到实际值）：加线程只会更差，不动作。
+    if workers <= 0 or workers >= cores:
+        return None
+    now = db.now_ms()
+    with _AUTOSCALE_LOCK:
+        st = _load_autoscale()
+        if now - int(st["last_ms"]) < 5 * 60 * 1000:
+            return None
+        hist = [t for t in st["history"] if now - t < 3600 * 1000]
+        if len(hist) >= 3:
+            return None
+        target = min(cores, workers + 2)
+        if target <= workers:
+            return None
+        try:
+            update_config({"workers": target}, actor="auto-autoscale")
+        except Exception as e:  # noqa: BLE001 - 扩容失败不能影响控制台
+            return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+        hist.append(now)
+        _save_autoscale({"last_ms": now, "history": hist})
+        try:
+            restart("auto-autoscale")
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "error": f"配置已更新但重启失败：{e}"}
+        return {"ok": True, "from": workers, "to": target, "cores": cores}
+
+
+def autoscale_start() -> None:
+    """后台每 5s 检查一次预算破线。进程内只起一个。"""
+    global _AUTOSCALE_STARTED
+    if _AUTOSCALE_STARTED:
+        return
+    _AUTOSCALE_STARTED = True
+
+    def loop() -> None:
+        while True:
+            try:
+                act = maybe_autoscale()
+                if act:
+                    _audit("auto-autoscale", "proxy_autoscale", None,
+                           json.dumps(act, ensure_ascii=False), None)
+            except Exception:  # noqa: BLE001 - 后台线程不能死
+                pass
+            time.sleep(5)
+
+    threading.Thread(target=loop, name="proxy-autoscale", daemon=True).start()
 
 
 # --------------------------------------------------------------------------- 日志

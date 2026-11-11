@@ -150,16 +150,64 @@ export default function AppLayout({
 
   useEffect(() => {
     let alive = true
+    const open = new Set<string>()
     const tick = async () => {
       try {
         const r = await api<any>('/api/health/degradation')
-        if (alive) setMode(r.mode || 'unknown')
+        if (!alive) return
+        setMode(r.mode || 'unknown')
+        const alerts: any[] = r?.perf_alerts || []
+        const active = new Set(alerts.map((a) => String(a.id)))
+        // 已恢复的：关掉弹窗，并清掉它的 12h 忽略标记（下次异常还要提醒）。
+        for (const id of Array.from(open)) {
+          if (!active.has(id)) {
+            notification.close(`perf:${id}`)
+            open.delete(id)
+            try {
+              const m = JSON.parse(localStorage.getItem('waf_perf_snooze') || '{}')
+              delete m[id]
+              localStorage.setItem('waf_perf_snooze', JSON.stringify(m))
+            } catch { /* ignore */ }
+          }
+        }
+        let snooze: Record<string, number> = {}
+        try {
+          snooze = JSON.parse(localStorage.getItem('waf_perf_snooze') || '{}')
+        } catch { /* ignore */ }
+        const now = Date.now()
+        for (const a of alerts) {
+          const id = String(a.id)
+          if (open.has(id) || (snooze[id] || 0) > now) continue
+          notification.warning({
+            key: `perf:${id}`,
+            message: '数据面性能异常',
+            description: a.message,
+            duration: 0,
+            btn: (
+              <Button
+                size="small"
+                onClick={() => {
+                  try {
+                    const m = JSON.parse(localStorage.getItem('waf_perf_snooze') || '{}')
+                    m[id] = Date.now() + 12 * 3600 * 1000
+                    localStorage.setItem('waf_perf_snooze', JSON.stringify(m))
+                  } catch { /* ignore */ }
+                  notification.close(`perf:${id}`)
+                  open.delete(id)
+                }}
+              >
+                忽略 12 小时
+              </Button>
+            ),
+          })
+          open.add(id)
+        }
       } catch {
         /* 保持上一次状态 */
       }
     }
     tick()
-    const t = setInterval(tick, 30000)
+    const t = setInterval(tick, 5000)
     return () => {
       alive = false
       clearInterval(t)

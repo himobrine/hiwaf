@@ -87,6 +87,11 @@ pub struct Route {
     pub upstream: String,
     /// 上游是否 TLS。
     pub upstream_tls: bool,
+    /// 该站点的 `route_ms` p99 预算（ms）。`0` = 不设预算；默认 1ms。
+    ///
+    /// `route_ms` = 从进入路由（`request_filter`）到 `logging` 结束（含回包后的
+    /// 判定/规则/序列化入队）。按站点配置：不同业务能容忍的延迟不同。
+    pub budget_ms: f64,
 }
 
 impl Route {
@@ -127,12 +132,30 @@ pub struct Config {
     pub channel: usize,
     /// 判定/阻断模式（`off` / `dry_run` / `enforce`）。
     pub block_mode: BlockMode,
+    /// TreeSHAP 归因触发策略（`all` / `flagged` / `off`）。
+    ///
+    /// 归因是诊断字段，却曾是单请求最贵的一步（g2 实测 ≈1.8ms / 占判定 93%）。
+    /// 默认 `flagged`：只在 `action != allow` 时算，allow 流量不付诊断成本。
+    pub shap_mode: waf_ai_proto::engine::ShapMode,
+    /// 把判定的分段耗时（特征/监督/零日/归因，ms）写进记录。默认关闭（记录变大）。
+    pub perf_detail: bool,
     /// 监督通道是否**允许单独阻断**（默认 `true`）。
     ///
     /// `false` 时模型命中只降级成 `alert`（分数/穿阈/规则证据照常落盘），
     /// 只有规则通道达到阻断线才真正返回 403。用于模型在跨分布流量上误报偏高、
     /// 但规则集已经足够精确的部署（`--no-supervised-block`）。
     pub supervised_block: bool,
+    /// 判定器实例数（`0` = 按核数自动取 1–4）。
+    ///
+    /// `ort::Session::run` 需要 `&mut self`，单实例会把判定串行到**一个核**（实测
+    /// ~5k QPS 封顶）。池化后判定可并行；代价是每份额外约 40–50 MB RSS。
+    pub engine_pool: usize,
+    /// Pingora worker 线程数（`0` = 按逻辑核数自动）。
+    ///
+    /// ⚠️ Pingora 0.9 的 `ServerConf::threads` 默认是 **1**：不显式设置时，整个代理
+    /// 只有一个事件循环线程。实测把判定（≈0.09ms CPU/请求）加到这个线程上，吞吐会从
+    /// ~16k 掉到 ~5k，且加执法器实例数完全无效（瓶颈是事件循环，不是引擎锁）。
+    pub workers: usize,
     /// 模型产物目录（`decision_policy.json` + 两个 ONNX）。
     pub artifacts: PathBuf,
     /// 运行指标 JSON 输出路径（供控制台读；`None` = 只打 stderr）。
@@ -153,6 +176,7 @@ impl Default for Config {
                 listen: "0.0.0.0:6188".to_string(),
                 upstream: "127.0.0.1:8080".to_string(),
                 upstream_tls: false,
+                budget_ms: 1.0,
             }],
             out_dir: PathBuf::from("../traindata/proxy"),
             body_keep: 64 * 1024,
@@ -164,10 +188,14 @@ impl Default for Config {
             file_size: 256 * 1024 * 1024,
             channel: 8192,
             block_mode: BlockMode::Off,
+            shap_mode: waf_ai_proto::engine::ShapMode::Flagged,
+            perf_detail: false,
+            engine_pool: 0,
+            workers: 0,
             supervised_block: true,
             artifacts: PathBuf::from("../python/artifacts"),
             stats_out: None,
-            stats_interval: 60,
+            stats_interval: 5,
             // 默认指向产物目录里的现役规则集；文件不存在就自动不启用（见 main.rs）。
             rules: Some(PathBuf::from("../python/artifacts/rules_authoritative.json")),
             reload_interval: 5,
@@ -185,6 +213,32 @@ impl Config {
     pub fn upstream(&self) -> &str {
         self.routes.first().map(|r| r.upstream.as_str()).unwrap_or("")
     }
+
+    /// 解析后的判定器实例数。`--engine-pool` 未给时按逻辑核数取 1–8（核数/2）：
+    /// 判定是 CPU 密集的，但池子小于 worker 数时会排锁 —— 实测 16 worker + 4 实例时
+    /// `lock_ms` p50 高达 1.0ms（攻击路径的主要成本），加到 8 实例后降到 0.0ms。
+    /// 每份额外约 10–20MB RSS。
+    pub fn engine_pool_size(&self) -> usize {
+        if self.engine_pool > 0 {
+            return self.engine_pool;
+        }
+        let n = std::thread::available_parallelism()
+            .map(|v| v.get())
+            .unwrap_or(1);
+        (n / 2).clamp(1, 8)
+    }
+
+    /// 解析后的 Pingora worker 线程数。Pingora 0.9 默认只有 1 个事件循环线程，
+    /// 判定/采集都在它上面跑；默认按逻辑核数放宽（上限 64，避免夸张配置）。
+    pub fn worker_threads(&self) -> usize {
+        if self.workers > 0 {
+            return self.workers;
+        }
+        std::thread::available_parallelism()
+            .map(|v| v.get())
+            .unwrap_or(1)
+            .clamp(1, 64)
+    }
 }
 
 fn looks_like_addr(s: &str) -> bool {
@@ -200,6 +254,7 @@ fn parse_route(spec: &str, idx: usize) -> Result<Route, String> {
     let mut listen: Option<String> = None;
     let mut upstream: Option<String> = None;
     let mut upstream_tls = false;
+    let mut budget_ms = 1.0f64;
     for part in spec.split(',') {
         let part = part.trim();
         if part.is_empty() {
@@ -218,7 +273,21 @@ fn parse_route(spec: &str, idx: usize) -> Result<Route, String> {
                     "1" | "true" | "yes" | "on"
                 )
             }
-            other => return Err(format!("--route 未知键 {other:?}（只支持 name/listen/upstream/tls）")),
+            "budget_ms" => {
+                let x: f64 = v
+                    .trim()
+                    .parse()
+                    .map_err(|e| format!("--route budget_ms 解析失败：{e}"))?;
+                if !(0.0..=60_000.0).contains(&x) {
+                    return Err("--route budget_ms 必须在 0..=60000（0 = 该站点不设预算）".into());
+                }
+                budget_ms = x;
+            }
+            other => {
+                return Err(format!(
+                    "--route 未知键 {other:?}（只支持 name/listen/upstream/tls/budget_ms）"
+                ))
+            }
         }
     }
     let listen = listen.ok_or_else(|| "--route 缺少 listen".to_string())?;
@@ -240,6 +309,7 @@ fn parse_route(spec: &str, idx: usize) -> Result<Route, String> {
         listen,
         upstream,
         upstream_tls,
+        budget_ms,
     })
 }
 
@@ -269,6 +339,29 @@ pub fn parse_args<I: Iterator<Item = String>>(args: I) -> Result<Config, String>
             "--block-mode" => {
                 c.block_mode = BlockMode::parse(&val("--block-mode")?)?;
                 block_mode_explicit = true;
+            }
+            "--shap-mode" => {
+                c.shap_mode = waf_ai_proto::engine::ShapMode::parse(&val("--shap-mode")?)
+                    .map_err(|e| e.to_string())?;
+            }
+            "--perf-detail" => c.perf_detail = true,
+            "--engine-pool" => {
+                let n: usize = val("--engine-pool")?
+                    .parse()
+                    .map_err(|e| format!("--engine-pool 解析失败: {e}"))?;
+                if n == 0 || n > 32 {
+                    return Err("--engine-pool 必须在 1..=32（0 不是合法值；不写 = 自动）".to_string());
+                }
+                c.engine_pool = n;
+            }
+            "--workers" => {
+                let n: usize = val("--workers")?
+                    .parse()
+                    .map_err(|e| format!("--workers 解析失败: {e}"))?;
+                if n == 0 || n > 256 {
+                    return Err("--workers 必须在 1..=256（0 不是合法值；不写 = 自动）".to_string());
+                }
+                c.workers = n;
             }
             // 旧开关：等价于 --block-mode dry_run（显式 --block-mode 优先）。
             "--score" => score_alias = true,
@@ -395,12 +488,20 @@ pub const HELP: &str = "\
 用法: waf-collector [选项]
 
 路由（可重复；不给 --route 时用 --listen/--upstream 合成一条）:
-  --route name=<名>,listen=<addr>,upstream=<addr>,tls=0|1
+  --route name=<名>,listen=<addr>,upstream=<addr>,tls=0|1,budget_ms=1
                          一条路由：监听 addr -> 上游 addr。可写多次实现多端口。
   --listen <addr>        单路由监听地址（默认 0.0.0.0:6188）
   --upstream <addr>      单路由上游地址（默认 127.0.0.1:8080）
   --upstream-tls         单路由上游使用 TLS
   --block-mode <mode>    off（纯采集，默认）/ dry_run（只记录）/ enforce（命中返回 403）
+  --shap-mode <mode>     TreeSHAP 归因：flagged（默认，仅 alert/block）/ all / off
+                         归因是诊断字段；g2 实测全类 SHAP ≈1.8ms/请求，占判定 93%
+  --engine-pool <n>      判定器实例数（默认 核数/2，1–8）。判定是单线程串行的，
+                         池化后并行到多核；每份额外约 10–20MB 内存
+  --workers <n>          Pingora worker 线程数（默认 = 逻辑核数）。
+                         ⚠️ Pingora 默认只有 1 个事件循环线程，不设会严重压制吞吐
+  --perf-detail          把判定分段耗时（features/xgb/iforest/shap）写进 pred（默认关）
+  --route 的 budget_ms=<ms>  该站点 route_ms 的 p99 预算（默认 1；0 = 不设）
   --score                旧开关，等价于 --block-mode dry_run
   --supervised-block     模型命中可单独阻断（默认）
   --no-supervised-block  模型命中只告警，只有规则通道能阻断
@@ -417,7 +518,7 @@ pub const HELP: &str = "\
   --no-body              不采集 body（隐私模式）
   --artifacts <dir>      模型产物目录（默认 ../python/artifacts）
   --stats-out <file>     运行指标 JSON 输出（控制台读；默认只打 stderr）
-  --stats-interval <sec> 指标刷新周期（默认 60 秒）
+  --stats-interval <sec> 指标刷新周期（默认 5 秒；控制台按此粒度做吞吐告警）
   --rules <file>         规则集路径（默认 ../python/artifacts/rules_authoritative.json；
                          文件不存在则自动不启用规则通道）
   --no-rules             不加载规则通道
@@ -506,6 +607,37 @@ mod tests {
             BlockMode::Off
         );
         assert!(parse(&["--block-mode", "nope"]).is_err());
+    }
+
+    #[test]
+    fn shap_mode_defaults_to_flagged_and_parses() {
+        use waf_ai_proto::engine::ShapMode;
+        assert_eq!(parse(&[]).unwrap().shap_mode, ShapMode::Flagged);
+        assert_eq!(parse(&["--shap-mode", "all"]).unwrap().shap_mode, ShapMode::All);
+        assert_eq!(parse(&["--shap-mode", "off"]).unwrap().shap_mode, ShapMode::Off);
+        assert_eq!(parse(&["--shap-mode", "flagged"]).unwrap().shap_mode, ShapMode::Flagged);
+        assert!(parse(&["--shap-mode", "nope"]).is_err());
+    }
+
+    #[test]
+    fn worker_threads_auto_and_explicit() {
+        let c = parse(&[]).unwrap();
+        assert_eq!(c.workers, 0, "未给参数时应为自动");
+        assert!((1..=64).contains(&c.worker_threads()));
+        assert_eq!(parse(&["--workers", "4"]).unwrap().worker_threads(), 4);
+        assert!(parse(&["--workers", "0"]).is_err());
+        assert!(parse(&["--workers", "x"]).is_err());
+    }
+
+    #[test]
+    fn engine_pool_auto_and_explicit() {
+        let c = parse(&[]).unwrap();
+        assert_eq!(c.engine_pool, 0, "未给参数时应为自动");
+        assert!((1..=8).contains(&c.engine_pool_size()), "自动值应落在 1..=8");
+        assert_eq!(parse(&["--engine-pool", "3"]).unwrap().engine_pool_size(), 3);
+        assert!(parse(&["--engine-pool", "0"]).is_err());
+        assert!(parse(&["--engine-pool", "33"]).is_err());
+        assert!(parse(&["--engine-pool", "x"]).is_err());
     }
 
     #[test]

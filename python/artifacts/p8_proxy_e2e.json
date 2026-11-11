@@ -90,7 +90,7 @@
     {
       "name": "流级字段(dur_ms/bytes_in/bytes_out/src_ip)",
       "ok": true,
-      "detail": "dur_ms=0.3729 bytes_in=29 bytes_out=4 src=127.0.0.1"
+      "detail": "dur_ms=0.4042 bytes_in=29 bytes_out=4 src=127.0.0.1"
     },
     {
       "name": "中文/引号/反斜杠/制表 转义往返一致",
@@ -138,9 +138,9 @@
       "detail": "sup=[0.721004] zd=[-7.35974] policy=0.721004/-7.359740"
     },
     {
-      "name": "B: **SHAP Top-K 归因**已写入记录（控制台详情页的「为什么」）",
+      "name": "B: **SHAP Top-K 归因**只对 alert/block 计算（allow 不算，省掉最贵一步）",
       "ok": true,
-      "detail": "K=[8] top1=['val_special_r', 'val_special_r', 'sql_weak_r', 'xss_strong_r', 'val_special_r', 'max_repeat', 'val_special_r']"
+      "detail": "flagged=2 allow=5 K=[8] top1=['sql_weak_r', 'xss_strong_r']"
     },
     {
       "name": "C: 请求条数一致",
@@ -245,7 +245,7 @@
         "zero_day_score": -8.639622,
         "zero_day_score_crossed": false,
         "zero_day_flagged": false,
-        "shap_top1": "val_special_r"
+        "shap_top1": null
       },
       {
         "method": "POST",
@@ -258,7 +258,7 @@
         "zero_day_score": -7.90249,
         "zero_day_score_crossed": false,
         "zero_day_flagged": false,
-        "shap_top1": "val_special_r"
+        "shap_top1": null
       },
       {
         "method": "POST",
@@ -297,7 +297,7 @@
         "zero_day_score": -7.679879,
         "zero_day_score_crossed": false,
         "zero_day_flagged": false,
-        "shap_top1": "val_special_r"
+        "shap_top1": null
       },
       {
         "method": "POST",
@@ -310,7 +310,7 @@
         "zero_day_score": -6.845705,
         "zero_day_score_crossed": true,
         "zero_day_flagged": false,
-        "shap_top1": "max_repeat"
+        "shap_top1": null
       },
       {
         "method": "POST",
@@ -323,7 +323,7 @@
         "zero_day_score": -8.648932,
         "zero_day_score_crossed": false,
         "zero_day_flagged": false,
-        "shap_top1": "val_special_r"
+        "shap_top1": null
       }
     ],
     "note": "**诊断值，不是验收指标**：上线模型训练集带 body 记录 = 0 条，且阈值未在真实本地良性上重标定。这 7 条不构成任何率的证据。"
@@ -335,5 +335,5 @@
     "`pred` 是拿**上线模型**（训练集带 body 记录 = 0 条）对真实流量算的诊断值，**不能当验收指标**；",
     "阈值必须在真实本地良性留出流量上重标定（python/thresholds.py --pool file:...）"
   ],
-  "tmp_dir": "C:\\Users\\lenovo\\AppData\\Local\\Temp\\p8_proxy_062tw6ag"
+  "tmp_dir": "C:\\Users\\lenovo\\AppData\\Local\\Temp\\p8_proxy_zas9u_qv"
 }

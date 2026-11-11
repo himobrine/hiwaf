@@ -21,9 +21,13 @@
 //! 有 body 的请求必须等 body 收齐（或达到 `body_limit`）才能判定；Pingora 会先发请求头
 //! 再流 body，所以 body 类拦截时**上游可能已收到请求头、但收不到 body**。这是反向代理
 //! 在流式转发下的固有限制，控制台文档里会写明。
+//!
+//! 例外（2026-11 起）：`Content-Type` 明确非文本的 body（上传/图片/压缩包）在判定里
+//! **等于空串**，因此在请求头阶段就判定 —— 既不会让客户端白等 1MB 的上传，也能在
+//! 客户端开始上传前返回 403。判定输入与"等 body 到齐"完全一致。
 
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 use std::time::Instant;
 
 use async_trait::async_trait;
@@ -35,8 +39,10 @@ use pingora::proxy::{FailToProxy, ProxyHttp, Session};
 use pingora::upstreams::peer::HttpPeer;
 
 use crate::config::{BlockMode, Config, RespBodyMode, Route};
+use crate::engine_pool::EnginePool;
 use crate::iplist::IpList;
-use crate::sink::{BodyOut, Pred, Record, ResponseOut, RulesOut, Sink};
+use crate::perf::RoutePerf;
+use crate::sink::{BodyOut, Pred, PredTimings, Record, ResponseOut, RulesOut, Sink};
 
 /// 拦截页（简短、不泄露规则细节）。
 const BLOCK_BODY: &[u8] =
@@ -62,6 +68,8 @@ pub struct Ctx {
     resp_status: u16,
     status: u16,
     resp_captured: bool,
+    /// 响应 Content-Type 是否文本（无 CT 时按文本处理，宁可多留证）。
+    resp_textual: bool,
     resp_body: Vec<u8>,
     resp_body_len: usize,
     resp_body_truncated: bool,
@@ -106,6 +114,7 @@ impl Default for Ctx {
             resp_status: 0,
             status: 0,
             resp_captured: false,
+            resp_textual: false,
             resp_body: Vec::new(),
             resp_body_len: 0,
             resp_body_truncated: false,
@@ -130,6 +139,9 @@ impl Default for Ctx {
 struct Decision {
     rules: Option<RulesOut>,
     pred: Option<Pred>,
+    /// 本次判定真正花掉的 CPU 时间（ms）。判定发生在 `logging`（off/dry_run）时
+    /// **不体现在 `dur_ms` 里**（那是响应发出前的耗时），所以必须单独留证。
+    ms: f64,
 }
 
 /// 部署级降级：`supervised_block=false` 时，模型**单独**命中的 `block` 降为 `alert`。
@@ -161,6 +173,7 @@ impl Decision {
             artifacts: String::new(),
             attack_label: 0,
             shap_topk: Vec::new(),
+            timings: None,
             rule_weight: 0.0,
             rule_block_weight: 0.0,
             rules_flagged: false,
@@ -170,6 +183,7 @@ impl Decision {
         Decision {
             rules: None,
             pred: Some(pred),
+            ms: 0.0,
         }
     }
 
@@ -358,11 +372,11 @@ pub struct Collector {
     /// 本服务实例负责的路由（监听 → 上游）。
     pub route: Arc<Route>,
     pub sink: Sink,
-    /// `block_mode != off` 时才有：上线模型判定器。
+    /// `block_mode != off` 时才有：上线模型判定器（会话池）。
     ///
-    /// 用 `Mutex` 而非会话池：`ort::Session::run` 是 `&mut self`，
-    /// 先串行化；要并发再上会话池。
-    pub scorer: Option<Arc<Mutex<waf_ai_proto::engine::Engine>>>,
+    /// 池里每个实例有自己的 `ort::Session`（`run` 需要 `&mut self`，单实例只能串行），
+    /// 判定因此可以并行到多个核；池大小见 `--engine-pool`。
+    pub scorer: Option<Arc<EnginePool>>,
     /// 判定失败计数（失败只降级为"不记录 pred"，**绝不影响转发**）。
     pub score_errors: Arc<AtomicU64>,
     /// 判定动作计数（指标文件用）。
@@ -375,6 +389,8 @@ pub struct Collector {
     pub rules: Option<Arc<RwLock<Arc<waf_ai_proto::rules::RuleEngine>>>>,
     /// IP 黑白名单（人工维护；空名单 = 不拦截）。
     pub ip_lists: Option<Arc<RwLock<Arc<IpList>>>>,
+    /// 本路由的滑动窗口性能统计（`route_ms` 分位 / 预算判定）。
+    pub perf: Arc<RoutePerf>,
 }
 
 impl Collector {
@@ -388,6 +404,8 @@ impl Collector {
         ua: &str,
         referer: &str,
     ) -> Decision {
+        let t_decide = Instant::now();
+        let t_rules = Instant::now();
         // ---- 规则通道（第三通道，独立于模型）----
         //
         // 顺序刻意放在 `pred` **之前**：融合是"监督命中 或 规则达阻断线 ⇒ block"，
@@ -465,19 +483,17 @@ impl Collector {
                 }
             }
         };
+        let rules_ms = t_rules.elapsed().as_secs_f64() * 1000.0;
 
-        let pred = self.scorer.as_ref().and_then(|s| {
+        let pred = self.scorer.as_ref().and_then(|pool| {
             let req = waf_ai_proto::features::Request {
                 method: method.to_string(),
                 path: path.to_string(),
                 query: query.to_string(),
                 body: body.to_string(),
             };
-            let mut eng = match s.lock() {
-                Ok(g) => g,
-                Err(p) => p.into_inner(), // 别的线程 panic 过：不因此丢掉判定
-            };
-            match eng.score_with_rules(&req, &rule_ev) {
+            // 池里每个引擎一把锁：worker 之间不再排同一个 `Mutex`。
+            let (mut pred, lock_ms) = pool.with(|eng| match eng.score_with_rules(&req, &rule_ev) {
                 Ok(sc) => {
                     let v = &sc.verdict;
                     let pol = eng.policy();
@@ -502,6 +518,18 @@ impl Collector {
                         artifacts: eng.artifacts.display().to_string(),
                         attack_label: v.label,
                         shap_topk: sc.shap_topk.clone(),
+                        timings: if self.cfg.perf_detail {
+                            Some(PredTimings {
+                                rules_ms: rules_ms as f32,
+                                lock_ms: 0.0,
+                                feature_ms: sc.timings.feature_ms,
+                                xgb_ms: sc.timings.xgb_ms,
+                                iforest_ms: sc.timings.iforest_ms,
+                                shap_ms: sc.timings.shap_ms,
+                            })
+                        } else {
+                            None
+                        },
                         rule_weight: v.rule_weight,
                         rule_block_weight: v.rule_block_weight,
                         rules_flagged: v.rules_flagged,
@@ -517,10 +545,21 @@ impl Collector {
                     }
                     None
                 }
+            });
+            // 等锁时间由池返回（分段计时里看不到它，但它会计入 decide/route）。
+            if let Some(p) = pred.as_mut() {
+                if let Some(t) = p.timings.as_mut() {
+                    t.lock_ms = lock_ms as f32;
+                }
             }
+            pred
         });
 
-        Decision { rules, pred }
+        Decision {
+            rules,
+            pred,
+            ms: t_decide.elapsed().as_secs_f64() * 1000.0,
+        }
     }
 
     /// 判定用的 body 文本：二进制体按空串处理（与落盘字段语义一致）。
@@ -545,6 +584,7 @@ impl ProxyHttp for Collector {
     /// enforce 模式下，**无 body 的请求在这里完成判定并可直接返回 403**。
     async fn request_filter(&self, session: &mut Session, ctx: &mut Self::CTX) -> Result<bool> {
         ctx.start = Some(Instant::now());
+        self.perf.enter();
         {
             let req = session.req_header();
             ctx.host = header_str(req, "host");
@@ -616,7 +656,13 @@ impl ProxyHttp for Collector {
                     req.uri.query().unwrap_or("").to_string(),
                 )
             };
-            if !has_body {
+            // 二进制 body（上传/图片/压缩包）在判定里**等于空串**（`decision_text` 的语义），
+            // 所以为它扣住最多 `body_limit`（默认 1MB）纯属让客户端白等：
+            // 判定输入与"现在立刻判"完全相同。CT 明确非文本时直接在这里判，
+            // 命中就在客户端上传之前返回 403，未命中则 body 原样流式转发。
+            let binary_ct = !ctx.req_content_type.is_empty()
+                && !is_textual_content_type(&ctx.req_content_type);
+            if !has_body || binary_ct {
                 let decision = self.decide(&method, &path, &query, "", &ctx.ua, &ctx.referer);
                 let block = decision.should_block();
                 ctx.decision = Some(decision);
@@ -752,6 +798,10 @@ impl ProxyHttp for Collector {
         ctx.resp_status = upstream_response.status.as_u16();
         ctx.status = ctx.resp_status;
         ctx.resp_captured = true;
+        ctx.resp_textual = {
+            let ct = content_type(&upstream_response.headers);
+            ct.is_empty() || is_textual_content_type(&ct)
+        };
         ctx.resp_version = version_str(upstream_response.version);
         let (headers, total, stored, truncated) =
             collect_headers(&upstream_response.headers, self.cfg.headers_keep);
@@ -776,9 +826,18 @@ impl ProxyHttp for Collector {
         if let Some(b) = body {
             ctx.bytes_out += b.len() as u64;
             ctx.resp_body_len += b.len();
-            // Off 正常不缓冲；但启用判定时仍缓冲 64KB，否则评分失败后无法补采证据。
-            let should_buffer =
-                self.cfg.resp_body_mode != RespBodyMode::Off || self.cfg.block_mode.score_enabled();
+            // 只有**可能被采样**时才值得付这份拷贝：
+            //   * `all`：按配置全采；
+            //   * `alert` / `off`：只有启用判定时才可能被采样（`alert` 要看最终 action，
+            //     `off` 只在评分失败时破例留证）。`off` 模式（纯采集）一律不缓冲 ——
+            //     旧逻辑在这里恒真，白拷 64KB/响应，连图片都拷。
+            // 另外只缓冲文本：二进制（图片/字体/压缩体）没有证据价值，还会把 64KB 拷贝
+            // 乘以每个页面资源的请求数。
+            let should_buffer = ctx.resp_textual
+                && match self.cfg.resp_body_mode {
+                    RespBodyMode::All => true,
+                    _ => self.cfg.block_mode.score_enabled(),
+                };
             if should_buffer {
                 let room = self.cfg.resp_body_keep.saturating_sub(ctx.resp_body.len());
                 if room > 0 {
@@ -865,12 +924,22 @@ impl ProxyHttp for Collector {
             "collect_body_off"
         };
 
-        // enforce 模式下判定已经在请求路径上算过，直接复用；off/dry_run 仍在这里补算，
-        // 保证“采集阶段不给真实业务加延迟”的旧语义。
+        // enforce 模式下判定已经在请求路径上算过，直接复用；off/dry_run 仍在这里补算
+        // （`logging` 在响应发出之后，不给真实业务加延迟；但它占用 worker 线程，
+        //  所以 off 模式**完全不判定**，dry_run 才补算）。
         let decision = match ctx.decision.take() {
             Some(d) => d,
-            None => self.decide(&method, &path, &query, &body, &ctx.ua, &ctx.referer),
+            None if self.cfg.block_mode.score_enabled() => {
+                self.decide(&method, &path, &query, &body, &ctx.ua, &ctx.referer)
+            }
+            // off = 纯采集：不跑模型、不跑规则、不留 pred。规则通道在 `main.rs` 也不会加载。
+            None => Decision {
+                rules: None,
+                pred: None,
+                ms: 0.0,
+            },
         };
+        let decide_ms = decision.ms;
         let rules = decision.rules;
         let pred = decision.pred;
         if let Some(p) = &pred {
@@ -942,6 +1011,12 @@ impl ProxyHttp for Collector {
             None
         };
 
+        // 容量口径：判定/取证都做完了才算"请求在路由内停留了多久"。
+        // `dry_run` 下客户端早已收到回包，但 worker/连接要到这一刻才释放。
+        let route_ms = ctx
+            .start
+            .map(|t| t.elapsed().as_secs_f64() * 1000.0)
+            .unwrap_or(0.0);
         let rec = Record {
             ts: now_ms(),
             src_ip: ctx.src_ip.clone(),
@@ -968,6 +1043,11 @@ impl ProxyHttp for Collector {
             referer: std::mem::take(&mut ctx.referer),
             status: if ctx.blocked { 403 } else { ctx.status },
             dur_ms,
+            // 判定真正花掉的 CPU（ms）。`off` 模式恒为 0；`enforce` 下它已计入
+            // `dur_ms`，`dry_run` 下只在这里可见 —— 这是验证降级是否生效的唯一口径。
+            decide_ms,
+            // 进入路由 → logging 结束（含回包后的判定/入队）。站点预算比的就是它。
+            route_ms,
             bytes_in: ctx.body_len as u64,
             bytes_out: ctx.bytes_out,
             src_kind: "pingora-proxy",
@@ -976,6 +1056,9 @@ impl ProxyHttp for Collector {
             response,
         };
         self.sink.try_emit(rec);
+        // 统计口径与记录里的 `route_ms` 一致（含回包后的判定；不含最后的通道交接）。
+        self.perf.leave();
+        self.perf.record(route_ms);
     }
 }
 

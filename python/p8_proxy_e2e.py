@@ -218,6 +218,14 @@ def run_phase(tmp: str, tag: str, extra: list, collector_log_name: str, collecto
 
 
 def main():
+    # Windows 控制台默认 GBK，脚本里有 ⇒/✅ 这类字符：不重配会在第一次打印时崩，
+    # 而且崩在断言之间会让人误以为是功能回归。统一按 UTF-8 输出（失败就保留原样）。
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
     ap_ = argparse.ArgumentParser()
     ap_.add_argument("--keep-tmp", action="store_true")
     ap_.add_argument("--no-score", action="store_true", help="跳过阶段 B（dry-run 判定）")
@@ -377,13 +385,19 @@ def main():
                   f"sup={sorted({round(p['supervised_threshold'], 6) for p in preds})} "
                   f"zd={sorted({round(p['zero_day_threshold'], 6) for p in preds})} "
                   f"policy={exp_sup:.6f}/{exp_zd:.6f}")
-            check("B: **SHAP Top-K 归因**已写入记录（控制台详情页的「为什么」）",
+            # 归因默认 `flagged`：只有 alert/block 才有 Top-K；allow 不再为诊断付 1.8ms。
+            # 语义是"**被判定为可疑时**才解释"，不是"每条都解释"。
+            _flagged = [p for p in preds if p["action"] != "allow"]
+            _allowed = [p for p in preds if p["action"] == "allow"]
+            check("B: **SHAP Top-K 归因**只对 alert/block 计算（allow 不算，省掉最贵一步）",
                   all(isinstance(p.get("shap_topk"), list) and len(p["shap_topk"]) == 8
-                      for p in preds)
+                      for p in _flagged)
+                  and all("shap_topk" not in p for p in _allowed)
                   and all(set(it.keys()) == {"feature", "value", "contribution"}
-                          for p in preds for it in p["shap_topk"]),
-                  f"K={sorted({len(p.get('shap_topk') or []) for p in preds})} "
-                  f"top1={[(p['shap_topk'][0]['feature'] if p.get('shap_topk') else None) for p in preds]}")
+                          for p in _flagged for it in p["shap_topk"]),
+                  f"flagged={len(_flagged)} allow={len(_allowed)} "
+                  f"K={sorted({len(p.get('shap_topk') or []) for p in _flagged})} "
+                  f"top1={[(p['shap_topk'][0]['feature'] if p.get('shap_topk') else None) for p in _flagged]}")
 
             pred_stats = {
                 "actions": {a: sum(1 for p in preds if p["action"] == a) for a in

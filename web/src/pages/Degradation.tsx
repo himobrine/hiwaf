@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Alert, Button, Card, Descriptions, Space, Tag, Typography } from 'antd'
+import { Alert, Button, Card, Descriptions, Space, Table, Tag, Typography } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
 import { Link } from 'react-router-dom'
 import { api, fmtNum, fmtTs } from '../api'
@@ -44,6 +44,35 @@ export default function Degradation() {
       {(d?.warnings || []).map((w: string, i: number) => (
         <Alert key={i} type="warning" message={w} showIcon style={{ marginBottom: 8 }} />
       ))}
+
+      {(d?.collector?.perf || []).length ? (
+        <Card size="small" title="数据面性能（route_ms：进入路由 → logging 结束）" style={{ marginBottom: 12 }}>
+          <Table
+            size="small"
+            rowKey="route"
+            pagination={false}
+            dataSource={d.collector.perf}
+            columns={[
+              { title: '站点', dataIndex: 'route' },
+              { title: 'QPS', dataIndex: 'qps', render: (v: any) => Number(v || 0).toFixed(1) },
+              { title: 'p50', dataIndex: 'p50_ms', render: (v: any) => `${Number(v || 0).toFixed(3)}ms` },
+              { title: 'p95', dataIndex: 'p95_ms', render: (v: any) => `${Number(v || 0).toFixed(3)}ms` },
+              { title: 'p99', dataIndex: 'p99_ms', render: (v: any) => `${Number(v || 0).toFixed(3)}ms` },
+              { title: 'max', dataIndex: 'max_ms', render: (v: any) => `${Number(v || 0).toFixed(3)}ms` },
+              {
+                title: '预算', dataIndex: 'budget_ms',
+                render: (v: any) => (Number(v) > 0 ? `${Number(v)}ms` : '关'),
+              },
+              { title: '在途', dataIndex: 'inflight' },
+              {
+                title: '状态',
+                render: (_: any, r: any) =>
+                  r.breach ? <Tag color="red">超预算</Tag> : <Tag color="green">正常</Tag>,
+              },
+            ]}
+          />
+        </Card>
+      ) : null}
 
       <Card size="small" title="当前运行态">
         <Descriptions size="small" bordered column={2}>

@@ -80,7 +80,12 @@ call build.bat run --release -- ^
 | `--listen` | `0.0.0.0:6188` | 单路由监听地址（未给 `--route` 时使用） |
 | `--upstream` | `127.0.0.1:8080` | 单路由上游地址 |
 | `--upstream-tls` | 关 | 单路由上游使用 TLS |
-| `--block-mode` | `off` | `off` 纯采集 / `dry_run` 只记录 / `enforce` 命中 block 返回 403 |
+| `--block-mode` | `off` | `off` 纯采集（不判定、不跑规则）/ `dry_run` 只记录 / `enforce` 命中 block 返回 403 |
+| `--shap-mode` | `flagged` | TreeSHAP 归因：`flagged` 只对 alert/block 算 / `all` 每条都算 / `off` 不算。只算预测类 |
+| `--perf-detail` | 关 | 把判定的分段耗时（features/xgb/iforest/shap）写进 `pred.timings`，压测定位用 |
+| `--route ...,budget_ms=1` | `1` | 该站点 `route_ms` 的 p99 预算（`0` = 不设）。超预算 → 控制台弹窗 + 有限自动扩容 |
+| `--engine-pool` | 自动（核数/2，1–8） | 判定并行度：每个实例持有独立 ONNX 会话。`Session::run` 要 `&mut self`，不池化会把判定压到一个核；池子小于 worker 数时会排锁 |
+| `--workers` | 自动（= 逻辑核数） | Pingora worker 线程数。⚠️ Pingora 0.9 默认 **1** 个事件循环线程；不显式放宽时判定/采集全压在一个线程上，实测吞吐会从 ~18k 掉到 ~5k |
 | `--score` | — | 旧开关，等价于 `--block-mode dry_run`（显式 `--block-mode` 优先） |
 | `--supervised-block` / `--no-supervised-block` | 开 | 模型命中是否可单独阻断。关掉后模型命中只降级为 `alert`（分数/证据照常落盘），只有规则通道能返回 403 |
 | `--out` | `../traindata/proxy` | 原始记录目录（**存在真实业务数据，注意访问权限与保留期**） |
@@ -117,6 +122,10 @@ call build.bat run --release -- ^
 无 body 的请求（GET/HEAD 等）在请求头阶段就判定，**上游完全收不到请求**；有 body 的请求
 必须等 body 收齐（或达到 `--body-limit`）才能判定，Pingora 会先发请求头再流 body，
 所以 body 类拦截时**上游可能已收到请求头、但收不到 body**。这是流式反向代理的固有限制。
+
+例外：`Content-Type` 明确非文本的 body（上传/图片/压缩包）在判定里**等于空串**，
+所以在请求头阶段就判定 —— 不会让客户端把整个文件传完才收到 403（实测 1MB 慢速上传：
+0.023s / 48KB 就返回，而不是等 1.3s 收完）。判定输入与「等 body 到齐」完全一致。
 
 **模型只告警、规则才阻断（`--no-supervised-block`）**：监督模型在 CSIC 上标定，跨分布到本地
 业务可能系统性误报（实测本机 sqli-labs：任何 `?id=` 的 GET 都被判成 `cmdi` ≈ 0.999，g1 阈值 0.6998 / 现役 g2 阈值 0.7210）。
@@ -236,15 +245,57 @@ nginx/Caddy 终止 TLS 后转 HTTP 给采集器，否则只能看到 CONNECT 元
   `decision_policy.json.supervised.labels`，由控制面解释。
 * `shap_topk` 是 TreeSHAP Top-8（对预测类），**诊断/可解释性用，不参与判定**。
   需要 `xgb_trees.json` + `feature_names_v2.json`；缺任一个就为空（不报错、不影响判定）。
-  代价约 **0.5 ms/请求**（g1 2000 棵树；现役 g2 4000 棵，需复测），仍在 `logging` 阶段，不占真实请求延迟。
+  默认 `--shap-mode flagged`：**只在 `action != allow` 时算，且只遍历 argmax 那一类的树**
+  （g2 实测单类 ≈0.27ms；全类 ≈0.72ms 占判定 93%）。allow 记录**没有** `shap_topk` 字段。
+  `--shap-mode all` 恢复"每条都算"（门禁/回归对照用），`off` 完全不算。
 
 * **不是标签**。下游 `collect_http_log.py` 的 `parse_jsonl` 只保留已知键，`pred` 在标注产物里
   **结构性消失** —— 模型输出不可能变成训练标签（这是刻意的，见 `p8_proxy_e2e.py` 的断言）。
 * **不是验收指标**。上线模型训练集带 body 的记录是 **0 条**，拿它对真实流量算的分数只能当诊断；
   阈值必须在真实本地良性留出流量上重标定（`python/thresholds.py --pool file:...`）。
-* 判定在 `logging` 阶段做（body 已收齐、**不占用真实请求延迟**）——`off`/`dry_run` 是这种情况；
-  `enforce` 必须在转发前判定（无 body 在请求头阶段，有 body 在 body 收齐后），会带来相应延迟。
-  `ort::Session::run` 是 `&mut self`，故用 `Mutex` 串行化，需要并发再上会话池。
+* 判定时机：`off` **完全不判定**（不加载规则、不跑模型，`decide_ms=0`）；
+  `dry_run` 在 `logging` 阶段做（body 已收齐、响应已发出，**不给当前请求加延迟**，
+  但会占用 worker 线程，故默认只对非 allow 算 SHAP）；
+  `enforce` 必须在转发前判定（无 body 与**二进制 body** 在请求头阶段，文本 body 在收齐后），
+  会带来相应延迟。
+* **并发**：Pingora 0.9 的 `ServerConf::threads` 默认是 **1**，不设 `--workers` 时整个代理
+  只有一个事件循环线程。配合 `--engine-pool`（判定实例池）才是完整的并行：
+  实测 i5-12500H（4P+8E/16T）上，allow 判定吞吐
+  单 worker+单实例 ≈5.2k → 16 worker+4 实例 ≈**17.9k QPS**（p50 1.6ms）；
+  纯路由（`off`，16 worker）≈24k，已接近压测客户端上限。
+
+### 性能口径与告警（`route_ms`）
+
+| 字段 | 起点 → 终点 | 用途 |
+|---|---|---|
+| `dur_ms` | 进入路由 → `logging` 开头 | 老口径（不含判定） |
+| `decide_ms` | 判定进入 → 返回 | 判定本身的成本 |
+| **`route_ms`** | 进入路由 → **`logging` 结束** | **容量口径**：`dry_run` 下客户端早已收到回包，但 worker/连接要到这一刻才释放 |
+
+* 预算按站点配置：`--route name=...,budget_ms=1`（默认 1ms，`0` = 不设）。
+* **归因成本**：SHAP 只在 alert/block 算、只算 argmax 一类，并且按「特征向量 + 类」缓存
+  （重复 payload 的扫描器/洪水直接命中，未命中才完整计算）。实测攻击路径
+  `shap_ms` p50 0.387ms → **0.003ms**，服务端 `route_ms` p50 0.40ms / p95 0.72ms。
+* 采集器维护 60×1s 滑动窗口，`stats.json` 的 `perf[]` 给出 `qps/p50/p95/p99/max/inflight/breach`；
+  `--stats-interval` 默认 5s（控制台按这个粒度做吞吐告警）。
+* 控制台：预算破线 / 吞吐骤降 → **常驻弹窗**（可「忽略 12 小时」）+ 降级页性能表；
+  自动扩容只在 `workers < 逻辑核数` 时 +2（5 分钟冷却、每小时最多 3 次），到上限只告警
+  —— 加线程超过核数只会更慢。
+
+### 容量（单进程，i5-12500H 4P+8E/16T；压测工具 `rust/src/bin/loadgen.rs`）
+
+| 场景 | 饱和吞吐 | 说明 |
+|---|---|---|
+| 直连上游（客户端上限） | ~50k req/s | 1 连接 1 线程的 Rust 压测器 |
+| `off`（路由+采集） | **~38k req/s** | 写盘改为缓冲后 0 丢弃 |
+| `dry_run` allow（规则+AI） | **~24k req/s** | 16 连接；`route_ms` p50 0.5ms / p95 1.25ms |
+| `enforce` 命中（同 payload，SHAP 缓存命中） | ~26k req/s | p50 2.4ms |
+| `enforce` 命中（每请求唯一 payload，缓存全 miss） | ~24k req/s | 差异约 7% |
+
+* **1ms 预算的可用区间**：`route_ms` p95 ≈ 1.2ms 时约 **20–24k req/s**；要 p95 稳定低于
+  1ms，实践上按 **~15k req/s** 规划（留出突发余量）。
+* 压测必须用 Rust 压测器：Python 客户端（`bench_proxy.py`）约 7k 就会先把自己打满。
+  `loadgen --addr host:port --path /x --connections N --seconds 5 [--unique]`。
 * 判定/加载失败在 `off`/`dry_run` 下**只降级为不记录 `pred`**，不影响转发；模型加载不了就退化成纯采集（打日志）。
   **`enforce` 下加载失败会直接启动失败**（避免“以为在拦、其实没拦”）。
 

@@ -136,7 +136,7 @@ class ProxyManagerTest(unittest.TestCase):
         self.assertIn("--route", argv)
         self.assertEqual(
             argv[argv.index("--route") + 1],
-            "name=a,listen=127.0.0.1:6199,upstream=127.0.0.1:8080,tls=1")
+            "name=a,listen=127.0.0.1:6199,upstream=127.0.0.1:8080,tls=1,budget_ms=1")
         self.assertIn("--no-body", argv)
         self.assertNotIn("--score", argv)
         self.assertNotIn("--upstream-tls", argv)
@@ -159,8 +159,8 @@ class ProxyManagerTest(unittest.TestCase):
         argv = pm.build_argv(cfg, self.bin)
         specs = [argv[i + 1] for i, a in enumerate(argv) if a == "--route"]
         self.assertEqual(specs, [
-            "name=a,listen=0.0.0.0:80,upstream=127.0.0.1:8080,tls=0",
-            "name=b,listen=0.0.0.0:443,upstream=127.0.0.1:8443,tls=1",
+            "name=a,listen=0.0.0.0:80,upstream=127.0.0.1:8080,tls=0,budget_ms=1",
+            "name=b,listen=0.0.0.0:443,upstream=127.0.0.1:8443,tls=1,budget_ms=1",
         ])
         self.assertEqual(argv[argv.index("--block-mode") + 1], "enforce")
 

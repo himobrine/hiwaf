@@ -189,7 +189,7 @@ PROXY_DEFAULTS = {
     # listen/upstream/upstream_tls 自动迁移成一条路由。
     "routes": [
         {"name": "default", "listen": "0.0.0.0:6188",
-         "upstream": "127.0.0.1:80", "upstream_tls": False},
+         "upstream": "127.0.0.1:80", "upstream_tls": False, "budget_ms": 1.0},
     ],
     # 旧单路由字段：与 routes[0] 保持同步；PUT 时仍兼容旧写法。
     "listen": "0.0.0.0:6188",
@@ -211,7 +211,18 @@ PROXY_DEFAULTS = {
     "supervised_block": True,
     # 旧别名：block_mode != off。保存时自动同步。
     "score": False,
-    "stats_interval": 60,
+    # 0 = 自动（逻辑核数）。Pingora 默认只有 1 个事件循环线程，必须显式放宽。
+    "workers": 0,
+    # 0 = 自动（核数/4，1–4）。判定实例池：每个实例一份独立 ONNX 会话。
+    "engine_pool": 0,
+    # TreeSHAP 归因：flagged（只对 alert/block）/ all / off。
+    "shap_mode": "flagged",
+    # 把判定分段耗时写进记录（压测定位时开）。
+    "perf_detail": False,
+    # 预算破线时**有限**自动扩容 workers（只增不减、5 分钟冷却、每小时最多 3 次；
+    # 已到逻辑核数上限时不再动作，只告警）。
+    "auto_workers": True,
+    "stats_interval": 5,
     "reload_interval": 5,
     "artifacts": str(ARTIFACTS),
     # 空字符串 = `--no-rules`（只跑模型/纯采集）。

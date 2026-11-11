@@ -701,7 +701,7 @@ fn main() -> Result<()> {
     bench(&mut xgb, "xgboost", 5000)?;
     bench(&mut ifo, "iforest", 5000)?;
 
-    // TreeSHAP 延迟
+    // TreeSHAP 延迟（全类：门禁/对照口径）
     {
         let x0 = sr.features[0].clone();
         for _ in 0..50 {
@@ -720,6 +720,52 @@ fn main() -> Result<()> {
             ts[iters / 2],
             ts[(iters as f64 * 0.99) as usize],
             forest.n_trees()
+        );
+    }
+
+    // TreeSHAP 延迟（单类：**数据面实际走的路径**）
+    {
+        let x0 = sr.features[0].clone();
+        let cls = argmax(&probs[0..5]);
+        for _ in 0..50 {
+            let _ = forest.explain_class(cls, &x0);
+        }
+        let iters = 2000usize;
+        let mut ts = Vec::with_capacity(iters);
+        for _ in 0..iters {
+            let t = Instant::now();
+            let _ = forest.explain_class(cls, &x0);
+            ts.push(t.elapsed().as_secs_f64() * 1000.0);
+        }
+        ts.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        println!(
+            "[bench] treeshap single-class: p50={:.4}ms p99={:.4}ms (n={iters}, cls={cls}, {} trees)",
+            ts[iters / 2],
+            ts[(iters as f64 * 0.99) as usize],
+            forest.n_trees_of_class(cls)
+        );
+    }
+
+    // TreeSHAP 延迟（攻击类 cls=1：命中路径上的实际成本）
+    {
+        let x0 = sr.features[0].clone();
+        let cls = 1usize;
+        for _ in 0..50 {
+            let _ = forest.explain_class(cls, &x0);
+        }
+        let iters = 2000usize;
+        let mut ts = Vec::with_capacity(iters);
+        for _ in 0..iters {
+            let t = Instant::now();
+            let _ = forest.explain_class(cls, &x0);
+            ts.push(t.elapsed().as_secs_f64() * 1000.0);
+        }
+        ts.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        println!(
+            "[bench] treeshap single-class(cls=1): p50={:.4}ms p99={:.4}ms (n={iters}, {} trees)",
+            ts[iters / 2],
+            ts[(iters as f64 * 0.99) as usize],
+            forest.n_trees_of_class(cls)
         );
     }
 
@@ -772,6 +818,41 @@ fn main() -> Result<()> {
             ts[iters / 2],
             ts[(iters as f64 * 0.99) as usize]
         );
+    }
+
+    // ---- 8) 数据面实际路径：allow（不算 SHAP）与 flagged（单类 SHAP）----
+    {
+        let req = features::Request::from_json(&tv.requests[0]);
+        let cls = argmax(&probs[0..5]);
+        let mut run = |want_shap: bool| -> Result<()> {
+            let f = features::extract(&req);
+            let x1 = Tensor::from_array(([1usize, d], f.clone().into_boxed_slice()))?;
+            let _ = ap(xgb.run(ort::inputs!["input" => x1]))?;
+            let x2 = Tensor::from_array(([1usize, d], f.clone().into_boxed_slice()))?;
+            let _ = ap(ifo.run(ort::inputs!["input" => x2]))?;
+            if want_shap {
+                let _ = forest.explain_class(cls, &f);
+            }
+            Ok(())
+        };
+        for (label, want) in [("allow(no-shap)", false), ("flagged(shap-of-cls)", true)] {
+            for _ in 0..30 {
+                run(want)?;
+            }
+            let iters = 2000usize;
+            let mut ts = Vec::with_capacity(iters);
+            for _ in 0..iters {
+                let t = Instant::now();
+                run(want)?;
+                ts.push(t.elapsed().as_secs_f64() * 1000.0);
+            }
+            ts.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "[bench] data-plane {label}: p50={:.4}ms p99={:.4}ms (n={iters})",
+                ts[iters / 2],
+                ts[(iters as f64 * 0.99) as usize]
+            );
+        }
     }
 
     Ok(())
