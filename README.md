@@ -148,6 +148,13 @@ install.bat -NoRust          :: 只装控制台（首次会建 .venv、构建前
 install.bat -WithRust        :: 连 Rust 判定引擎与采集器一起构建
 ```
 
+### 不想装 Rust 工具链
+
+预编译二进制在 [Releases](https://github.com/himobrine/hiwaf/releases)：下载
+`waf-collector-v0.1.0-windows-x86_64.exe` 放进 `bin\waf-collector.exe` 即可，
+模型/策略/规则仍用仓库里的 `python/artifacts/`。当前只有 Windows x64；Linux 产物待补，
+Linux 用户先按下面的 `build.sh` 自行构建。
+
 ### Linux
 
 ```bash
