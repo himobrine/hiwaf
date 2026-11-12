@@ -1,6 +1,6 @@
 {
   "n_features": 80,
-  "trees": 125,
+  "trees": 200,
   "max_samples": 256,
   "seed": 42,
   "include_ngram": false,
@@ -8,31 +8,38 @@
   "score_def": "zero_day_score = -avg_path_len（越大越异常）",
   "zero_day_threshold": {
     "thresholds": {
-      "0.001": -6.618366536617266,
-      "0.01": -7.359739780426025,
-      "0.03": -7.575781335830689,
-      "0.05": -7.833298754692077,
-      "0.1": -8.180851936340332
+      "0.001": -5.8584709224700715,
+      "0.01": -7.283900423049926,
+      "0.03": -8.951041250228887,
+      "0.05": -9.607815170288088,
+      "0.1": -10.346635913848877
     },
     "detect": {
-      "0.001": 0.15866746459206063,
-      "0.01": 0.2663076002393776,
-      "0.03": 0.3213245561539996,
-      "0.05": 0.39429483343307403,
-      "0.1": 0.47520446838220626
+      "0.001": 0.006195552188734376,
+      "0.01": 0.8179481629781938,
+      "0.03": 0.9977544505167469,
+      "0.05": 0.9999188355608463,
+      "0.1": 1.0
     },
-    "n_normal_pool": 6000,
-    "n_anomaly": 25065
+    "n_normal_pool": 12000,
+    "n_anomaly": 36962
   },
-  "spearman_vs_sklearn": 0.9999999999860942,
+  "spearman_vs_sklearn": 0.9999999975641121,
   "onnx": "model.onnx",
-  "base_trees": 100,
-  "total_trees": 125,
+  "base_trees": 125,
+  "total_trees": 200,
   "parent_model": "iforest_model.joblib",
   "inherit_mode": "warm_start",
-  "dataset": "CSIC 2010 正常流量（只用正常训练，不看攻击标签）",
-  "train_normal": 30000,
-  "holdout_normal": 6000,
-  "anomaly": 25065,
-  "split_protocol": "realdata.csic_normal_index(seed=7, n_train=30000)"
+  "dataset": "traindata 2026-11：WAF Data v2 正常流量（只用正常训练，不看标签）",
+  "train_normal": 205407,
+  "holdout_normal": 12000,
+  "anomaly": 36962,
+  "split_protocol": "与监督通道同一批行：realdata_waf.build_dataset() 的 train（label=0）训练、benign_holdout（12,000，按请求 sha1 与训练桶互斥）校准",
+  "attack_source": "WAF-Payload-Collection true-positives（仅报告检出率，不进训练）",
+  "training_keys_file": "training_keys.txt",
+  "calibration_pool": {
+    "file": "calibration_pool.jsonl",
+    "n": 12000,
+    "source": "traindata 2026-11 良性留出（与训练桶互斥，已去污染）"
+  }
 }

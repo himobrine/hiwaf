@@ -244,7 +244,7 @@ def _model_upload_files(model: dict) -> dict:
         return {}
     meta = reg._read_json(mp, {}) or {}  # noqa: SLF001
     up = meta.get("upload") or {}
-    calib = up.get("calib") or {}
+    calib = up.get("calib") or meta.get("calibration_pool") or {}
     out = {}
     rel = calib.get("file")
     if rel:
@@ -274,8 +274,12 @@ def _threshold_args(policy: dict, model: Optional[dict] = None) -> List[str]:
     if fpr not in ("0.001", "0.01", "0.03"):
         fpr = "0.01"
     zd = "on" if policy.get("zero_day_enabled") else "off"
+    zd_fpr = str((policy.get("zero_day") or {}).get("target_fpr") or "")
     args = ["--pool", pool, "--fpr", fpr, "--zero-day", zd,
             "--no-testvec", "--out", str(config.POLICY_JSON)]
+    if zd_fpr:
+        # 切模型不应把零日档位重置成 --fpr；显式沿用现役策略的目标。
+        args += ["--zero-day-fpr", zd_fpr]
     if upload.get("train_keys") and Path(upload["train_keys"]).exists():
         args += ["--train-keys", upload["train_keys"]]
     if rules.get("enabled"):

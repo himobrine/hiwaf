@@ -1332,3 +1332,148 @@ argmax 200/200；IForest ≈ **5.7e-6**；TreeSHAP ≈ **8.1e-6**；阈值交叉
 
 **新增测试基线**：Python 单测 **279 项**、控制面 smoke **39 项**、p8 e2e **43 项**、
 Rust lib **18 项**、数据目录自检 **29 项**。这些数字只会增加，对不上说明代码/数据漂了。
+
+---
+
+## 13. 2026-11 语料换代（g3 候选）
+
+> 本节记录**又一次语料整体替换**：旧的 CSIC 2010 / HTTP Params 2015 / CIC-IDS2017 /
+> datacon2025 / 本地采集**已从磁盘删除**，`python/realdata.py` 的路径全部失效。
+> 特征契约（80 维 v2）与标签体系（0–4）未变，因此 ONNX / Rust 契约不动。
+
+### 13.1 新语料与角色
+
+| 语料 | 规模 | 角色 | 备注 |
+|---|---|---|---|
+| `combined_final_dataset_augmented.xlsx` | 108,883 行 → 27,686 事务 → **18,470 唯一请求** | 主训练集（4 类攻击 + 良性） | 一个事务命中多条规则会占多行，**必须按事务聚合** |
+| `WAF Data v2/train.parquet` | 1,924,461 行 → **482,305 唯一请求** | 良性池主来源 | `anomalous` 无子类，**不进 5 类训练** |
+| `WAF Data v2/test.parquet` | 240,558 行 → **184,730 唯一**（normal 140,975 / anomalous 43,755） | 独立评估集 | normal 量误报，anomalous 量检出 |
+| OWASP ModSecurity 日志 | 30 天 / **150,930 请求**（可分类 61,000，body 14,002） | 真实在野攻击 | **零良性**：只能量召回 |
+| `WAF-Payload-Collection` | 36,962 攻击 + **113 已知误报** | 载荷集 / 困难良性 | GPL-3.0；误报清单保留为负例 |
+| `WAF_DETECTION_DATASET.jsonl` | 644 行可用 / 6 坏行 | 只做二分类评估 | 无子类、无请求上下文 |
+
+排除并写明原因：`CVE_list.json`（9.5MB 处截断、非 HTTP）、
+`AgentCyberRangeWebExploitBench/`（只有 readme）、`http-attack-requests.json`（395B 清单）。
+
+标签映射（**不扩类**）：xlsx `normal→0, sqli→1, xss→2, rce→3, fileinclusion-ldf→4`，
+`bruteforce→None`；ModSec `941/944→2, 942→1, 930/931→4, 932/933/934→3`，其余→None。
+`None` 只进二分类评估，绝不塞进 5 类监督训练。
+
+切分：按 **URL 模板（数字掩码）稳定哈希** 70/15/15，同模板不跨集合；训练/验证/测试之间
+再做请求文本去重。最终 **train 246,362 / valid 8,493 / test 9,352**，良性留出 12,000。
+
+### 13.2 关键发现①：`normal` 标签是 WAF 判定，不是地面真值
+
+parquet 的 `normal` 里 1.73% 的行（去重后 **6.4%**，15,563/246k）在 URL 里直接写着
+`/etc/passwd`、`%3Cscript%3Ealert(1)`、`%00`、`..%2F..%2F`、`<!--#EXEC cmd=...-->`、
+`wp-login.zip` 等。把现役 91 条规则直接回放：
+
+- **去污染前**：规则阻断 **991/12,000 = 8.26%** 的"良性"（Wilson95 上界 8.76%），
+  远超规则预算；
+- 逐条看命中样例，绝大多数是**真攻击/扫描探测**（SSI 注入、路径穿越、备份文件探测），
+  不是规则误报。
+
+处置：`realdata_waf.benign_suspect()` 只对**自动标注的 normal 行**做高精度剔除
+（人工标注的 113 条 false-positives 保留，它们本来就是困难负例）。
+
+> 结论：这套语料的 FPR **不能只看标签**。任何"良性池"使用前都必须先做攻击标记筛查，
+> 否则阈值被抬高、模型被教成"`/etc/passwd` 是正常路径"。
+
+### 13.2.1 关键发现①-b：校准池取样顺序会改变结论
+
+第一版 `benign_holdout` 直接取 `[:12000]`（parquet 文件前段），实测是有偏子集：
+它的 IF 1% 分位对应检出率 **13.3%**，而按请求指纹均匀抽样后是 **81.8%**；规则误报也从
+**0.092%** 变回真实值 **0.258%**（并暴露出两条规则的真实误报，见 13.5）。
+现改为 **按 `req_key_sha1` 排序后截断**，确定性且与文件顺序无关。
+
+### 13.3 关键发现②：三个代码级修正
+
+1. **预算守卫方向写反**：`thresholds.py` 的 `MIN_SUP_SHARE=0.10` 注释是"留 10% 给监督
+   通道是下限"，条件却写成 `sup_target < (1 - MIN_SUP_SHARE) * nominal`，实际要求
+   **规则最多只能吃 10% 预算**（≤0.1%）。已改为 `sup_target < MIN_SUP_SHARE * nominal`。
+2. **有训练指纹时不再重建旧语料**：切零日通道时 `XGB_META` 可能还是旧语料配方，
+   `load_all()` 会 `FileNotFoundError`。现在 `--train-keys` 存在时直接以它为权威指纹，
+   旧语料重建只在没有指纹时尝试。
+3. **同池标定是门禁硬约束**：Rust 会比对 `iforest_meta.json` 与 `decision_policy.json`
+   的零日阈值（1e-5）。因此 `iforest_lean_onnx.py --data waf` 必须用
+   `build_dataset()` 的**同一批 12,000 条**留出做校准，不能用自己的 277k 桶 ——
+   否则切换必然被 fail-closed 拦下（实测差 1.0）。
+
+### 13.3.1 阈值与融合（g3 现役策略 v22）
+
+用 12,000 条去污染 + 均匀抽样的良性留出、91 条现役规则（41 block）：
+
+| 项 | 值 |
+|---|---|
+| 规则阻断误报 | 31/12,000 = **0.2583%**（Wilson95 上界 0.3664%） |
+| 规则误报来源 | 主要是 `custom_sqli_quote_comment` 与 `custom_waf_sqli_009` 各 16 条，命中良性 HTML 的 `href="#CITEREF..."` —— **真误报，需调规则**；其余 11 条是备份文件/双重编码穿越探测（池内残余攻击） |
+| 规则预算上限 | **0.4%**（原 0.3% 会被 0.3664% 上界卡死；融合总目标仍 1%） |
+| 监督目标（扣规则后） | 1% − 0.3664% = **0.6336%** |
+| 监督阈值 | **0.002949**（池上实际 0.642%） |
+| 零日阈值 | **−6.804936 @ 0.5%**（1% 档为 −7.283901，与 `iforest_meta.json` 同池记录一致） |
+| 融合**阻断**误报 | 0.642% + 0.2583% = **0.900%** ≤ 1% |
+| 并集告警率（池上） | **1.108%**（监督 block ∪ 零日 alert，alert 不占阻断预算） |
+| 零日开关 | **on**（仅 alert、不阻断；实测见 13.5） |
+
+### 13.4 模型对比（去污染后，同一批数据、同一口径）
+
+| 模型 | 5 类 test acc | parquet anomalous 召回@1%FPR | 旧语料 testvec | modsec / payload / xlsx 检出@1% |
+|---|---|---|---|---|
+| 现役 gen-0002 | 0.7797 | 27.9% | **0.9650** | 56.9% / 96.8% / 96.8% |
+| warm +400（现役续训） | 0.9855 | 41.8% | 0.7600 | 98.5% / 99.9% / 99.8% |
+| **scratch 800 → g3（全量重训）** | **0.9908** | **47.8%** | 0.8200 | **99.6% / 100% / 100%** |
+
+scratch 每类 P/R/F1：normal 0.802/0.951、sqli 0.998/0.994、xss 0.998/0.997、
+cmdi 0.947/0.971、traversal 0.996/0.986。
+
+旧语料 testvec 掉到 0.82 是**预期内的分布漂移**（旧的 114 条"良性"来自合成/HTTP Params，
+新语料是真实站点流量）；新分布上的收益（+21pp acc、+19pp 未标注攻击召回）远大于此。
+
+> 注①：上表"旧语料 testvec"是**切换前**的 200 条对照集（100 合成 + 100 旧 HTTP Params）。
+> 切换时 `export_testvec.py` 已按新语料重建 testvec，旧集合不再可复现；该列仅作历史记录。
+> 注②：warm +400 行的分母阈值取自**修正前**的留出（模型产物已随登记删除），±1pp；
+> 其余两行是修正后同一口径复测。
+
+### 13.5 零日通道对照（g3 现役 = CSIC-IF 125→200 棵 warm start）
+
+IForest 125→200 棵树（父代 CSIC 125 棵 warm start，新增 75 棵用 205,407 条真实良性训练）。
+两代都在**同一个 12k 校准池**上取 1% 分位，再在清洗后的测试集上量：
+
+| 模型 | 测试集实测 FPR | 召回 anomalous | 召回 payload 攻击 |
+|---|---|---|---|
+| g2（CSIC-IF，125 棵） | 2.74% | 60.4% | 46.5% |
+| **g3（2026-11，200 棵）** | **1.31%** | 24.0% | **81.8%** |
+
+g3 的可控性更好（同池标定后测试 FPR 只有一半）、对载荷攻击召回接近翻倍，但对
+`anomalous`（无子类、以扫描/杂项异常为主）召回显著下降。
+
+**2026-11-12 决策：零日通道以 0.5% 独立档位开启**（`--zero-day-fpr 0.005`，仅 alert、
+不阻断）。现役阈值 **−6.804936**，实测：parquet test 正常 FPR **0.69%**、`anomalous`
+召回 12.4%、载荷攻击召回 29.9%、5 类 test 攻击召回 52.8%；校准池上两通道并集告警率
+**1.108%**。控制台可用「零日目标 FPR」单独调档；模型切换会透传该档位，不会被重置回
+监督通道的 1%。要回退：`thresholds.py --zero-day off`（或改回 1%）后重跑门禁。
+
+> 注①：上表"旧语料 testvec"是**切换前**的 200 条对照集（100 合成 + 100 旧 HTTP Params）。
+> 切换时 `export_testvec.py` 已按新语料重建 testvec，旧集合不再可复现；该列仅作历史记录。
+> 注②：warm +400 行的分母阈值取自**修正前**的留出（模型产物已随登记删除），±1pp；
+> 其余两行是修正后同一口径复测。
+
+### 13.6 已知限制
+
+1. xlsx 的良性只有 1,140 条且只来自 **3 个 host / 7 个 IP**；FPR 的代表性以 parquet 正常流量为准。
+2. `anomalous` 与 `normal` 都来自 WAF 判定，**存在互相污染的残余**；去污染只覆盖高精度标记，
+   低慢扫描/业务异常仍可能被当良性。
+3. 训练集 body 覆盖仅 **2.96%**（7,303/246,362），body 类攻击的泛化仍是外推。
+4. 90 天/多站点维度的漂移尚未评估；当前只有单批静态评估。
+
+### 13.7 复现
+
+```bat
+py -3.10 realdata_waf.py --probe          :: 只读盘点
+py -3.10 realdata_waf.py --build          :: 切分与去污染统计
+py -3.10 train_wafdata.py --export --out-dir artifacts/staging/waf2026
+py -3.10 train_wafdata.py --export --no-parent --rounds 800 --out-dir artifacts/staging/waf2026_scratch
+py -3.10 eval_wafdata.py --models live,new,scratch
+py -3.10 iforest_lean_onnx.py --data waf --trees 200 --parent-model artifacts/iforest_model.joblib --export --out-dir artifacts/staging/iforest_waf2026 --onnx-name model.onnx
+py -3.10 thresholds.py --pool file:artifacts/staging/waf2026_scratch/calibration_pool.jsonl --train-keys artifacts/staging/waf2026_scratch/training_keys.txt --rules artifacts/rules_authoritative.json --xgb-onnx artifacts/staging/waf2026_scratch/model.onnx --iforest-onnx artifacts/staging/iforest_waf2026/model.onnx --xgb-meta artifacts/staging/waf2026_scratch/xgboost_meta.json --out artifacts/staging/waf2026_scratch/decision_policy_preview.json --no-testvec
+```

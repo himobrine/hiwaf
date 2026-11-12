@@ -1,0 +1,268 @@
+{
+  "feature_names": [
+    "method_id",
+    "path_depth",
+    "ext_len",
+    "num_params",
+    "has_query",
+    "has_body",
+    "is_form_body",
+    "is_json_body",
+    "log_url_len",
+    "log_query_len",
+    "log_body_len",
+    "entropy",
+    "digit_ratio",
+    "alpha_ratio",
+    "upper_ratio",
+    "nonalnum_ratio",
+    "urlencode_ratio",
+    "max_repeat",
+    "num_tokens",
+    "log_num_tokens",
+    "avg_token_len",
+    "max_token_len",
+    "sql_strong_present",
+    "sql_strong_log",
+    "sql_strong_r",
+    "sql_weak_r",
+    "xss_strong_present",
+    "xss_strong_log",
+    "xss_strong_r",
+    "xss_weak_r",
+    "cmd_strong_present",
+    "cmd_strong_log",
+    "cmd_strong_r",
+    "cmd_weak_r",
+    "trav_strong_present",
+    "trav_strong_log",
+    "trav_strong_r",
+    "trav_weak_r",
+    "has_or_1eq1",
+    "has_comment",
+    "has_union_select",
+    "random_case_sql",
+    "quote_imbalance",
+    "paren_imbalance",
+    "max_delim_run",
+    "double_encode",
+    "hex_escape",
+    "val_len_avg",
+    "val_len_max",
+    "val_special_r",
+    "quote_r",
+    "dquote_r",
+    "backtick_r",
+    "lt_r",
+    "gt_r",
+    "lparen_r",
+    "rparen_r",
+    "lbrace_r",
+    "rbrace_r",
+    "lbracket_r",
+    "rbracket_r",
+    "semicolon_r",
+    "comma_r",
+    "eq_r",
+    "percent_r",
+    "amp_r",
+    "slash_r",
+    "backslash_r",
+    "dot_r",
+    "colon_r",
+    "hyphen_r",
+    "plus_r",
+    "star_r",
+    "bang_r",
+    "hash_r",
+    "dollar_r",
+    "pipe_r",
+    "at_r",
+    "tilde_r",
+    "caret_r"
+  ],
+  "labels": {
+    "0": "normal",
+    "1": "sqli",
+    "2": "xss",
+    "3": "cmdi",
+    "4": "traversal"
+  },
+  "features_version": "v2",
+  "base_trees": 0,
+  "total_trees": 800,
+  "parent_model": null,
+  "inherit_mode": "full",
+  "training_recipe": {
+    "n_estimators": 800,
+    "max_depth": 8,
+    "lr": 0.1,
+    "early_stopping_rounds": 0,
+    "best_iteration": -1,
+    "base_trees": 0,
+    "total_trees": 800,
+    "inherit_mode": "full",
+    "class_weight": "balanced (inverse frequency)",
+    "hard_neg": "waf2026",
+    "hard_neg_added": 12000,
+    "hard_neg_note": "新版 traindata（xlsx 事务级 + parquet 正常 + ModSec 在野 + 载荷集）",
+    "lexical_split": "",
+    "seed": 20261112,
+    "dict_augmentation": null,
+    "extra_benign": 0,
+    "local_benign_added": 0,
+    "local_benign_source": null,
+    "local_eval_n": 0,
+    "local_eval_n_attack": 0,
+    "balance": "weight",
+    "es_monitored": null,
+    "es_metric": null,
+    "valid_frac": 0.0,
+    "n_valid": 8493,
+    "n_train": 246362,
+    "dataset": "traindata 2026-11：combined_final_dataset_augmented.xlsx（事务级） + WAF Data v2 正常 + OWASP ModSecurity 在野攻击 + WAF-Payload-Collection",
+    "upload_mode": null,
+    "upload_datasets": null,
+    "upload_calib": null
+  },
+  "decision_threshold": {
+    "score_def": "1 - P(normal)",
+    "calibration_pool": "parquet WAF Data v2 正常流量留出桶（12,000 条，与训练桶按请求 sha1 互斥）",
+    "n_pool": 12000,
+    "thresholds": {
+      "0.001": 0.27429720759391785,
+      "0.01": 0.0010815360583364964,
+      "0.03": 0.00021046760957688093
+    },
+    "actual_fpr": {
+      "0.001": 0.001,
+      "0.01": 0.01,
+      "0.03": 0.03
+    },
+    "recommended": "0.01",
+    "authoritative_source": "artifacts/decision_policy.json（由 thresholds.py 生成；本字段仅为训练记录）",
+    "warning": "阈值必须在**独立留出**流量上重标定；绝不能把训练用良性样本放进校准池（否则估计偏乐观，实测可差 8 倍，见 §8.3）"
+  },
+  "metrics": {
+    "test": {
+      "n": 9352,
+      "accuracy": 0.9908041060735672,
+      "auc_binary": 0.9991012775561198,
+      "per_class": {
+        "normal": {
+          "n": 162,
+          "precision": 0.8020833333333334,
+          "recall": 0.9506172839506173,
+          "f1": 0.8700564971751413
+        },
+        "sqli": {
+          "n": 2785,
+          "precision": 0.998196898665705,
+          "recall": 0.9938958707360862,
+          "f1": 0.9960417416336813
+        },
+        "xss": {
+          "n": 3315,
+          "precision": 0.9981884057971014,
+          "recall": 0.9972850678733032,
+          "f1": 0.9977365323675871
+        },
+        "cmdi": {
+          "n": 517,
+          "precision": 0.9471698113207547,
+          "recall": 0.9709864603481625,
+          "f1": 0.9589302769818528
+        },
+        "traversal": {
+          "n": 2573,
+          "precision": 0.9964636542239685,
+          "recall": 0.9856198989506413,
+          "f1": 0.991012114107073
+        }
+      },
+      "budgets": {
+        "0.001": {
+          "detect": 0.9844396082698585,
+          "fpr": 0.006172839506172839
+        },
+        "0.01": {
+          "detect": 0.9879216539717084,
+          "fpr": 0.012345679012345678
+        },
+        "0.03": {
+          "detect": 0.9957562568008705,
+          "fpr": 0.030864197530864196
+        },
+        "0.05": {
+          "detect": 0.996082698585419,
+          "fpr": 0.05555555555555555
+        }
+      }
+    },
+    "lexical": {
+      "n": 8493,
+      "accuracy": 0.9856352290121276,
+      "auc_binary": 0.9982020076931128,
+      "per_class": {
+        "normal": {
+          "n": 217,
+          "precision": 0.8520408163265306,
+          "recall": 0.7695852534562212,
+          "f1": 0.8087167070217918
+        },
+        "sqli": {
+          "n": 1853,
+          "precision": 0.9972840847365562,
+          "recall": 0.9908256880733946,
+          "f1": 0.9940443963183541
+        },
+        "xss": {
+          "n": 3375,
+          "precision": 0.9949763593380615,
+          "recall": 0.9976296296296296,
+          "f1": 0.9963012279923066
+        },
+        "cmdi": {
+          "n": 521,
+          "precision": 0.8804920913884007,
+          "recall": 0.9616122840690979,
+          "f1": 0.9192660550458716
+        },
+        "traversal": {
+          "n": 2527,
+          "precision": 0.9988014382740711,
+          "recall": 0.9893153937475268,
+          "f1": 0.9940357852882703
+        }
+      },
+      "budgets": {
+        "0.001": {
+          "detect": 0.9838086031899468,
+          "fpr": 0.004608294930875576
+        },
+        "0.01": {
+          "detect": 0.9925084581923634,
+          "fpr": 0.013824884792626729
+        },
+        "0.03": {
+          "detect": 0.9931126147897535,
+          "fpr": 0.03225806451612903
+        },
+        "0.05": {
+          "detect": 0.9932334461092315,
+          "fpr": 0.05069124423963134
+        }
+      }
+    },
+    "n_trees": 4000,
+    "n_nodes": 210706,
+    "train_seconds": 109.11
+  },
+  "model": "model.onnx",
+  "training_keys_file": "training_keys.txt",
+  "calibration_pool": {
+    "file": "calibration_pool.jsonl",
+    "n": 12000,
+    "source": "parquet WAF Data v2 正常流量留出桶（与训练桶按请求 sha1 互斥，已做良性去污染）"
+  }
+}

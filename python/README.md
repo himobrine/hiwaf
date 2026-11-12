@@ -3,14 +3,17 @@
 对应 PRD 第五章（AI 训练体系）与 4.1 检测引擎。本目录用于打通
 「特征 → 训练 → ONNX 导出 → CPU 推理」链路并测量性能。
 
-> **数据集已从合成数据切换到 PRD 指定的公开数据集**：
-> CSIC 2010 与 HTTP Params 2015（位于 `../traindata`）。
+> **数据集已于 2026-11 整体换代**：旧语料（CSIC 2010 / HTTP Params 2015 /
+> CIC-IDS2017 / datacon2025 / 本地采集）已从 `../traindata` 删除，现用
+> xlsx 审计表 + `WAF Data v2`（parquet）+ OWASP ModSecurity 日志 +
+> WAF-Payload-Collection + `WAF_DETECTION_DATASET.jsonl`。
+> 接入层是 `realdata_waf.py`，换代训练入口是 `train_wafdata.py`。
 > 真实评估结论、发现的问题与修复过程见根目录 `REALDATA_EVALUATION.md`。
 > 合成数据仍保留（`dataset.py`）用于链路自检。
 
 ## 环境
 
-- Python **3.10**（用 `py -3.10`；PATH 上的 `python` 可能是 IDA 的 3.8，勿用）
+- Python **3.10 – 3.13**（示例仍用 `py -3.10`；PATH 上的 `python` 可能是 IDA 的 3.8，勿用）
 - 依赖见 `requirements.txt`（关键：xgboost 3.2.0 / onnx 1.23.2 / skl2onnx 1.20.0 /
   onnxmltools 1.16.0 / matplotlib 3.9.2）
 - Windows 控制台建议 `set PYTHONIOENCODING=utf-8`
@@ -39,8 +42,11 @@ v2 的关键修复（v1 用子串计数 + 未归一化，导致正常英文长�
 | `features.py` | **v2 结构化特征（80 维）** + 可选 128 维字符 3-gram 哈希 |
 | `features_v1.py` | v1 特征（78 维），仅用于 A/B |
 | `dataset.py` | 合成请求数据（链路自检用） |
-| `realdata.py` | **真实数据加载器**：CSIC 2010 报文解析 + HTTP Params payload + `WEB_APPLICATION_PAYLOADS.jsonl` 攻击字典 + **datacon2025 原始 HTTP 字节**（base64+zlib）→ 统一请求格式 |
-| `traindata_catalog.py` | **`traindata/` 数据目录（只读盘点）**：逐语料登记角色/行数/标签分布/sha1/消费方，池成分**直接 import `calibrate_rules`**（不复制定义），产出 `traindata/CATALOG.md` + `artifacts/traindata_catalog.json`；`--self-test` **29 项**断言把硬数字钉死，数据一漂立刻发现（含 `enhanced_security_dataset_clear.json` 的「不是 HTTP 流量」告警） |
+| `realdata.py` | **旧语料加载器（2026-11 已失效）**：CSIC 2010 / HTTP Params / datacon 的路径与文件已删除；仅保留历史实现供旧脚本 import。**新代码请用 `realdata_waf.py`** |
+| `realdata_waf.py` | **新 `traindata/`（2026-11）唯一接入层**：xlsx 事务级聚合（27,686 事务 → 18,474 唯一请求）、parquet 正常流量稳定桶抽样、ModSecurity 审计日志解析（30 天 / 150,930 请求）、WAF-Payload-Collection、`WAF_DETECTION_DATASET.jsonl`；按 URL 模板分组切分 + 跨语料去重防泄漏；`--probe` / `--build` / `--export-holdout` |
+| `train_wafdata.py` | **2026-11 语料训练入口**：`realdata_waf.build_dataset()` + 复用 `train_realdata.run()`（训练/导出/曲线/阈值记录）。默认从现役 `xgb_model.json` **warm start**（+400 轮）；`--no-parent` 全量重训对照；产物落 `artifacts/staging/<name>/`（ONNX / xgb_model.json / xgb_trees.json / meta / dataset_stats / **training_keys.txt**（与 `thresholds.req_key` 同口径）/ calibration_pool.jsonl）；`--keys-only` 只重写数据派生物 |
+| `eval_wafdata.py` | **新语料统一评估**：现役 vs 新模型，在 5 类分组留出 test、parquet test 正常/异常、`testvec.json` 旧语料对照集上比 acc / 每类 P/R/F1 / 1%·3%·0.1% 阈值下的实测 FPR 与召回 / 分来源召回 |
+| `traindata_catalog.py` | **`traindata/` 数据目录（只读盘点，2026-11 重写）**：数字直接来自 `realdata_waf._inventory()`（与训练同一批 loader），登记角色/行数/标签分布/排除原因/sha1，产出 `traindata/CATALOG.md` + `artifacts/traindata_catalog.json`；`--self-test` 断言钉死硬数字，数据一漂立刻发现 |
 | `train_realdata.py` | **正式训练**：HTTP Params 训练/测试 + lexical 门槛集；`--hard-neg {none,lexical,csic}` 并入困难良性负样本；`--lexical-split {random,grouped}` + `--seed` 控制切分；`--dict` 并入攻击字典；**`--es N` + `--es-set {valid,lexical,local}` + `--valid-frac F`** early stopping（**固定监控 `mlogloss`**，运行期自检 `best_iteration == argmin(mlogloss)`；`--valid-frac` 从 `payload_train` 按同源簇+分层切出干净验证集，记录 `es_monitored`/`es_metric`/`valid_frac`）；**`--balance {weight,over,under,none}`** 类别不平衡（逆频加权 / 过采样 / 欠采样）；**`--local [--local-benign --local-attack --local-hard-neg]`** 接入真实本地流量；**`--parent-model <xgb_model.json> [--parent-meta ...]`** warm start（父代缺训练件则降级全量重训并写明原因）；**`--upload-manifest/--upload-mode add|only/--calib-mode/--calib-dataset-id`** 接入控制台上传数据（见「自上传训练数据」）；`--ab` 做 v1/v2 对比；`--export` 导出产物 |
 | `upload_parse.py` | **用户上传数据解析**（控制台「训练数据」页调用）：CSV / JSON / JSONL / HAR / pcap / pcapng → 统一 `{method,path,query,body,label}`；pcap 只支持**明文 HTTP/1.x**（scapy TCP 重组，TLS/HTTP2 跳过并计数，整份文件一个标签）；输出 `requests.jsonl` + `stats.json` |
 | `collect_http_log.py` | **工作项 F 采集端**：把**真实**日志变成可训练 jsonl。支持 apache/nginx combined、IIS W3C、通用 JSONL、**apache error log**（`--format apache-error`，从 `referer:`/`script '...' not found` 里挖在野攻击 URL 与扫描探测路径）。**攻击标签只来自出处**（`--canary-prefix` / `--attacker-ip` / **`--redteam-window START,END`** / `--review` / `--provenance`），内容正则标注须显式 `--label-pattern` 且只许造测试集；含脱敏（敏感 query 参数、IP）与唯一化。`--redteam-window` 是标注**本机红队流量**的唯一干净方式（`127.0.0.1` 与浏览器同源，IP 规则区分不了），时间戳解析失败即报错退出 |
@@ -56,11 +62,11 @@ v2 的关键修复（v1 用子串计数 + 未归一化，导致正常英文长�
 | `textsim.py` | 载荷**重复/同源判定**（数字掩码模板 + 字符 4-5gram 余弦 + 并查集聚类）；供审计与分组留出共用 |
 | `p0_audit.py` | **过拟合审计**（REALDATA §8.2）：泄漏 / 容量 / 切分方差三分量化 |
 | `p2_matrix.py` | **统一评估矩阵**（REALDATA §8.3）：配方 × 数据集 × 切分，含 CSIC 真实异常召回与 datacon OOD |
-| `thresholds.py` | **判定阈值标定 + 融合策略**（REALDATA §8.4/§9）：两通道各自标定（监督 `1-P(normal)` / 零日 `-avg_path_len`）-> `artifacts/decision_policy.json`；**代码级拒绝**含训练样本的校准池；可就地刷新 `testvec.json` 的判定期望值。**`--zero-day {on,off}` 默认 off**：零日通道 `zero_day_enabled=false` 时分数仍计算留证但**不参与融合**（不产生 alert，安全降级）。**`--out <tmp>`** 只写临时文件（控制台「预览」走这条路，绝不碰现役策略）；**`schema` = 结构兼容版本**（数据面据此拒绝不认识的策略结构），**`version` = 策略修订号**（每次重标定 +1，控制台据此回答"这条记录是哪版策略算的"） |
+| `thresholds.py` | **判定阈值标定 + 融合策略**（REALDATA §8.4/§9）：两通道各自标定（监督 `1-P(normal)` / 零日 `-avg_path_len`）-> `artifacts/decision_policy.json`；**代码级拒绝**含训练样本的校准池；可就地刷新 `testvec.json` 的判定期望值。**`--zero-day {on,off}` 默认 off**：零日通道 `zero_day_enabled=false` 时分数仍计算留证但**不参与融合**（不产生 alert，安全降级）；**`--zero-day-fpr F`** 可给零日单独设目标（如 `0.005`=0.5%，alert-only、不占阻断预算；缺省沿用 `--fpr`）。**`--out <tmp>`** 只写临时文件（控制台「预览」走这条路，绝不碰现役策略）；**`schema` = 结构兼容版本**（数据面据此拒绝不认识的策略结构），**`version` = 策略修订号**（每次重标定 +1，控制台据此回答"这条记录是哪版策略算的"）。**2026-11 语料**：`--pool file:artifacts/staging/waf2026/calibration_pool.jsonl` + `--train-keys .../training_keys.txt`（旧语料已删除，训练集无法重建，缺指纹会直接拒绝出策略）；`--xgb-onnx/--iforest-onnx/--xgb-meta` 可指向 staging 做预览 |
 | `p3_fusion.py` | **双通道融合评估**（REALDATA §8.4）：同池标定后比召回、跨池误报、旧阈值回代、零日通道迁移性 |
 | `train_xgboost.py` | 合成数据 XGBoost 训练（产物写 `*_synthetic*`，不覆盖正式产物） |
 | `train_iforest.py` | 合成数据 Isolation Forest 训练 + skl2onnx 导出（meta 写 `iforest_meta_synthetic.json`） |
-| `iforest_lean_onnx.py` | **零日通道精简 IF 导出**：`--data csic`（正式，CSIC 正常 30,000）/ `--data synthetic`（链路自检）/ `--data local`（真实本地良性，验证 S9 处方）/ `--data upload`（控制台上传良性）；**`--trees N` + `--parent-model <iforest_model.joblib>`** warm start（树数必须大于父代，父代缺训练件则降级全量重训）；**`--upload-manifest/--upload-mode add|only/--calib-mode`**；单 `TreeEnsembleRegressor`，单样本 ~8us |
+| `iforest_lean_onnx.py` | **零日通道精简 IF 导出**：`--data waf`（**2026-11 正式**：parquet 正常流量稳定桶训练，与校准留出互斥）/ `--data csic`（旧语料，已删除）/ `--data synthetic`（链路自检）/ `--data local`（真实本地良性）/ `--data upload`（控制台上传良性）；**`--trees N` + `--parent-model <iforest_model.joblib>`** warm start（树数必须大于父代）；单 `TreeEnsembleRegressor`，单样本 ~8us |
 | `learning_curve.py` | **学习曲线**记录/绘图（JSON + CSV + PNG），所有训练脚本共用 |
 | `eval_http_params.py` | HTTP Params 上的多分类评估（每类 P/R/F1 + 混淆矩阵 + FPR 预算） |
 | `eval_csic.py` | CSIC 上的零日评估（IF 只用正常样本训练，含去偏子集对比） |
@@ -76,16 +82,24 @@ v2 的关键修复（v1 用子串计数 + 未归一化，导致正常英文长�
 set PYTHONIOENCODING=utf-8
 cd python
 
-:: 数据核对
-py -3.10 realdata.py
+:: 数据核对（2026-11 新语料）
+py -3.10 realdata_waf.py --probe
+py -3.10 realdata_waf.py --build
+py -3.10 traindata_catalog.py --self-test
 
-:: 正式训练（真实数据 + 困难负样本）+ 学习曲线
-py -3.10 train_realdata.py --features v2
-py -3.10 train_realdata.py --features v2 --hard-neg lexical --export   :: 导出正式产物
-py -3.10 train_realdata.py --features v2 --hard-neg csic              :: 对照：CSIC 正常流量
-py -3.10 train_realdata.py --features v2 --hard-neg lexical --lexical-split grouped   :: 分组留出
-py -3.10 train_realdata.py --features v2 --hard-neg lexical --seed 22                 :: 换切分
-py -3.10 train_realdata.py --features v2 --hard-neg lexical --dict                    :: 攻击字典增强
+:: 2026-11 训练（默认从现役 warm start +400 轮）
+py -3.10 train_wafdata.py --export --out-dir artifacts/staging/waf2026
+py -3.10 train_wafdata.py --export --no-parent --rounds 800 --out-dir artifacts/staging/waf2026_scratch  :: 全量重训对照
+py -3.10 eval_wafdata.py --models live,new,scratch        :: 现役 vs 候选
+
+:: 零日通道（2026-11：parquet 正常流量，与校准留出互斥）
+py -3.10 iforest_lean_onnx.py --data waf --trees 200 --parent-model artifacts/iforest_model.joblib --export --out-dir artifacts/staging/iforest_waf2026 --onnx-name model.onnx
+py -3.10 thresholds.py --pool file:artifacts/models/zero_day/gen-0003-*/calibration_pool.jsonl --train-keys artifacts/models/zero_day/gen-0003-*/training_keys.txt --rules artifacts/rules_authoritative.json --zero-day on --zero-day-fpr 0.005 --out artifacts/decision_policy.json
+
+:: 旧语料（已删除）：
+::   py -3.10 train_realdata.py --features v2 --hard-neg lexical --export
+::   py -3.10 iforest_lean_onnx.py --data csic --export
+::   py -3.10 thresholds.py --pool csic
 
 :: 特征 A/B
 py -3.10 train_realdata.py --ab
@@ -114,7 +128,7 @@ py -3.10 -m service.run                                                         
 py -3.10 -m service.smoke                                                        :: 39 项 API 自检
 py -3.10 -m service.demo_seed                                                    :: 灌一批真实采集数据
 
-:: 全部单测（279 项）
+:: 全部单测（288 项）
 py -3.10 -m unittest discover -p "test_*.py"
 
 :: Rust 侧所需参考数据

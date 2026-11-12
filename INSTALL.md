@@ -15,7 +15,7 @@
 | 项 | 默认值 | 说明 |
 | --- | --- | --- |
 | 安装范围 | **控制台优先** | 只装 `python/requirements-service.txt`；训练依赖要显式 `--with-training` / `-WithTraining` |
-| Python | **3.10.x** | 版本不符会明确报错，不会静默换版本 |
+| Python | **3.10 – 3.13** | 优先复用现有解释器；3.14+ 因锁定依赖暂无 wheel 暂不支持 |
 | Node.js | **18+** | 只用于构建前端 |
 | 端口 / 监听 | `8090` / `127.0.0.1` | 仅本机可访问 |
 | 虚拟环境 | 仓库根 `.venv` | `--no-venv` / `-NoVenv` 可关闭 |
@@ -69,7 +69,7 @@ cd python
 | --- | --- |
 | `-Port 8090` | 控制台端口 |
 | `-BindHost 127.0.0.1` | 监听地址；`0.0.0.0` 会暴露到网络 |
-| `-NoVenv` | 不建 `.venv`，直接用当前 Python 3.10 |
+| `-NoVenv` | 不建 `.venv`，直接用当前 Python（3.10–3.13） |
 | `-WithTraining` | 额外安装训练依赖 `python\requirements.txt` |
 | `-NoFrontend` | 不构建前端，复用已有 `web\dist` |
 | `-NoRust` | 跳过 Rust/采集器构建 |
@@ -133,9 +133,16 @@ systemctl status waf-console
 journalctl -u waf-console -f
 ```
 
-### 2.2 Python 3.10
+### 2.2 Python 3.10 – 3.13
 
-脚本**只接受 3.10.x**。Ubuntu 24.04 / Debian 12 默认没有 3.10，脚本会报错并给提示：
+脚本接受 **3.10 – 3.13**，优先复用系统已有的 `python3`，不再强制安装 3.10。
+Ubuntu 22.04 / Debian 12+ 的默认 Python 通常已满足：
+
+```bash
+sudo apt-get install -y python3 python3-venv python3-dev
+```
+
+若发行版默认 `python3` 低于 3.10，可加 deadsnakes PPA 安装 3.10：
 
 ```bash
 sudo add-apt-repository ppa:deadsnakes/ppa
@@ -143,14 +150,16 @@ sudo apt-get update
 sudo apt-get install -y python3.10 python3.10-venv python3.10-dev
 ```
 
-或用 pyenv / conda 装好后显式指定：
+或用 pyenv / conda 装好 3.10 – 3.13 后显式指定：
 
 ```bash
-WAF_PYTHON="$HOME/.pyenv/versions/3.10.14/bin/python3.10" ./install.sh
+WAF_PYTHON="$HOME/.pyenv/versions/3.12.8/bin/python3.12" ./install.sh
 ```
 
-Fedora / RHEL 若仓库没有 `python3.10`，同样用 pyenv 或 `WAF_PYTHON`。
-脚本不会把 3.11/3.12 当作 3.10 使用。
+Fedora / RHEL 可用 dnf 的 `python3.11` / `python3.12` 模块，或用 pyenv 后设置 `WAF_PYTHON`。
+
+> Python 3.14+ 暂不支持：当前锁定的 `numpy==2.1.3`、`scipy==1.15.3`、
+> `onnxruntime==1.20.0` 尚无 3.14 的预编译 wheel。
 
 ### 2.3 包管理器
 
@@ -172,7 +181,7 @@ Rust 工具链在 `--with-rust` / `--full` 下自动安装：发行版包（gcc/
 ## 3. 安装脚本做了什么
 
 1. **检查仓库完整性**：`python/service/app.py`、`web/package.json`、`proxy/Cargo.toml`。
-2. **找 Python 3.10 / Node 18+**，缺失则按上面的策略安装。
+2. **找 Python 3.10–3.13 / Node 18+**，缺失则按上面的策略安装。
 3. **创建 `.venv`**（已存在则复用）。
 4. `pip install --upgrade pip` + `pip install -r python/requirements-service.txt`。
 5. **前端**：`npm ci`（无 lock 时 `npm install`）→ `npm run typecheck` → `npm run build`。
@@ -234,7 +243,7 @@ PYTHONIOENCODING=utf-8 WAF_CONSOLE_BASE=http://127.0.0.1:8090 .venv/bin/python -
 **winget 不存在**
 
 Windows 10 1809+ 安装「应用安装程序」：<https://aka.ms/getwinget>。
-或手动装 Python 3.10 / Node LTS 后加 `-NoInstallDeps`。
+或手动装 Python 3.10–3.13 / Node LTS 后加 `-NoInstallDeps`。
 
 **`npm ci` 失败**
 

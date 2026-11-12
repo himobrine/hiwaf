@@ -1,8 +1,8 @@
 # AI 控制面 / 训练依赖（Python 3.10+，MSVC x64）
 # 已在 Windows + Python 3.10.10 验证通过
 #
-# 注意：务必用 Python 3.10 解释器（本机为 C:\Program Files\Python310\python.exe）。
-# 默认 PATH 上的 `python` 可能是 IDA 附带的 3.8，不满足要求。
+# 支持 Python 3.10 – 3.13（本机验证环境为 C:\Program Files\Python310\python.exe）。
+# 默认 PATH 上的 `python` 可能是 IDA 附带的 3.8，不满足要求；Python 3.14+ 暂无依赖 wheel。
 
 numpy==2.1.3
 pandas==2.3.3

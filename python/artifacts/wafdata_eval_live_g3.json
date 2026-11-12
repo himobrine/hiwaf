@@ -1,0 +1,110 @@
+{
+  "generated_at": "2026-11-12 20:56:51",
+  "dataset": {
+    "test": 9352,
+    "test_by_label": {
+      "0": 162,
+      "3": 517,
+      "4": 2573,
+      "2": 3315,
+      "1": 2785
+    },
+    "benign_holdout": 12000,
+    "parquet_test_normal": 140975,
+    "parquet_test_anomalous": 43755,
+    "train": 246362,
+    "train_with_body": 7303
+  },
+  "models": {
+    "live(gen-0002)": {
+      "onnx": "artifacts\\xgboost_v20261015_001.onnx",
+      "onnx_mb": 6.54,
+      "test": {
+        "n": 9352,
+        "accuracy": 0.9908,
+        "per_class": {
+          "normal": {
+            "n": 162,
+            "precision": 0.8021,
+            "recall": 0.9506,
+            "f1": 0.8701
+          },
+          "sqli": {
+            "n": 2785,
+            "precision": 0.9982,
+            "recall": 0.9939,
+            "f1": 0.996
+          },
+          "xss": {
+            "n": 3315,
+            "precision": 0.9982,
+            "recall": 0.9973,
+            "f1": 0.9977
+          },
+          "cmdi": {
+            "n": 517,
+            "precision": 0.9472,
+            "recall": 0.971,
+            "f1": 0.9589
+          },
+          "traversal": {
+            "n": 2573,
+            "precision": 0.9965,
+            "recall": 0.9856,
+            "f1": 0.991
+          }
+        }
+      },
+      "binary": {
+        "0.001": {
+          "threshold": 0.417599,
+          "fpr_parquet_test_normal": 0.00089,
+          "recall_parquet_anomalous": 0.131,
+          "detect_test_attack": 0.9963,
+          "fpr_holdout": 0.001
+        },
+        "0.01": {
+          "threshold": 0.00102,
+          "fpr_parquet_test_normal": 0.01048,
+          "recall_parquet_anomalous": 0.4777,
+          "detect_test_attack": 0.9996,
+          "fpr_holdout": 0.01
+        },
+        "0.03": {
+          "threshold": 9.8e-05,
+          "fpr_parquet_test_normal": 0.03315,
+          "recall_parquet_anomalous": 0.6054,
+          "detect_test_attack": 0.9998,
+          "fpr_holdout": 0.03
+        }
+      },
+      "by_source": {
+        "modsec": {
+          "n": 891,
+          "accuracy": 0.9315,
+          "detect_at_1pct": 0.9955
+        },
+        "payload": {
+          "n": 5428,
+          "accuracy": 0.9987,
+          "detect_at_1pct": 1.0
+        },
+        "xlsx": {
+          "n": 3033,
+          "accuracy": 0.9941,
+          "detect_at_1pct": 1.0
+        }
+      },
+      "score_stats": {
+        "parquet_test_normal": {
+          "mean": 0.00094,
+          "p99": 0.00115
+        },
+        "parquet_test_anomalous": {
+          "mean": 0.12941,
+          "p50": 0.00067
+        }
+      }
+    }
+  }
+}

@@ -89,25 +89,25 @@
     "4": "traversal"
   },
   "features_version": "v2",
-  "base_trees": 400,
+  "base_trees": 0,
   "total_trees": 800,
-  "parent_model": "xgb_model.json",
-  "inherit_mode": "warm_start",
+  "parent_model": null,
+  "inherit_mode": "full",
   "training_recipe": {
-    "n_estimators": 400,
+    "n_estimators": 800,
     "max_depth": 8,
     "lr": 0.1,
     "early_stopping_rounds": 0,
     "best_iteration": -1,
-    "base_trees": 400,
+    "base_trees": 0,
     "total_trees": 800,
-    "inherit_mode": "warm_start",
+    "inherit_mode": "full",
     "class_weight": "balanced (inverse frequency)",
-    "hard_neg": "lexical",
-    "hard_neg_added": 500,
-    "hard_neg_note": "同分布自适应：lexical 正常一半进训练，评估用留出一半",
-    "lexical_split": "random(seed=11)",
-    "seed": 11,
+    "hard_neg": "waf2026",
+    "hard_neg_added": 12000,
+    "hard_neg_note": "新版 traindata（xlsx 事务级 + parquet 正常 + ModSec 在野 + 载荷集）",
+    "lexical_split": "",
+    "seed": 20261112,
     "dict_augmentation": null,
     "extra_benign": 0,
     "local_benign_added": 0,
@@ -118,25 +118,25 @@
     "es_monitored": null,
     "es_metric": null,
     "valid_frac": 0.0,
-    "n_valid": 0,
-    "n_train": 21212,
-    "dataset": "HTTP Params 2015 (payload_train/test) + lexical 正常一半",
+    "n_valid": 8493,
+    "n_train": 246362,
+    "dataset": "traindata 2026-11：combined_final_dataset_augmented.xlsx（事务级） + WAF Data v2 正常 + OWASP ModSecurity 在野攻击 + WAF-Payload-Collection",
     "upload_mode": null,
     "upload_datasets": null,
     "upload_calib": null
   },
   "decision_threshold": {
     "score_def": "1 - P(normal)",
-    "calibration_pool": "CSIC 2010 正常流量留出一半（seed=7 随机切分，6000 条，与零日通道训练集互斥）",
-    "n_pool": 6000,
+    "calibration_pool": "parquet WAF Data v2 正常流量留出桶（12,000 条，与训练桶按请求 sha1 互斥）",
+    "n_pool": 12000,
     "thresholds": {
-      "0.001": 0.8633766770362854,
-      "0.01": 0.7210041284561157,
-      "0.03": 0.1757892519235611
+      "0.001": 0.27429720759391785,
+      "0.01": 0.0010815360583364964,
+      "0.03": 0.00021046760957688093
     },
     "actual_fpr": {
-      "0.001": 0.0065,
-      "0.01": 0.010166666666666666,
+      "0.001": 0.001,
+      "0.01": 0.01,
       "0.03": 0.03
     },
     "recommended": "0.01",
@@ -145,118 +145,124 @@
   },
   "metrics": {
     "test": {
-      "n": 10355,
-      "accuracy": 0.9992274263640754,
-      "auc_binary": 0.9999893767623971,
+      "n": 9352,
+      "accuracy": 0.9908041060735672,
+      "auc_binary": 0.9991012775561198,
       "per_class": {
         "normal": {
-          "n": 6434,
-          "precision": 0.9995337270749145,
-          "recall": 0.9995337270749145,
-          "f1": 0.9995337270749145
+          "n": 162,
+          "precision": 0.8020833333333334,
+          "recall": 0.9506172839506173,
+          "f1": 0.8700564971751413
         },
         "sqli": {
-          "n": 3617,
-          "precision": 0.9994472084024323,
-          "recall": 0.9997235277854576,
-          "f1": 0.9995853489979267
+          "n": 2785,
+          "precision": 0.998196898665705,
+          "recall": 0.9938958707360862,
+          "f1": 0.9960417416336813
         },
         "xss": {
-          "n": 177,
-          "precision": 1.0,
-          "recall": 0.9887005649717514,
-          "f1": 0.9943181818181819
+          "n": 3315,
+          "precision": 0.9981884057971014,
+          "recall": 0.9972850678733032,
+          "f1": 0.9977365323675871
         },
         "cmdi": {
-          "n": 30,
-          "precision": 0.9375,
-          "recall": 1.0,
-          "f1": 0.967741935483871
+          "n": 517,
+          "precision": 0.9471698113207547,
+          "recall": 0.9709864603481625,
+          "f1": 0.9589302769818528
         },
         "traversal": {
-          "n": 97,
-          "precision": 0.9895833333333334,
-          "recall": 0.979381443298969,
-          "f1": 0.9844559585492227
+          "n": 2573,
+          "precision": 0.9964636542239685,
+          "recall": 0.9856198989506413,
+          "f1": 0.991012114107073
         }
       },
       "budgets": {
         "0.001": {
-          "detect": 0.9997449630196379,
-          "fpr": 0.0010879701585327945
+          "detect": 0.9844396082698585,
+          "fpr": 0.006172839506172839
         },
         "0.01": {
-          "detect": 0.9997449630196379,
-          "fpr": 0.010102580043518807
+          "detect": 0.9879216539717084,
+          "fpr": 0.012345679012345678
         },
         "0.03": {
-          "detect": 0.9997449630196379,
-          "fpr": 0.029996891513832762
+          "detect": 0.9957562568008705,
+          "fpr": 0.030864197530864196
         },
         "0.05": {
-          "detect": 1.0,
-          "fpr": 0.05004662729250855
+          "detect": 0.996082698585419,
+          "fpr": 0.05555555555555555
         }
       }
     },
     "lexical": {
-      "n": 606,
-      "accuracy": 0.8663366336633663,
-      "auc_binary": 0.9461132075471698,
+      "n": 8493,
+      "accuracy": 0.9856352290121276,
+      "auc_binary": 0.9982020076931128,
       "per_class": {
         "normal": {
-          "n": 500,
-          "precision": 0.8904847396768402,
-          "recall": 0.992,
-          "f1": 0.9385052034058656
+          "n": 217,
+          "precision": 0.8520408163265306,
+          "recall": 0.7695852534562212,
+          "f1": 0.8087167070217918
         },
         "sqli": {
-          "n": 87,
-          "precision": 0.75,
-          "recall": 0.3103448275862069,
-          "f1": 0.4390243902439025
+          "n": 1853,
+          "precision": 0.9972840847365562,
+          "recall": 0.9908256880733946,
+          "f1": 0.9940443963183541
         },
         "xss": {
-          "n": 19,
-          "precision": 1.0,
-          "recall": 0.10526315789473684,
-          "f1": 0.1904761904761905
+          "n": 3375,
+          "precision": 0.9949763593380615,
+          "recall": 0.9976296296296296,
+          "f1": 0.9963012279923066
         },
         "cmdi": {
-          "n": 0,
-          "precision": 0.0,
-          "recall": 0.0,
-          "f1": 0.0
+          "n": 521,
+          "precision": 0.8804920913884007,
+          "recall": 0.9616122840690979,
+          "f1": 0.9192660550458716
         },
         "traversal": {
-          "n": 0,
-          "precision": 0.0,
-          "recall": 0.0,
-          "f1": 0.0
+          "n": 2527,
+          "precision": 0.9988014382740711,
+          "recall": 0.9893153937475268,
+          "f1": 0.9940357852882703
         }
       },
       "budgets": {
         "0.001": {
-          "detect": 0.09433962264150944,
-          "fpr": 0.002
+          "detect": 0.9838086031899468,
+          "fpr": 0.004608294930875576
         },
         "0.01": {
-          "detect": 0.4339622641509434,
-          "fpr": 0.01
+          "detect": 0.9925084581923634,
+          "fpr": 0.013824884792626729
         },
         "0.03": {
-          "detect": 0.6886792452830188,
-          "fpr": 0.03
+          "detect": 0.9931126147897535,
+          "fpr": 0.03225806451612903
         },
         "0.05": {
-          "detect": 0.7641509433962265,
-          "fpr": 0.05
+          "detect": 0.9932334461092315,
+          "fpr": 0.05069124423963134
         }
       }
     },
     "n_trees": 4000,
-    "n_nodes": 23664,
-    "train_seconds": 3.11
+    "n_nodes": 210706,
+    "train_seconds": 109.11
   },
-  "model": "model.onnx"
+  "model": "model.onnx",
+  "training_keys_file": "training_keys.txt",
+  "calibration_pool": {
+    "file": "calibration_pool.jsonl",
+    "n": 12000,
+    "source": "parquet WAF Data v2 正常流量留出桶（与训练桶按请求 sha1 互斥，已做良性去污染）"
+  }
 }

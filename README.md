@@ -5,7 +5,7 @@
 > 「规则 + 监督模型 + 零日异常」三通道判定，毫秒级延迟，并带完整的
 > 训练 → 登记 → 切换门禁 → 热重载闭环。
 
-`Python 3.10` · `Rust 1.99` · `Node 18+` · `ONNX Runtime 1.20` · `AGPL-3.0-or-later`
+`Python 3.10–3.13` · `Rust 1.99` · `Node 18+` · `ONNX Runtime 1.20` · `AGPL-3.0-or-later`
 
 ---
 
@@ -108,36 +108,42 @@ flowchart LR
 
 ## 当前状态
 
-> 以下为 2026-10-30 的现役产物。**唯一事实来源是 `python/artifacts/decision_policy.json`**，
-> 本表只是快照。
+> 以下为 2026-11-12 的现役产物（2026-11 语料换代后的 g3）。**唯一事实来源是
+> `python/artifacts/decision_policy.json`**，本表只是快照。
 
 | 项 | 值 |
 |---|---|
-| 策略版本 | **v20** |
-| 监督通道 | XGBoost **g2**（4000 棵树 / 23,664 节点 / 深度 8），sha `eab7b73e1b04ba0d` |
-| 监督阈值 | `0.721004` @ 目标 FPR 1% |
-| 零日通道 | IForest **g2**（125 棵树），sha `1a6967a746eaa40e` |
-| 零日阈值 | `-7.359740` @ 目标 FPR 1% |
-| 零日开关 | `zero_day_enabled = false`（安全降级：分数留证，不产生 alert） |
+| 策略版本 | **v22** |
+| 监督通道 | XGBoost **g3**（4000 棵树 / 210,706 节点 / 深度 8），sha `abe16c602d1e4893` |
+| 监督阈值 | `0.002949` @ 有效目标 FPR 0.6336%（已扣规则 0.3664%） |
+| 零日通道 | IForest **g3**（200 棵树，CSIC 125 → warm start +75），sha `8d21a7c2dce87e85` |
+| 零日阈值 | `-6.804936` @ 目标 FPR **0.5%**（与监督档位独立，同 12k 池标定） |
+| 零日开关 | `zero_day_enabled = true`（**仅告警、不阻断**；实测 FPR 0.69%、payload 召回 29.9%） |
 | 现役规则集 | **91 条 / 41 条 block**，sha `5425465fd0085457` |
-| 采集器 | 已加载现役 sha（`in_sync`） |
+| 校准池 | 12,000 条去污染良性留出（与训练集交集 0） |
+| 采集器 | 切换后需重启才加载 g3（控制台显示 `pending_restart`） |
 
 门禁（`rust/` 一致性 harness，全部通过）：
 
 | 校验项 | 结果 |
 |---|---|
 | Rust 特征 vs Python v2 | **逐位一致**，200×80 全 0 差异 |
-| XGBoost 推理 vs onnxruntime | max\|diff\| ≈ 4.17e-7，argmax 200/200 |
-| IForest 推理 | max\|diff\| ≈ 5.7e-6 |
-| TreeSHAP vs `pred_contribs` | max\|diff\| ≈ 8.1e-6 |
-| 阈值交叉核对 | 0.000e0 |
+| XGBoost 推理 vs onnxruntime | max\|diff\| ≈ 1.76e-6，argmax 200/200 |
+| IForest 推理 | max\|diff\| ≈ 7.6e-6 |
+| TreeSHAP vs `pred_contribs` | max\|diff\| ≈ 1.43e-5 |
+| 阈值交叉核对 | 0.000e0（零日 meta vs policy ≤ 9.5e-7） |
 | 融合动作一致性 | 200/200 |
 
-单请求延迟（release，i5-12500H；**g2 4000 树实测，2026-11-11**）：
-判定路径 **allow p50 ≈ 0.07 ms / p99 ≈ 0.15 ms**（不算 TreeSHAP），
-alert/block **p50 ≈ 0.35 ms / p99 ≈ 0.59 ms**（单类 TreeSHAP）。
+单请求延迟（release，i5-12500H；**g3 4000 棵深树实测，2026-11-12**）：
+判定路径 **allow p50 ≈ 0.22 ms / p99 ≈ 0.77 ms**（不算 TreeSHAP），
+alert/block **p50 ≈ 3.9 ms / p99 ≈ 5.2 ms**（单类 TreeSHAP）。
+g3 的树更深（平均 52.7 节点/树，g2 为 5.9），TreeSHAP 成本相应上升；采集器只在
+**已命中**的请求上算 SHAP，allow 路径不受影响。
 
-零日检出率（CSIC 2010，@FPR 1%）：g1 26.0% → **g2 26.6%**。
+零日通道（2026-11 语料）：g3 = CSIC-IF 125 棵 warm start 到 200 棵；**目标 FPR 0.5%（alert-only）**，
+实测 parquet test 正常流量 FPR **0.69%**、`anomalous` 召回 12.4%、载荷攻击召回 29.9%、
+5 类 test 攻击召回 52.8%（其余大多已被监督通道阻断）。零日只产生 alert、不阻断；
+档位可用 `thresholds.py --zero-day-fpr` 或控制台「零日目标 FPR」单独调整。
 
 ## 快速开始
 
@@ -211,8 +217,8 @@ cd proxy
 
 `traindata/`（数据集）、`console.db`、日志、上传件等运行态与大文件都在 `.gitignore` 里。
 
-**仓库自带预置模型产物（v20）**：两个现役 ONNX、零日 warm start 训练件，以及
-`python/artifacts/models/` 下两代快照（含血缘清单 `registry_seed.json`）。
+**仓库自带预置模型产物（v22）**：两个现役 ONNX、零日 warm start 训练件，以及
+`python/artifacts/models/` 下三代快照（含血缘清单 `registry_seed.json`）。
 克隆后直接启动控制台即可看到模型在跑、代次树完整，**不需要先训练**。
 预置代次清单的校验规则见 [`python/artifacts/PRESET.md`](python/artifacts/PRESET.md)；
 要复现、增量训练或换成自己的数据，再按 [`SETUP.md`](SETUP.md) 走一遍。
@@ -328,8 +334,9 @@ python export_testvec.py && python export_shap_ref.py
 - **OWASP CRS 派生规则**：原始许可 Apache-2.0，与 AGPLv3 单向兼容；版权与修改声明保留在
   [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。
 - **`rules/waf_rules.json`**：用户提供的外部规则集，**许可未知**，不随本仓库的 AGPL 重新授权。
-- **数据集不随仓库分发**（`traindata/` 已忽略）：CSIC 2010、HTTP Params 2015、CIC-IDS2017、
-  datacon2025 的使用须遵守各自条款。
+- **数据集不随仓库分发**（`traindata/` 已忽略）：2026-11 起为 xlsx 审计表、
+  `WAF Data v2`（parquet）、OWASP ModSecurity 日志、WAF-Payload-Collection（GPL-3.0）、
+  `WAF_DETECTION_DATASET.jsonl`；逐项许可与用途见 `THIRD_PARTY_NOTICES.md` §2。
 - Rust crates、npm 依赖、ONNX Runtime 各自保留原许可。
 - **注意**：控制台的 pcap 解析依赖 `scapy`（GPL-2.0-only），与 AGPLv3 不兼容；
   内部使用无碍，对外分发前需替换或拆分该可选功能（见 `THIRD_PARTY_NOTICES.md` §3）。

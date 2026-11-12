@@ -68,9 +68,11 @@ FUSION_2 = "supervised_block__zero_day_alert"
 FUSION_3 = "supervised_block__zero_day_alert__rules_block"
 
 # 规则通道能从总预算里吃掉多少（**阻断**预算）。
-# 0.3% 是一个保守起点：规则是"人工写的确定性证据"，而它对良性流量的误报是**不可约**的
-# （只有人能删规则）。留 10% 给监督通道是下限 —— 低于它，监督通道就没有可用的操作点了。
-RULE_BUDGET_CAP_DEFAULT = 0.003
+# 0.4% 是 2026-11 语料上的实测值：unbiased 12k 良性池里规则阻断 0.258%（上界 0.366%），
+# 其中大部分来自两条过宽的 SQLi 规则命中良性 HTML（`href="#CITEREF..."`），
+# 见 REALDATA_EVALUATION.md §13。留 ≥60% 给监督通道（MIN_SUP_SHARE 是硬下限），
+# 融合**阻断** FPR 目标仍由「总预算 1% − 规则误报」保证，不会因为抬高上限而超预算。
+RULE_BUDGET_CAP_DEFAULT = 0.004
 MIN_SUP_SHARE = 0.10
 
 
@@ -165,9 +167,14 @@ def load_pool(name: str):
 # ---------------------------------------------------------------------------
 def training_keys(info: dict) -> tuple[set, str]:
     """按 `xgboost_meta.json.training_recipe` 重建训练集指纹。"""
+    hard_neg = info.get("hard_neg", "none")
+    if hard_neg == "waf2026":
+        # 2026-11 语料换代：旧语料（CSIC / HTTP Params）已整体删除，无法也不想重建。
+        # 训练指纹由 train_wafdata.py 落在 `training_keys.txt`，必须用 --train-keys 传进来，
+        # 否则污染检查无从判定 —— 在 main() 里显式拒绝出策略。
+        return set(), "waf2026: 旧语料已删除，训练指纹仅来自 --train-keys"
     from train_realdata import load_all
 
-    hard_neg = info.get("hard_neg", "none")
     seed = int(info.get("seed") or 11)
     split = "grouped" if str(info.get("lexical_split", "")).startswith("grouped") else "random"
     dict_aug = info.get("dict_augmentation") or {}
@@ -184,7 +191,21 @@ def training_keys(info: dict) -> tuple[set, str]:
 
 
 def contamination(pool, info: dict, force: bool, train_keys_path: str | None = None):
-    keys, desc = training_keys(info)
+    # 有模型自己导出的训练指纹时，**以它为准**，不再重建旧语料：
+    #   ① 2026-11 语料下旧文件已删除，重建必然 FileNotFoundError；
+    #   ② 切零日通道时 `info` 是**尚未切换的**监督通道 meta（可能还是旧语料配方），
+    #      而 --train-keys 来自目标模型的快照 —— 用旧配方去重建只会误导。
+    if train_keys_path:
+        keys, desc = set(), "训练指纹仅来自 --train-keys（不重建旧语料）"
+    else:
+        keys, desc = training_keys(info)
+    if str(info.get("hard_neg") or "") == "waf2026" and not train_keys_path:
+        raise SystemExit(
+            "[guard] 该模型训练于 2026-11 新语料（hard_neg=waf2026），旧语料已删除，"
+            "无法重建训练集指纹。\n"
+            "        必须传 --train-keys <模型快照>/training_keys.txt"
+            "（例如 artifacts/models/supervised/gen-0003-*/training_keys.txt）——"
+            "否则无法证明校准池与训练集互斥。")
     extra_hashes: set = set()
     if train_keys_path:
         try:
@@ -312,7 +333,8 @@ def rule_budget_on_pool(pool, rules_path: str) -> dict:
 
 def channel_block(artifact: str, score_def: str, scores: np.ndarray,
                   target_fpr: str, extra: dict | None = None,
-                  effective_target: float | None = None) -> dict:
+                  effective_target: float | None = None,
+                  artifact_path: str | None = None) -> dict:
     """标定一条通道。
 
     `effective_target` 给了就按它取分位。为什么需要它：规则通道会从总预算里扣掉自己
@@ -322,9 +344,12 @@ def channel_block(artifact: str, score_def: str, scores: np.ndarray,
     thr = calibrate_channel(scores)
     nominal = float(target_fpr)
     if effective_target is None:
-        if target_fpr not in thr:
-            raise SystemExit(f"目标 FPR {target_fpr} 不在预算 {sorted(thr)} 内")
-        threshold = thr[target_fpr]
+        if target_fpr in thr:
+            threshold = thr[target_fpr]
+        else:
+            # 非标准档位（例如零日 0.5%）：按同一分位公式现算。
+            # 只写进 `threshold`，`thresholds` 仍保留标准档位，数据面用的是 `threshold`。
+            threshold = float(np.quantile(scores, 1.0 - nominal))
     else:
         eff = float(effective_target)
         if eff <= 0.0:
@@ -335,7 +360,7 @@ def channel_block(artifact: str, score_def: str, scores: np.ndarray,
         threshold = float(np.quantile(scores, 1.0 - eff))
     block = {
         "artifact": artifact,
-        "artifact_sha1_16": sha1_short(os.path.join(ART, artifact)),
+        "artifact_sha1_16": sha1_short(artifact_path or os.path.join(ART, artifact)),
         "score_def": score_def,
         "target_fpr": target_fpr,
         "threshold": threshold,
@@ -504,12 +529,26 @@ def main():
     ap.add_argument("--train-keys", default=None,
                     help="额外的训练集指纹文件（每行 sha1；上传训练产物用）")
     ap.add_argument("--fpr", default="0.01", help="推荐档目标 FPR（须在 0.001/0.01/0.03 内）")
+    ap.add_argument("--zero-day-fpr", default=None,
+                    help="零日通道单独的目标 FPR（如 0.005=0.5%%）；缺省沿用 --fpr。"
+                         "零日是 alert-only，不占阻断预算，因此可以与监督档位不同。")
     ap.add_argument("--force", action="store_true", help="明知校准池含训练样本仍继续（危险）")
     ap.add_argument("--zero-day", choices=["on", "off"], default="off",
                     help="零日通道总开关（默认 off：跨分布误报不可控，拿到本地良性重训前先降级）")
     ap.add_argument("--no-testvec", action="store_true", help="不刷新 testvec.json")
     ap.add_argument("--out", default=POLICY_PATH,
                     help="策略输出路径（控制台预览时写临时文件；默认 artifacts/decision_policy.json）")
+    # ---- 产物路径覆盖（staging 预览用；现役路径保持默认）----
+    ap.add_argument("--xgb-onnx", default=None,
+                    help="监督通道 ONNX（默认现役 artifacts/xgboost_v20261015_001.onnx）")
+    ap.add_argument("--iforest-onnx", default=None,
+                    help="零日通道 ONNX（默认现役 artifacts/iforest_lean_v20261015_001.onnx）")
+    ap.add_argument("--xgb-meta", default=None,
+                    help="监督通道 meta（默认 artifacts/xgboost_meta.json）")
+    ap.add_argument("--xgb-artifact-name", default=None,
+                    help="策略里记录的监督产物名（默认取 --xgb-onnx 的 basename）")
+    ap.add_argument("--iforest-artifact-name", default=None,
+                    help="策略里记录的零日产物名（默认取 --iforest-onnx 的 basename）")
     ap.add_argument("--version", type=int, default=0,
                     help="策略版本号（0=在现有版本上自动 +1）")
     # ---- 规则通道（第三通道）----
@@ -526,9 +565,34 @@ def main():
                     help=f"规则通道可占用的阻断预算上限（默认 {RULE_BUDGET_CAP_DEFAULT*100:g}%%）")
     args = ap.parse_args()
 
+    global XGB_ONNX, IF_ONNX, XGB_META
+    xgb_artifact = os.path.basename(XGB_ONNX)
+    if args.xgb_onnx:
+        XGB_ONNX = (args.xgb_onnx if os.path.isabs(args.xgb_onnx)
+                    else os.path.join(HERE, args.xgb_onnx))
+        xgb_artifact = args.xgb_artifact_name or os.path.basename(XGB_ONNX)
+    if args.iforest_onnx:
+        IF_ONNX = (args.iforest_onnx if os.path.isabs(args.iforest_onnx)
+                   else os.path.join(HERE, args.iforest_onnx))
+    if args.xgb_meta:
+        XGB_META = (args.xgb_meta if os.path.isabs(args.xgb_meta)
+                    else os.path.join(HERE, args.xgb_meta))
+    if_artifact = args.iforest_artifact_name or os.path.basename(IF_ONNX)
+
+    # 零日通道的目标 FPR 可与监督通道不同（alert-only，不占阻断预算）。
+    zd_fpr = str(args.zero_day_fpr if args.zero_day_fpr is not None else args.fpr)
+    try:
+        zd_fpr_f = float(zd_fpr)
+    except ValueError:
+        raise SystemExit(f"--zero-day-fpr 不是数字：{zd_fpr!r}")
+    if not (0.0 < zd_fpr_f <= 0.1):
+        raise SystemExit(f"--zero-day-fpr 必须在 (0, 0.1] 内（0.1 = 10%），收到 {zd_fpr}")
+
     if not os.path.exists(XGB_ONNX) or not os.path.exists(IF_ONNX):
-        raise SystemExit("缺 ONNX 产物：请先跑 train_realdata.py --export 与 "
-                         "iforest_lean_onnx.py --data csic --export")
+        raise SystemExit(f"缺 ONNX 产物：{XGB_ONNX} / {IF_ONNX}\n"
+                         f"        请先跑 train_wafdata.py --export 与 "
+                         f"iforest_lean_onnx.py --data waf --export，"
+                         f"或用 --xgb-onnx / --iforest-onnx 指到 staging")
     with open(XGB_META, "r", encoding="utf-8") as f:
         meta = json.load(f)
     recipe = meta.get("training_recipe") or {}
@@ -619,11 +683,11 @@ def main():
                 f"        先处理误报最大的规则再提升（各规则命中：{rule_budget['hits_by_rule']}）。"
             )
         sup_target = nominal_target - rule_cost
-        if sup_target < (1.0 - MIN_SUP_SHARE) * nominal_target:
+        if sup_target < MIN_SUP_SHARE * nominal_target:
             raise SystemExit(
                 f"规则通道吃掉太多预算：监督目标 {nominal_target*100:.4g}% -> "
                 f"{sup_target*100:.4g}%（规则占 {rule_cost*100:.4g}%），"
-                f"监督通道剩余不足 {MIN_SUP_SHARE*100:g}%。拒绝出策略。"
+                f"监督通道剩余不足标称预算的 {MIN_SUP_SHARE*100:g}%。拒绝出策略。"
             )
         print(f"[rules] 预算记账：监督目标 {nominal_target*100:.4g}% − 规则 {rule_cost*100:.4g}% "
               f"= {sup_target*100:.4g}%（融合的**阻断** FPR 目标仍是 {nominal_target*100:.4g}%）")
@@ -639,15 +703,17 @@ def main():
     print(f"[score] 两通道打分完成 {len(pool):,} 条 ({time.time()-t0:.1f}s)")
 
     supervised = channel_block(
-        os.path.basename(XGB_ONNX), "1 - P(normal)", sup_scores,
+        xgb_artifact, "1 - P(normal)", sup_scores,
         args.fpr,
         {"normal_class_index": normal_idx,
          "labels": meta.get("labels"),
          "training_recipe_note": "阈值仅在下方 calibration_pool 上标定"},
         effective_target=sup_target,
+        artifact_path=XGB_ONNX,
     )
     zero_day = channel_block(
-        os.path.basename(IF_ONNX), "-avg_path_len", zd_scores, args.fpr,
+        if_artifact, "-avg_path_len", zd_scores, zd_fpr,
+        artifact_path=IF_ONNX,
     )
 
     print(f"[thr] 监督通道 @{args.fpr}: {supervised['threshold']:.6f} "
@@ -656,8 +722,11 @@ def main():
         print(f"[thr]   ↑ 规则通道扣减后按 {supervised['effective_target_fpr']*100:.4g}% 取分位，"
               f"池上实际阻断 FPR={supervised['actual_fpr_at_effective']*100:.3f}% "
               f"（扣了 {supervised['budget_deduction']*100:.4g}%）")
-    print(f"[thr] 零日通道 @{args.fpr}: {zero_day['threshold']:.6f} "
-          f"(池上实际 FPR={zero_day['actual_fpr'][args.fpr]*100:.3f}%)")
+    zd_actual = (zero_day["actual_fpr"][zd_fpr]
+                 if zd_fpr in zero_day["actual_fpr"]
+                 else float((zd_scores >= zero_day["threshold"]).mean()))
+    print(f"[thr] 零日通道 @{zd_fpr}: {zero_day['threshold']:.6f} "
+          f"(池上实际 FPR={zd_actual*100:.3f}%)")
     union = float(((sup_scores >= supervised['threshold'])
                    | (zd_scores >= zero_day['threshold'])).mean())
     zd_enabled = (args.zero_day == "on")
@@ -684,8 +753,9 @@ def main():
           f"-> 生效融合误报率 = {eff_union*100:.3f}%"
           + ("" if zd_enabled else "  （零日分数仍计算并留证，但不产生 alert）"))
     if not zd_enabled:
-        print("[thr] ⚠️ 关闭零日通道的理由：跨分布误报不可控（lexical 28.2%、本机真实良性 2.63%），"
-              "拿到真实本地良性重训 IF 之前它只有成本。重启前须重跑本脚本 + export_testvec.py + Rust 门禁。")
+        print("[thr] ⚠️ 零日通道关闭：g3（200 棵，2026-11 良性）在同池 1% 工作点上测试集 FPR 1.31%、"
+              "anomalous 召回 24.0%（g2 为 2.74% / 60.4%）：可控性更好但异常召回更低。"
+              "重启前必须在部署分布的真实良性上量 alert 成本，并重跑本脚本 + export_testvec.py + Rust 门禁。")
 
     # 版本号：预览（--out 指向别处）也基于现役策略递增，便于控制台对比。
     if args.version > 0:

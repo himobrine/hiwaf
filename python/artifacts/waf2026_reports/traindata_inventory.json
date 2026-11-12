@@ -1,0 +1,127 @@
+{
+  "generated_at": "2026-11-12 20:00:21",
+  "root": "F:\\waf\\traindata",
+  "corpora": {
+    "xlsx": {
+      "rows": 108883,
+      "transactions": 27686,
+      "label_rows": {
+        "normal": 12597,
+        "rce": 4172,
+        "fileinclusion-ldf": 6290,
+        "xss": 8625,
+        "sqli": 69631,
+        "bruteforce": 7568
+      },
+      "transactions_multi_label": 20,
+      "rows_unmapped_label": 1892,
+      "unique_requests": 18474,
+      "deduped_rows": 9212,
+      "label_counts": {
+        "3": 579,
+        "0": 1144,
+        "4": 902,
+        "2": 1270,
+        "1": 12693,
+        "None": 1886
+      },
+      "with_body": 2112,
+      "methods": {
+        "GET": 16316,
+        "POST": 2158
+      },
+      "hosts": 3,
+      "ips": 7,
+      "role": "主训练集（4 类攻击 + 良性）",
+      "usable": "可用（按事务聚合 + 去重后）"
+    },
+    "modsec": {
+      "requests": 150930,
+      "label_3": 4337,
+      "unclassified": 89930,
+      "label_4": 52108,
+      "with_body": 14002,
+      "label_1": 4216,
+      "label_2": 339,
+      "files": 30,
+      "days": 30,
+      "role": "真实在野攻击（召回评估 + 训练）",
+      "usable": "攻击-only，零良性"
+    },
+    "parquet_train": {
+      "rows": 1924461,
+      "label_anomalous": 385353,
+      "label_normal": 1539108,
+      "with_body": 101,
+      "role": "良性池（anomalous 无子类）",
+      "usable": "正常可训练；异常只做二分类评估"
+    },
+    "parquet_test": {
+      "rows": 240558,
+      "label_normal": 192295,
+      "label_anomalous": 48263,
+      "with_body": 9696
+    },
+    "payloads": {
+      "cmdexe:tp": 1234,
+      "cmdexe:fp": 60,
+      "log4shell:tp": 110,
+      "log4shell:fp": 5,
+      "shellshock:tp": 24,
+      "shellshock:fp": 2,
+      "sqli:tp": 458,
+      "sqli:fp": 11,
+      "traversal:tp": 14157,
+      "traversal:fp": 15,
+      "xss:tp": 20944,
+      "xss:fp": 13,
+      "xxe:tp": 35,
+      "xxe:fp": 7
+    },
+    "waf_detection": {
+      "rows": 644,
+      "bad_lines": 6,
+      "wafs": {
+        "Cloudflare": 32,
+        "AWS WAF": 32,
+        "FortiWeb": 32,
+        "Imperva": 32,
+        "Akamai": 32,
+        "Sucuri": 31,
+        "F5 BIG-IP": 31,
+        "Barracuda": 31,
+        "Incapsula": 31,
+        "Sophos": 31,
+        "Citrix NetScaler": 23,
+        "ModSecurity": 23,
+        "Wordfence": 23,
+        "DenyAll": 23,
+        "Wallarm": 23,
+        "Radware": 18,
+        "Fastly": 18,
+        "Azure WAF": 18,
+        "CloudFront": 18,
+        "Imperva SecureSphere": 18,
+        "StackPath": 13,
+        "Comodo": 13,
+        "SiteLock": 13,
+        "Qualys": 12,
+        "Nginx WAF": 12,
+        "Kona Site Defender": 8,
+        "Reblaze": 8,
+        "Signal Sciences": 8,
+        "PerimeterX": 8,
+        "Shape Security": 9,
+        "AppWall": 5,
+        "Trustwave": 5,
+        "SecureLine": 5,
+        "Distil Networks": 5
+      }
+    }
+  },
+  "excluded": {
+    "CVE_list.json": "JSON 截断（9.5MB 处 unterminated string），且非 HTTP 请求，无法转 80 维特征",
+    "AgentCyberRangeWebExploitBench/": "只有 readme.md，内容为“等待通过”，无数据",
+    "http-attack-requests.json": "395 字节的清单说明（real/topup 计数），不是数据"
+  }
+}

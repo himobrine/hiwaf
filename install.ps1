@@ -4,7 +4,7 @@
   WAF 控制台一键安装（Windows）。
 
 .DESCRIPTION
-  默认控制台优先：Python 3.10 + venv + service 依赖 + 前端构建 + DB/admin 初始化。
+  默认控制台优先：Python 3.10–3.13 + venv + service 依赖 + 前端构建 + DB/admin 初始化。
   缺 Python/Node 时默认用 winget 自动安装；Rust/采集器只在 -WithRust / -Full 时构建。
   详细说明见仓库根目录 INSTALL.md。
 
@@ -64,7 +64,7 @@ WAF 控制台一键安装（Windows）
 常用参数：
   -Port 8090            控制台端口（默认 8090）
   -BindHost 127.0.0.1   监听地址（默认 127.0.0.1；0.0.0.0 会暴露到网络）
-  -NoVenv               不创建 .venv，直接用当前 Python 3.10
+  -NoVenv               不创建 .venv，直接用当前 Python（3.10–3.13）
   -WithTraining         额外安装训练依赖 requirements.txt（体积大）
   -NoFrontend           不构建前端，复用已有 web\dist
   -NoRust               跳过 Rust/采集器构建（默认尽力构建）
@@ -160,13 +160,37 @@ function Run {
     }
 }
 
-function Get-Python310 {
+function Get-PythonVersion {
+    param([Parameter(Mandatory = $true)][string]$Exe)
+    try {
+        $raw = & $Exe -c "import sys; print('%d.%d.%d' % sys.version_info[:3])" 2>$null
+        if ($LASTEXITCODE -ne 0 -or -not $raw) { return $null }
+        $text = ([string]($raw | Select-Object -Last 1)).Trim()
+        if ($text -notmatch '^(\d+)\.(\d+)\.(\d+)$') { return $null }
+        $major = [int]$Matches[1]
+        $minor = [int]$Matches[2]
+        if ($major -ne 3 -or $minor -lt 10 -or $minor -ge 14) { return $null }
+        return [pscustomobject]@{ Path = $Exe; Version = $text; Major = $major; Minor = $minor }
+    } catch {
+        return $null
+    }
+}
+
+function Get-Python {
     $candidates = @()
     $py = Get-Command py.exe -ErrorAction SilentlyContinue
     if (-not $py) { $py = Get-Command py -ErrorAction SilentlyContinue }
     if ($py) {
+        foreach ($ver in @("3.10", "3.11", "3.12", "3.13")) {
+            try {
+                $out = & $py.Source "-$ver" -c "import sys; print(sys.executable)" 2>$null
+                if ($LASTEXITCODE -eq 0 -and $out) {
+                    $candidates += [string]($out | Select-Object -Last 1)
+                }
+            } catch { }
+        }
         try {
-            $out = & $py.Source -3.10 -c "import sys; print(sys.executable)" 2>$null
+            $out = & $py.Source -3 -c "import sys; print(sys.executable)" 2>$null
             if ($LASTEXITCODE -eq 0 -and $out) {
                 $candidates += [string]($out | Select-Object -Last 1)
             }
@@ -176,20 +200,22 @@ function Get-Python310 {
         $cmd = Get-Command $name -ErrorAction SilentlyContinue
         if ($cmd) { $candidates += $cmd.Source }
     }
-    $candidates += @(
-        (Join-Path $env:LOCALAPPDATA "Programs\Python\Python310\python.exe"),
-        "C:\Python310\python.exe",
-        (Join-Path $env:ProgramFiles "Python310\python.exe")
-    )
+    foreach ($ver in @("313", "312", "311", "310")) {
+        $candidates += @(
+            (Join-Path $env:LOCALAPPDATA "Programs\Python\Python$ver\python.exe"),
+            "C:\Python$ver\python.exe",
+            (Join-Path $env:ProgramFiles "Python$ver\python.exe")
+        )
+    }
+    $seen = @{}
     foreach ($candidate in $candidates) {
         if (-not $candidate) { continue }
         if (-not (Test-Path -LiteralPath $candidate)) { continue }
-        try {
-            $ver = & $candidate -c "import sys; print('%d.%d' % sys.version_info[:2])" 2>$null
-            if ($LASTEXITCODE -eq 0 -and ([string]$ver).Trim() -eq "3.10") {
-                return $candidate
-            }
-        } catch { }
+        $key = ([string]$candidate).ToLowerInvariant()
+        if ($seen.ContainsKey($key)) { continue }
+        $seen[$key] = $true
+        $info = Get-PythonVersion -Exe $candidate
+        if ($info) { return $info }
     }
     return $null
 }
@@ -264,35 +290,37 @@ function Install-Winget {
 }
 
 function Ensure-BaseDeps {
-    $script:PyExe = Get-Python310
+    $pyInfo = Get-Python
+    $script:PyExe = if ($pyInfo) { $pyInfo.Path } else { $null }
     $node = Get-NodeInfo
     $missing = @()
-    if (-not $script:PyExe) { $missing += "Python 3.10" }
+    if (-not $script:PyExe) { $missing += "Python 3.10–3.13" }
     if (-not $node) { $missing += "Node.js 18+（含 npm）" }
     if ($missing.Count -eq 0) {
         $script:NodeExe = $node.Node
         $script:NpmExe = $node.Npm
-        Write-Ok "Python 3.10: $script:PyExe"
+        Write-Ok "Python $($pyInfo.Version): $script:PyExe"
         Write-Ok "Node.js $($node.Version): $($node.Node)"
         return
     }
 
     Write-Warn ("缺少系统依赖：" + ($missing -join "、"))
     if ($NoInstallDeps) {
-        throw "请先手动安装：winget install --id Python.Python.3.10 -e；winget install --id OpenJS.NodeJS.LTS -e（装完重开终端）"
+        throw "请先手动安装：winget install --id Python.Python.3.12 -e；winget install --id OpenJS.NodeJS.LTS -e（装完重开终端）"
     }
     if ($DryRun) {
-        Write-Host "[dry-run] winget install --id Python.Python.3.10 -e"
+        Write-Host "[dry-run] winget install --id Python.Python.3.12 -e"
         Write-Host "[dry-run] winget install --id OpenJS.NodeJS.LTS -e"
         exit 0
     }
     if (-not (Test-Admin)) { Restart-Elevated }
 
     if (-not $script:PyExe) {
-        Write-Step "安装 Python 3.10（winget）"
-        Install-Winget -Id "Python.Python.3.10"
+        Write-Step "安装 Python 3.12（winget）"
+        Install-Winget -Id "Python.Python.3.12"
         Refresh-Path
-        $script:PyExe = Get-Python310
+        $pyInfo = Get-Python
+        $script:PyExe = if ($pyInfo) { $pyInfo.Path } else { $null }
     }
     if (-not $node) {
         Write-Step "安装 Node.js LTS（winget）"
@@ -300,11 +328,11 @@ function Ensure-BaseDeps {
         Refresh-Path
         $node = Get-NodeInfo
     }
-    if (-not $script:PyExe) { throw "Python 3.10 安装后仍未找到；请重开终端或检查 PATH" }
+    if (-not $script:PyExe) { throw "Python 3.10–3.13 安装后仍未找到；请重开终端或检查 PATH" }
     if (-not $node) { throw "Node.js 安装后仍未找到；请重开终端或检查 PATH" }
     $script:NodeExe = $node.Node
     $script:NpmExe = $node.Npm
-    Write-Ok "Python 3.10: $script:PyExe"
+    Write-Ok "Python $($pyInfo.Version): $script:PyExe"
     Write-Ok "Node.js $($node.Version): $($node.Node)"
 }
 
@@ -349,7 +377,12 @@ function Ensure-PythonDeps {
         Write-Warn "使用当前 Python（-NoVenv）：$script:VenvPy"
     } else {
         $script:VenvPy = Join-Path $venv "Scripts\python.exe"
-        if (-not (Test-Path -LiteralPath $script:VenvPy)) {
+        if (Test-Path -LiteralPath $script:VenvPy) {
+            $venvInfo = Get-PythonVersion -Exe $script:VenvPy
+            if (-not $venvInfo) {
+                throw "现有 .venv 的 Python 版本不在 3.10–3.13：$script:VenvPy（删除 $venv 后重试）"
+            }
+        } else {
             Write-Step "创建 venv：$venv"
             Run -Exe $script:PyExe -Arguments @("-m", "venv", $venv)
         }

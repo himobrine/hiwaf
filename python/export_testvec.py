@@ -2,9 +2,9 @@
 
 与旧版的区别：
   * **不再重训模型**，而是直接加载已导出的产物（`xgb_model.json` booster +
-    `xgboost_v20261015_001.onnx`），因此 `xgb_proba` 与 ONNX 产物严格同源，
-    消除了旧版"用不同超参重训导致 sklearn vs ort 差 2.7e-4"的噪声；
-  * 请求集 = 合成请求 + 真实 HTTP Params 请求各一半，覆盖更广的特征形态；
+    `xgboost_v20261015_001.onnx`），因此 `xgb_proba` 与 ONNX 产物严格同源；
+  * 请求集 = 合成请求 + **2026-11 新语料**的分组留出 test 各 100 条
+    （`--corpus legacy` 可回到旧 HTTP Params，但旧数据已删除，仅用于历史复现）；
   * Isolation Forest 期望值取自精简 ONNX（Rust 使用的同一文件）；
   * **判定策略期望值**取自 `artifacts/decision_policy.json`（两通道阈值 + 融合动作），
     见 `thresholds.py`。Rust 侧必须逐条复现这些标记，阈值决策才受回归门禁保护。
@@ -13,6 +13,7 @@
 """
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import tempfile
@@ -21,13 +22,47 @@ import numpy as np
 
 from dataset import generate, split
 from features import FeatureExtractor
-from realdata import TRAINDATA, load_payloads
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ART = os.path.join(HERE, "artifacts")
 
 N_SYNTH = 100
-N_REAL = 100
+N_PER_CLASS = 20
+SEED = 20261112
+
+
+def sample_waf_requests(n_per_class: int = N_PER_CLASS) -> list:
+    """从新语料的分组留出 test 里**每类取前 n 条**（按请求指纹排序，可复现）。
+
+    为什么不用随机：testvec 是回归门禁的基准，样本集每次训练都变的话，
+    "这次多了 3 条误判"就分不清是模型变了还是样本换了。
+    """
+    import realdata_waf as rw
+
+    ds = rw.build_dataset(verbose=False)
+    by = {}
+    for r in ds["test"]:
+        by.setdefault(r["label"], []).append(r)
+    out = []
+    for lab in sorted(by):
+        rows = sorted(by[lab], key=rw.req_key_sha1)
+        for r in rows[:n_per_class]:
+            out.append({k: r.get(k) or "" for k in ("method", "path", "query", "body")} |
+                       {"label": lab})
+    print(f"[testvec] 新语料取样 {len(out)} 条（每类 ≤{n_per_class}）")
+    return out
+
+
+def sample_legacy_requests(n: int) -> list:
+    """旧 HTTP Params（已删除）的复现路径；找不到就报错，不静默降级。"""
+    from realdata import TRAINDATA, load_payloads
+
+    path = os.path.join(TRAINDATA, "payload_test.csv")
+    if not os.path.exists(path):
+        raise SystemExit(f"[testvec] --corpus legacy 需要旧语料 {path}（已删除）")
+    real = load_payloads(path)[:n]
+    return [{"method": s["method"], "path": s["path"], "query": s["query"],
+             "body": s["body"], "label": int(s["label"])} for s in real]
 
 
 def rule_evidence(requests: list, ruleset_path: str) -> dict:
@@ -76,6 +111,18 @@ def rule_evidence(requests: list, ruleset_path: str) -> dict:
 
 
 def main():
+    ap = argparse.ArgumentParser(description="导出 Rust 一致性测试向量")
+    ap.add_argument("--corpus", choices=["waf", "legacy"], default="waf",
+                    help="请求集来源：waf=2026-11 新语料（默认）/ legacy=旧 HTTP Params（已删除）")
+    ap.add_argument("--xgb-model", default=os.path.join(ART, "xgb_model.json"))
+    ap.add_argument("--xgb-onnx", default=os.path.join(ART, "xgboost_v20261015_001.onnx"))
+    ap.add_argument("--iforest-onnx", default=os.path.join(ART, "iforest_lean_v20261015_001.onnx"))
+    ap.add_argument("--policy", default=os.path.join(ART, "decision_policy.json"))
+    ap.add_argument("--out", default=os.path.join(ART, "testvec.json"))
+    ap.add_argument("--keep-legacy", action="store_true",
+                    help="覆盖前把现有 testvec 备份为 testvec_legacy.json（跨代对照用）")
+    args = ap.parse_args()
+
     import onnxruntime as ort
     import xgboost as xgb
 
@@ -86,43 +133,43 @@ def main():
                for r in te_r[:N_SYNTH]]
     synth_y = list(map(int, te_y[:N_SYNTH]))
 
-    real = load_payloads(os.path.join(TRAINDATA, "payload_test.csv"))[:N_REAL]
-    real_r = [{"method": s["method"], "path": s["path"], "query": s["query"], "body": s["body"]}
-              for s in real]
-    real_y = [int(s["label"]) for s in real]
+    real = (sample_waf_requests() if args.corpus == "waf"
+            else sample_legacy_requests(N_SYNTH))
+    real_r = [{k: (r.get(k) or "") for k in ("method", "path", "query", "body")}
+              for r in real]
+    real_y = [int(r["label"]) for r in real]
 
     requests = synth_r + real_r
     y_true = synth_y + real_y
 
     fx = FeatureExtractor()
     X = np.asarray(fx.transform_batch(requests), dtype=np.float32)
-    print(f"[testvec] {len(requests)} requests ({N_SYNTH} synthetic + {N_REAL} real) x {X.shape[1]} features")
+    print(f"[testvec] {len(requests)} requests ({N_SYNTH} synthetic + {len(real_r)} {args.corpus})"
+          f" x {X.shape[1]} features")
 
     # ---- XGBoost 期望输出：直接用已导出产物 ----
     booster = xgb.Booster()
-    booster.load_model(os.path.join(ART, "xgb_model.json"))
+    booster.load_model(args.xgb_model)
     dm = xgb.DMatrix(X)
     xgb_proba = booster.predict(dm)
 
-    sess_x = ort.InferenceSession(os.path.join(ART, "xgboost_v20261015_001.onnx"),
-                                  providers=["CPUExecutionProvider"])
+    sess_x = ort.InferenceSession(args.xgb_onnx, providers=["CPUExecutionProvider"])
     xgb_ort = sess_x.run(None, {sess_x.get_inputs()[0].name: X})[1]
     xgb_sk_vs_ort = float(np.abs(xgb_proba - xgb_ort).max())
     print(f"[testvec] booster vs onnxruntime max|diff| = {xgb_sk_vs_ort:.6e}")
 
     # ---- Isolation Forest 期望输出：精简 ONNX（Rust 同一文件）----
-    sess = ort.InferenceSession(os.path.join(ART, "iforest_lean_v20261015_001.onnx"),
-                                providers=["CPUExecutionProvider"])
+    sess = ort.InferenceSession(args.iforest_onnx, providers=["CPUExecutionProvider"])
     E = sess.run(None, {sess.get_inputs()[0].name: X})[0].ravel()
 
     # ---- 判定策略（S7）：从 decision_policy.json 读取两条通道的阈值 ----
     # 背景见 REALDATA_EVALUATION.md §8.3：argmax 的误报落点不稳，改为「score + 标定阈值」。
     # 策略文件由 thresholds.py 生成（含"校准池不得含训练样本"的代码级守卫）。
     from thresholds import build_decision_block
-    policy_path = os.path.join(ART, "decision_policy.json")
+    policy_path = args.policy
     if not os.path.exists(policy_path):
         raise SystemExit("[testvec] 缺 artifacts/decision_policy.json，请先跑：\n"
-                         "         py -3.10 thresholds.py --pool csic")
+                         "         py -3.10 thresholds.py --pool file:... --train-keys ...")
     with open(policy_path, "r", encoding="utf-8") as f:
         policy = json.load(f)
     normal_idx = int(policy["supervised"]["normal_class_index"])
@@ -184,7 +231,13 @@ def main():
         "iforest_avg_path_len": E.tolist(),
         "decision": decision,
     }
-    path = os.path.join(ART, "testvec.json")
+    path = args.out
+    if args.keep_legacy and os.path.exists(path):
+        legacy = os.path.join(ART, "testvec_legacy.json")
+        if not os.path.exists(legacy):
+            import shutil
+            shutil.copy2(path, legacy)
+            print(f"[testvec] 旧向量已备份 -> {os.path.relpath(legacy, HERE)}")
     with open(path, "w", encoding="utf-8") as f:
         json.dump(out, f)
     print(f"[testvec] wrote {path}: {len(requests)} samples, {X.shape[1]} features")

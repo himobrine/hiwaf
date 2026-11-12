@@ -347,8 +347,10 @@ fn main() -> Result<()> {
                                 "iforest_meta.json 与 decision_policy.json 的零日阈值不一致：\
                                  换了零日模型后必须重跑 python/thresholds.py");
                     }
-                    None => println!("[decide] 警告：iforest_meta.json 无档位 {}，跳过交叉校验",
-                                     cfg.zero_day.target_fpr),
+                    None => println!(
+                        "[decide] 警告：iforest_meta.json 无档位 {}（自定义零日 FPR 的常见情况），\
+                         跳过 meta↔policy 交叉校验；policy↔testvec 阈值一致性仍然校验",
+                        cfg.zero_day.target_fpr),
                 },
                 Err(e) => println!("[decide] 警告：iforest_meta.json 解析失败（{e}），跳过交叉校验"),
             },
@@ -501,8 +503,13 @@ fn main() -> Result<()> {
             }
             if dref.zero_day.expected_crossed.is_some() {
                 println!("[decide] 零日**原始穿阈**一致率 = {zd_cross_agree}/{n}  \
-                          （本批穿阈 {zd_crossed} 条；开关={}，故不产生 alert）",
-                          cfg.zero_day_enabled);
+                          （本批穿阈 {zd_crossed} 条；开关={}，{}）",
+                          cfg.zero_day_enabled,
+                          if cfg.zero_day_enabled {
+                              "参与融合，仅产生 alert（不阻断）"
+                          } else {
+                              "不产生 alert"
+                          });
             }
             println!("[decide] **融合动作**一致率 = {a_agree}/{n} ({:.2}%)  分布 allow{}/alert{}/block{}",
                      100.0 * a_agree as f64 / n as f64, act[0], act[1], act[2]);

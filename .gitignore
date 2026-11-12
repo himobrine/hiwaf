@@ -48,10 +48,12 @@ python/artifacts/models/*
 python/artifacts/models/supervised/*
 !python/artifacts/models/supervised/gen-0001-f5da765a27b7/
 !python/artifacts/models/supervised/gen-0002-eab7b73e1b04/
+!python/artifacts/models/supervised/gen-0003-abe16c602d1e/
 !python/artifacts/models/zero_day/
 python/artifacts/models/zero_day/*
 !python/artifacts/models/zero_day/gen-0001-c3af8fc61410/
 !python/artifacts/models/zero_day/gen-0002-1a6967a746ea/
+!python/artifacts/models/zero_day/gen-0003-8d21a7c2dce8/
 python/artifacts/staging/
 python/artifacts/switch_backup/
 python/artifacts/curves/

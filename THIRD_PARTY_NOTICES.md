@@ -108,18 +108,19 @@ AGPL §13（远程网络交互）提示：如果你修改本项目并把它作�
 
 | 数据 | 用途 | 是否参与训练 | 许可状态 |
 |---|---|---|---|
-| CSIC 2010 HTTP dataset | 监督通道训练 + 零日通道训练 + **统一标定池**（正常流量 `seed=7` 留出 6,000） | 是（正常/异常流量） | 学术用途发布；**未核实**再分发条款 |
-| HTTP Params 2015（`payload_*.csv`） | 监督通道正式训练/测试集 + 困难门槛集 | 是 | 公开数据集；**未核实**再分发条款 |
-| CIC-IDS2017 | 独立**流级**通道（与 HTTP 通道并列，不混训） | 否（流级通道尚未实现消费者） | 加拿大网络安全研究所发布；**未核实**再分发条款 |
-| datacon2025 | **OOD 复核集**，永不参与训练 | 否 | 完整版尚未公开；**未核实** |
-| `enhanced_security_dataset_clear.json` | **不可用**：767 条 Java 代码漏洞问答，不是 HTTP 请求（上传解析全部 `missing_path`） | 否 | 来源不明；**禁止入训练、禁止当良性池** |
-| 本地真实流量（`traindata/local/`） | 真实良性池 / 标定池 | 视采集方式 | 本项目自采；采集前须获得站点授权 |
+| `combined_final_dataset_augmented.xlsx`（2026-11） | 监督通道主训练集（事务级 4 类攻击 + 良性；`bruteforce` 无槽位只评估） | 是（18,474 条唯一请求） | 来源/授权未随数据提供；**未核实，禁止对外分发** |
+| `WAF Data v2`（`train.parquet` / `test.parquet`） | 良性池主来源 + 独立评估集（`anomalous` 无子类，只做二分类） | 是（normal 稳定桶抽样；test 仅评估） | 来源/授权未随数据提供；**未核实** |
+| OWASP ModSecurity 审计日志（`owasp/*/modsec_audit.anon.log`） | 真实在野攻击（训练 + 召回评估；零良性） | 是 | OWASP CRS 相关公开数据；Anonymous 化；**未核实**再分发条款 |
+| `WAF-Payload-Collection`（nuclei payloads） | 攻击载荷集 + **已知误报**困难良性负例 | 是 | 仓库 **GPL-3.0**；载荷整合自 SecLists / PayloadsAllTheThings / GoTestWAF 等，**逐条上游许可未核实** |
+| `WAF_DETECTION_DATASET.jsonl` | 外部 WAF 检测结果（无子类，只做二分类评估） | 否（只有 payload，无请求上下文） | 来源不明；**未核实** |
+| `CVE_list.json` | **不可用**：JSON 在 9.5MB 处截断，且不是 HTTP 请求 | 否 | 来源不明；**禁止入训练** |
+| `AgentCyberRangeWebExploitBench/` | **不可用**：只有 readme（"等待通过"），无数据 | 否 | — |
+| `http-attack-requests.json` | **不可用**：395 字节的清单说明，不是数据 | 否 | — |
 | 本仓库 `python/artifacts/` 下的模型与曲线 | 派生产物 | — | 由上述数据训练得到，**继承上游数据的限制** |
 
-> **预置模型权重随仓库发布**（`python/artifacts/*.onnx`、`iforest_model.joblib`、
-> `python/artifacts/models/gen-*`）。这些权重由 CSIC 2010 与 HTTP Params 2015 训练而来，
-> 上述两份数据的**再分发条款尚未核实**；因此：内部/自用不受影响，**对外分发（含公开
-> 镜像、二次发布）前请自行复核并承担合规责任**。
+> 2026-11 语料换代时，旧语料（CSIC 2010 / HTTP Params 2015 / CIC-IDS2017 /
+> datacon2025 / 本地采集）已**从磁盘删除**；现存模型 gen-0002 仍由旧语料训练而来，
+> gen-0003 起由 2026-11 语料训练。上表只描述**当前磁盘上的**数据。
 
 > 训练集里**不含**任何合成数据或旧分布数据（`*_synthetic*` 产物仅为 A/B 对照，
 > 名字带 `_synthetic` 以示区别）。

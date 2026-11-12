@@ -309,6 +309,8 @@ class PreviewIn(BaseModel):
     pool: str = "csic"
     fpr: str = "0.01"
     zero_day: str = "off"
+    # 零日通道可单独设目标 FPR（alert-only，不占阻断预算）；空=沿用 fpr。
+    zero_day_fpr: Optional[str] = None
 
 
 class PromoteIn(PreviewIn):
@@ -317,6 +319,8 @@ class PromoteIn(PreviewIn):
 
 class ZeroDayIn(BaseModel):
     enabled: bool
+    # 空=沿用现役策略的 zero_day.target_fpr（开/关不会悄悄改档位）。
+    zero_day_fpr: Optional[str] = None
     note: Optional[str] = None
 
 
@@ -583,14 +587,60 @@ def _check_policy_args(body: PreviewIn) -> str:
     # unreachable
 
 
+def _train_keys_for_pool(pool: str) -> Optional[str]:
+    """找与校准池配套的训练指纹（2026-11 语料下 thresholds.py 的硬性要求）。
+
+    优先用**校准池同目录**的 `training_keys.txt`（`register_from_staging` 会把两者
+    一起复制进模型快照，所以永远成对）；找不到再从现役监督模型 meta 的
+    `training_keys_file` 兜底。
+    """
+    if pool.startswith("file:"):
+        p = Path(pool[len("file:"):]).with_name("training_keys.txt")
+        if p.exists():
+            return str(p)
+    row = db.one("SELECT meta_path FROM model_registry WHERE channel='supervised' "
+                 "AND status='active' LIMIT 1")
+    if row and row.get("meta_path"):
+        meta_p = config.ARTIFACTS / row["meta_path"]
+        try:
+            meta = json.loads(meta_p.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        rel = meta.get("training_keys_file")
+        if rel:
+            cand = (meta_p.parent / rel).resolve()
+            if cand.exists():
+                return str(cand)
+    return None
+
+
 def _run_thresholds(pool: str, fpr: str, zero_day: str,
-                    out: Optional[str] = None, timeout: int = 900):
+                    out: Optional[str] = None, timeout: int = 900,
+                    zero_day_fpr: Optional[str] = None):
     if fpr not in FPR_CHOICES:
         raise HTTPException(400, f"fpr 只支持 {sorted(FPR_CHOICES)}")
     if zero_day not in ("on", "off"):
         raise HTTPException(400, "zero_day 只支持 on/off")
     cmd = [sys.executable, str(config.PY / "thresholds.py"),
            "--pool", pool, "--fpr", fpr, "--zero-day", zero_day]
+    if zero_day_fpr is not None:
+        try:
+            zdf = float(str(zero_day_fpr))
+        except ValueError:
+            raise HTTPException(400, f"zero_day_fpr 不是数字：{zero_day_fpr!r}")
+        if not (0.0 < zdf <= 0.1):
+            raise HTTPException(400, "zero_day_fpr 必须在 (0, 0.1] 内（0.1 = 10%）")
+        cmd += ["--zero-day-fpr", str(zero_day_fpr)]
+    tk = _train_keys_for_pool(pool)
+    if tk:
+        cmd += ["--train-keys", tk]
+    # 现役策略启用了规则通道时，重标定必须带上同一个规则集；
+    # 否则 thresholds.py 会拒绝（防止"静默关掉规则通道"）。
+    rcfg = (_policy().get("rules") or {})
+    if rcfg.get("enabled"):
+        cmd += ["--rules", rcfg.get("ruleset_path") or "artifacts/rules_authoritative.json"]
+    else:
+        cmd += ["--no-rules"]
     if out:
         cmd += ["--out", out, "--no-testvec"]
     env = os.environ.copy()
@@ -1644,7 +1694,8 @@ def policy_preview(body: PreviewIn, user: dict = Depends(auth.require_at_least("
     tmpdir = tempfile.mkdtemp(prefix="waf_policy_")
     out = os.path.join(tmpdir, "policy.json")
     try:
-        p = _run_thresholds(pool, body.fpr, body.zero_day, out=out)
+        p = _run_thresholds(pool, body.fpr, body.zero_day, out=out,
+                            zero_day_fpr=body.zero_day_fpr)
         if p.returncode != 0:
             raise HTTPException(400, detail=(p.stdout or "") + (p.stderr or ""))
         pol = _read_json(Path(out), None)
@@ -1663,7 +1714,8 @@ def policy_preview(body: PreviewIn, user: dict = Depends(auth.require_at_least("
 def policy_promote(body: PromoteIn, request: Request,
                    user: dict = Depends(auth.require_at_least("admin"))):
     pool = _check_policy_args(body)
-    p = _run_thresholds(pool, body.fpr, body.zero_day)
+    p = _run_thresholds(pool, body.fpr, body.zero_day,
+                        zero_day_fpr=body.zero_day_fpr)
     if p.returncode != 0:
         raise HTTPException(400, detail=(p.stdout or "") + (p.stderr or ""))
     pol = _policy()
@@ -1673,7 +1725,8 @@ def policy_promote(body: PromoteIn, request: Request,
          user["username"], db.now_ms(), body.note or "控制台提升"),
     )
     audit(user["username"], "policy_promote", f"v{pol.get('version')}",
-          json.dumps({"pool": pool, "fpr": body.fpr, "zero_day": body.zero_day}, ensure_ascii=False),
+          json.dumps({"pool": pool, "fpr": body.fpr, "zero_day": body.zero_day,
+                       "zero_day_fpr": body.zero_day_fpr}, ensure_ascii=False),
           _ip(request))
     return {
         "policy": pol,
@@ -1693,7 +1746,12 @@ def policy_zero_day(body: ZeroDayIn, request: Request,
     src = (pol.get("calibration_pool") or {}).get("source") or "csic"
     pool = _pool_from_source(str(src))
     fpr = str((pol.get("supervised") or {}).get("target_fpr") or "0.01")
-    p = _run_thresholds(pool, fpr, "on" if body.enabled else "off")
+    # 未显式指定就沿用现役零日档位：开/关不应悄悄改变工作点。
+    zd_fpr = (body.zero_day_fpr
+              or str((pol.get("zero_day") or {}).get("target_fpr") or "")
+              or None)
+    p = _run_thresholds(pool, fpr, "on" if body.enabled else "off",
+                        zero_day_fpr=zd_fpr)
     if p.returncode != 0:
         raise HTTPException(400, detail=(p.stdout or "") + (p.stderr or ""))
     new = _policy()
@@ -1703,7 +1761,7 @@ def policy_zero_day(body: ZeroDayIn, request: Request,
          user["username"], db.now_ms(), body.note or f"零日通道 {'开' if body.enabled else '关'}"),
     )
     audit(user["username"], "zero_day_toggle", "on" if body.enabled else "off",
-          f"pool={pool} fpr={fpr}", _ip(request))
+          f"pool={pool} fpr={fpr} zero_day_fpr={zd_fpr or fpr}", _ip(request))
     return {"policy": new, "log": p.stdout}
 
 

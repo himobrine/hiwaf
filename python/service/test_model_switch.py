@@ -171,6 +171,17 @@ class SwitchTest(unittest.TestCase):
             pf = model_switch.preflight(m["id"])
         self.assertTrue(pf["ok"], pf["checks"])
 
+    def test_threshold_args_preserve_zero_day_fpr(self):
+        pol = {"version": 22,
+               "calibration_pool": {"source": "file:F:/waf/pool.jsonl"},
+               "supervised": {"target_fpr": "0.01"},
+               "zero_day": {"target_fpr": "0.005"},
+               "zero_day_enabled": True,
+               "rules": {"enabled": False}}
+        args = model_switch._threshold_args(pol)
+        self.assertIn("--zero-day-fpr", args)
+        self.assertEqual(args[args.index("--zero-day-fpr") + 1], "0.005")
+
     def test_rollback_target_points_to_previous_active(self):
         # 造一条成功切换记录：from_model_id = 999
         db.execute("INSERT INTO model_switches(channel, model_id, from_model_id, status, "

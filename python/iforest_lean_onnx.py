@@ -14,6 +14,7 @@ skl2onnx 生成的图（含 score_samples 的 log/reduce 运算）单样本延�
 | `--data` | 训练集 | 产物文件名 | 用途 |
 |---|---|---|---|
 | `csic`（默认，正式） | CSIC 2010 正常 30,000 | `iforest_lean_v20261015_001.onnx` + `iforest_meta.json` | **正式零日通道**，Rust 数据面加载 |
+| `waf` | 新版 traindata 的 parquet 正常流量（稳定桶抽样，与留出互斥） | `iforest_lean_waf_001.onnx` + `iforest_meta_waf.json` | **2026-11 换代后的零日通道**（CSIC 已删除） |
 | `synthetic` | `dataset.generate()` | `iforest_lean_synthetic_001.onnx` + `iforest_meta_synthetic.json` | 仅链路自检 |
 | `local` | 真实本地良性（`collect_http_log.py` 产出） | `iforest_lean_local_001.onnx` + `iforest_meta_local.json` | 验证 S9 处方（本地分布内标定）；**非上线产物** |
 
@@ -22,6 +23,7 @@ skl2onnx 生成的图（含 score_samples 的 log/reduce 运算）单样本延�
 
 用法：
     py -3.10 iforest_lean_onnx.py --data csic --export      # 正式零日通道
+    py -3.10 iforest_lean_onnx.py --data waf --export       # 2026-11 新语料零日通道
     py -3.10 iforest_lean_onnx.py --data synthetic --export  # 链路自检
 """
 from __future__ import annotations
@@ -272,7 +274,7 @@ def make_session(path, intra_op=1):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--data", choices=["csic", "synthetic", "local", "upload"], default="csic")
+    ap.add_argument("--data", choices=["csic", "waf", "synthetic", "local", "upload"], default="csic")
     ap.add_argument("--upload-manifest", default=None,
                     help="控制台生成的上传数据清单（staging/datasets.json）")
     ap.add_argument("--upload-skip-id", type=int, default=None,
@@ -336,6 +338,53 @@ def main():
         }
         print(f"[lean] train(normal)={len(tr_idx)} holdout(normal)={len(hold_idx)} "
               f"anomaly={len(atk_idx)}")
+    elif args.data == "waf":
+        # 2026-11 语料换代：CSIC 已删除，零日通道改用新语料的真实正常流量。
+        # 关键约束：**校准池必须与 thresholds.py 完全同一批行**。Rust 门禁会比对
+        # `iforest_meta.json.zero_day_threshold` 与 `decision_policy.json` 的零日阈值
+        # （容差 1e-5）；两边只要池子不同（例如 IF 用 277k 桶、策略用 12k 留出），
+        # 阈值必然对不上，切换会被 fail-closed 拦下。所以这里直接复用
+        # `realdata_waf.build_dataset()` 的 `benign_holdout` / `train`。
+        import realdata_waf as rw
+
+        print("[lean] loading 2026-11 良性池（build_dataset：训练桶 + 12k 校准留出）...")
+        ds = rw.build_dataset(verbose=True)
+        tr_rows = [r for r in ds["train"] if r["label"] == 0]
+        hold_rows = list(ds["benign_holdout"])
+        train_rows = ds["train"]
+        Xtr = np.asarray(fx.transform_batch(tr_rows), dtype=np.float32)
+        Xhold = np.asarray(fx.transform_batch(hold_rows), dtype=np.float32)
+        atk_rows, _ast = rw.load_payload_collection(verbose=False)
+        atk_rows = [r for r in atk_rows if r["label"] not in (0, None)]
+        Xatk = np.asarray(fx.transform_batch(atk_rows), dtype=np.float32)
+        onnx_name = args.onnx_name or "iforest_lean_waf_001.onnx"
+        meta_name = "iforest_meta_waf.json"
+        meta_extra = {
+            "dataset": "traindata 2026-11：WAF Data v2 正常流量（只用正常训练，不看标签）",
+            "train_normal": len(tr_rows), "holdout_normal": len(hold_rows),
+            "anomaly": len(atk_rows),
+            "split_protocol": (
+                "与监督通道同一批行：realdata_waf.build_dataset() 的 train（label=0）"
+                "训练、benign_holdout（12,000，按请求 sha1 与训练桶互斥）校准"),
+            "attack_source": "WAF-Payload-Collection true-positives（仅报告检出率，不进训练）",
+            # 切换门禁要按该模型自己的池/指纹重标定（model_switch._model_upload_files）
+            "training_keys_file": "training_keys.txt",
+            "calibration_pool": {"file": "calibration_pool.jsonl", "n": len(hold_rows),
+                                 "source": "traindata 2026-11 良性留出（与训练桶互斥，已去污染）"},
+        }
+        print(f"[lean] waf train(normal)={len(tr_rows)} holdout(normal)={len(hold_rows)} "
+              f"attack={len(atk_rows)}")
+        if args.export:
+            import json as _json
+            with open(os.path.join(out_dir, "training_keys.txt"), "w", encoding="utf-8") as f:
+                for r in train_rows:
+                    f.write(rw.req_key_sha1(r) + "\n")
+            with open(os.path.join(out_dir, "calibration_pool.jsonl"), "w",
+                      encoding="utf-8") as f:
+                for r in hold_rows:
+                    f.write(_json.dumps({k: r[k] for k in ("method", "path", "query", "body")},
+                                        ensure_ascii=False) + "\n")
+            print(f"[lean] 训练指纹 {len(train_rows)} 条；校准留出 {len(hold_rows)} 条")
     elif args.data == "synthetic":
         from dataset import generate, split
         reqs, labels = generate(n_per_class=2000)
@@ -421,6 +470,7 @@ def main():
         }
         _base_label = {
             "csic": "CSIC 2010 正常",
+            "waf": "2026-11 真实良性",
             "local": "真实本地良性",
             "synthetic": "合成正常",
             "upload": "上传良性",

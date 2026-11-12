@@ -32,6 +32,8 @@ export default function Policy({ user }: { user: User }) {
   const [pool, setPool] = useState('csic')
   const [fpr, setFpr] = useState('0.01')
   const [zeroDay, setZeroDay] = useState('off')
+  // 零日通道单独的重标定档位（alert-only，不占阻断预算）；默认 0.5%。
+  const [zdFpr, setZdFpr] = useState('0.005')
   const [preview, setPreview] = useState<any>(null)
   const [previewLog, setPreviewLog] = useState('')
   const [busy, setBusy] = useState(false)
@@ -61,7 +63,7 @@ export default function Policy({ user }: { user: User }) {
     try {
       const r = await api<any>('/api/policy/preview', {
         method: 'POST',
-        body: { pool, fpr, zero_day: zeroDay },
+        body: { pool, fpr, zero_day: zeroDay, zero_day_fpr: zdFpr },
       })
       setPreview(r.policy)
       setPreviewLog(r.log || '')
@@ -93,7 +95,7 @@ export default function Policy({ user }: { user: User }) {
         try {
           const r = await api<any>('/api/policy/promote', {
             method: 'POST',
-            body: { pool, fpr, zero_day: zeroDay, note: '控制台提升' },
+            body: { pool, fpr, zero_day: zeroDay, zero_day_fpr: zdFpr, note: '控制台提升' },
           })
           message.success(`已提升为 v${r.policy?.version}`);
           setPreview(null)
@@ -109,14 +111,15 @@ export default function Policy({ user }: { user: User }) {
     Modal.confirm({
       title: on ? '开启零日通道？' : '关闭零日通道（安全降级）？',
       content: on
-        ? '跨分布误报尚未在真实本地良性上验证；开启后零日通道会参与融合并产生 alert（不阻断）。'
+        ? `零日通道会参与融合并产生 alert（不阻断），目标 FPR = ${zdFpr}。` +
+          '跨分布误报尚未在真实本地良性上验证，建议先在 0.1%–0.5% 档位观察。'
         : '关闭后零日分数仍计算、原始穿阈仍留证，但不产生 alert。',
       okButtonProps: on ? { danger: true } : undefined,
       onOk: async () => {
         try {
           const r = await api<any>('/api/policy/zero-day', {
             method: 'POST',
-            body: { enabled: on },
+            body: { enabled: on, zero_day_fpr: zdFpr },
           })
           message.success(`已${on ? '开启' : '关闭'}，策略 v${r.policy?.version}`)
           load()
@@ -229,6 +232,20 @@ export default function Policy({ user }: { user: User }) {
                     options={[
                       { value: 'off', label: '关闭' },
                       { value: 'on', label: '开启' },
+                    ]}
+                  />
+                </div>
+                <div>
+                  <div className="muted">零日目标 FPR</div>
+                  <Select
+                    value={zdFpr}
+                    onChange={setZdFpr}
+                    style={{ width: 120 }}
+                    options={[
+                      { value: '0.001', label: '0.1%' },
+                      { value: '0.005', label: '0.5%' },
+                      { value: '0.01', label: '1%' },
+                      { value: '0.03', label: '3%' },
                     ]}
                   />
                 </div>

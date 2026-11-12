@@ -526,8 +526,11 @@ def run(version: str, tr, te, lex, rounds: int, depth: int, lr: float,
         yva = np.asarray([s["label"] for s in valid_eval])
         evals = [("train", Xtr, ytr), ("valid", Xva, yva), ("lexical", Xlex, ylex),
                  ("payload_test", Xte, yte)]
-        print(f"[split] 三段切分：valid={len(valid_eval)} 条来自 payload_train（同源簇不跨界），"
-              f"payload_test 仅作报告集")
+        print(f"[split] 三段切分：valid={len(valid_eval)} 条（info.n_split_note 见下），"
+              f"另一份仅作报告集")
+        note = (info or {}).get("split_note")
+        if note:
+            print(f"[split] {note}")
     else:
         evals = [("train", Xtr, ytr), ("valid", Xte, yte), ("lexical", Xlex, ylex)]
         if es and es_set == "valid":
@@ -624,8 +627,8 @@ def run(version: str, tr, te, lex, rounds: int, depth: int, lr: float,
 
     s_te = summarize(clf, Xte, yte)
     s_lex = summarize(clf, Xlex, ylex)
-    print_summary("HTTP Params TEST (载荷不重叠)", s_te)
-    print_summary("HTTP Params LEXICAL (困难集/验收门槛)", s_lex)
+    print_summary((info or {}).get("test_title") or "TEST (载荷不重叠)", s_te)
+    print_summary((info or {}).get("valid_title") or "VALID (留出)", s_lex)
 
     s_loc = None
     if any(e[0] == "local" for e in evals):
@@ -729,11 +732,11 @@ def run(version: str, tr, te, lex, rounds: int, depth: int, lr: float,
                            "valid_frac": (info or {}).get("valid_frac", 0.0),
                            "n_valid": (info or {}).get("n_valid", 0),
                            "n_train": int(len(ytr)),
-                           "dataset": (
-                               "上传数据（only）" if (upload_meta or {}).get("mode") == "only"
-                               else ("HTTP Params 2015 + 上传数据（add）"
-                                     if upload_meta else
-                                     "HTTP Params 2015 (payload_train/test) + lexical 正常一半")),
+                           "dataset": ((info or {}).get("dataset") or
+                                       ("上传数据（only）" if (upload_meta or {}).get("mode") == "only"
+                                        else ("HTTP Params 2015 + 上传数据（add）"
+                                              if upload_meta else
+                                              "HTTP Params 2015 (payload_train/test) + lexical 正常一半"))),
                            "upload_mode": (upload_meta or {}).get("mode"),
                            "upload_datasets": (upload_meta or {}).get("datasets"),
                            "upload_calib": (upload_art or {}).get("calib"),
@@ -741,6 +744,10 @@ def run(version: str, tr, te, lex, rounds: int, depth: int, lr: float,
                        **({"datasets": upload_meta.get("datasets")} if upload_meta else {}),
                        **({"upload": upload_art} if upload_art else {}),
                        **({"training_keys_file": "training_keys.txt"} if upload_meta else {}),
+                       **({"training_keys_file": (info or {}).get("training_keys_file")}
+                          if (info or {}).get("training_keys_file") and not upload_meta else {}),
+                       **({"calibration_pool": (info or {}).get("calib_meta")}
+                          if (info or {}).get("calib_meta") else {}),
                        **({"eval_note": "official test/lexical 仅作迁移评估（训练未使用官方训练集）"}
                           if (upload_meta or {}).get("mode") == "only" else {}),
                        "decision_threshold": calib,
@@ -749,7 +756,7 @@ def run(version: str, tr, te, lex, rounds: int, depth: int, lr: float,
                                    "n_trees": n_trees, "n_nodes": n_nodes,
                                    "train_seconds": round(train_s, 2)},
                        "model": os.path.basename(out)}, f, ensure_ascii=False, indent=2)
-        print("[meta] -> artifacts/xgboost_meta.json")
+        print(f"[meta] -> {os.path.relpath(os.path.join(out_dir, 'xgboost_meta.json'), HERE)}")
 
     return {"version": version, "dim": len(fx.names), "n_trees": n_trees,
             "n_nodes": n_nodes, "train_seconds": round(train_s, 2),

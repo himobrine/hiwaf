@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # WAF 控制台一键安装（Linux）。
 #
-# 默认「控制台优先」：Python 3.10 + venv + 控制面依赖 + 前端构建 + DB/admin 初始化。
+# 默认「控制台优先」：Python 3.10–3.13 + venv + 控制面依赖 + 前端构建 + DB/admin 初始化。
 # 缺系统依赖时默认用发行版包管理器自动安装；Rust/采集器只在 --with-rust / --full 时构建。
 # 详细说明见仓库根目录 INSTALL.md。
 #
@@ -55,7 +55,7 @@ WAF 控制台一键安装（Linux）
 常用参数：
   --port N            控制台端口（默认 8090）
   --host ADDR         监听地址（默认 127.0.0.1；0.0.0.0 会暴露到网络）
-  --no-venv           不创建 .venv，直接用当前 Python 3.10
+  --no-venv           不创建 .venv，直接用当前 Python（3.10–3.13）
   --with-training     额外安装训练依赖 requirements.txt（体积大）
   --no-frontend       不构建前端，复用已有 web/dist
   --no-rust           跳过 Rust/采集器构建（默认尽力构建）
@@ -72,7 +72,7 @@ WAF 控制台一键安装（Linux）
   -h, --help          显示本帮助
 
 环境变量：
-  WAF_PYTHON          Python 3.10 解释器路径（发行版没有 python3.10 时使用）
+  WAF_PYTHON          Python 3.10–3.13 解释器路径（发行版默认版本不满足时使用）
   WAF_CARGO_TARGET    Rust 构建缓存目录（默认 ~/.cache/waf-cargo-target）
 
 示例：
@@ -180,14 +180,28 @@ pkg_install() {
 }
 
 install_python_deps() {
-    log "安装 Python 3.10（$PM）"
+    log "安装 Python 3.10–3.13（$PM）"
     case "$PM" in
-        apt)    pkg_install python3.10 python3.10-venv python3.10-dev ;;
-        dnf)    pkg_install python3.10 python3.10-devel ;;
-        yum)    pkg_install python3.10 python3.10-devel ;;
-        pacman) pkg_install curl ca-certificates ;;
-        *)      die "未识别包管理器；请手动安装 Python 3.10。" ;;
+        apt)    pkg_install python3 python3-venv python3-dev ;;
+        dnf)    pkg_install python3 python3-devel ;;
+        yum)    pkg_install python3 python3-devel ;;
+        pacman) pkg_install python curl ca-certificates ;;
+        *)      die "未识别包管理器；请手动安装 Python 3.10–3.13。" ;;
     esac
+
+    # 部分老发行版的默认 python3 仍低于 3.10；再按可用性尝试版本化包，失败不致命。
+    if ! find_python >/dev/null 2>&1; then
+        local v
+        for v in 3.13 3.12 3.11 3.10; do
+            [ "$DRY_RUN" -eq 1 ] && break
+            case "$PM" in
+                apt)     pkg_install "python$v" "python$v-venv" "python$v-dev" >/dev/null 2>&1 || true ;;
+                dnf|yum) pkg_install "python$v" "python$v-devel" >/dev/null 2>&1 || true ;;
+                pacman)  break ;;
+            esac
+            find_python >/dev/null 2>&1 && break
+        done
+    fi
 }
 
 install_node_deps() {
@@ -199,7 +213,11 @@ install_node_deps() {
 }
 
 python_ok() {
-    "$1" -c 'import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 10) else 1)' >/dev/null 2>&1
+    "$1" -c 'import sys; raise SystemExit(0 if (3, 10) <= sys.version_info[:2] < (3, 14) else 1)' >/dev/null 2>&1
+}
+
+python_version() {
+    "$1" -c 'import sys; print("%d.%d.%d" % sys.version_info[:3])' 2>/dev/null || printf '?'
 }
 
 find_python() {
@@ -208,32 +226,38 @@ find_python() {
             command -v "$WAF_PYTHON" 2>/dev/null || printf '%s\n' "$WAF_PYTHON"
             return 0
         fi
-        die "WAF_PYTHON=$WAF_PYTHON 不是 Python 3.10"
+        die "WAF_PYTHON=$WAF_PYTHON 不是 Python 3.10–3.13"
     fi
     local candidate
-    for candidate in python3.10 /usr/bin/python3.10 /usr/local/bin/python3.10; do
+    for candidate in \
+        python3 python3.13 python3.12 python3.11 python3.10 \
+        /usr/bin/python3 /usr/local/bin/python3 \
+        /usr/bin/python3.13 /usr/local/bin/python3.13 \
+        /usr/bin/python3.12 /usr/local/bin/python3.12 \
+        /usr/bin/python3.11 /usr/local/bin/python3.11 \
+        /usr/bin/python3.10 /usr/local/bin/python3.10 \
+        python; do
         if command -v "$candidate" >/dev/null 2>&1 && python_ok "$candidate"; then
             command -v "$candidate"
             return 0
         fi
     done
-    if command -v python3 >/dev/null 2>&1 && python_ok python3; then
-        command -v python3
-        return 0
-    fi
     return 1
 }
 
 python_hint() {
     cat >&2 <<'EOF'
-[x] 未找到 Python 3.10。
-    Debian/Ubuntu：新版发行版默认没有 3.10，可加 deadsnakes PPA：
+[x] 未找到 Python 3.10–3.13。
+    Debian/Ubuntu：先装发行版默认 Python（Ubuntu 22.04 / Debian 12+ 通常已满足）：
+      sudo apt-get install -y python3 python3-venv python3-dev
+    若默认 python3 低于 3.10，可加 deadsnakes PPA 安装 3.10：
       sudo add-apt-repository ppa:deadsnakes/ppa
       sudo apt-get update
       sudo apt-get install -y python3.10 python3.10-venv python3.10-dev
-    或者用 pyenv / conda 安装 3.10，然后：
-      WAF_PYTHON=/path/to/python3.10 ./install.sh
-    Fedora/RHEL：可用 python3.10 包，或用 pyenv 安装后设置 WAF_PYTHON。
+    或者用 pyenv / conda 安装 3.10–3.13，然后：
+      WAF_PYTHON=/path/to/python3.12 ./install.sh
+    Fedora/RHEL：可用 dnf 的 python3.11/3.12 模块，或用 pyenv 安装后设置 WAF_PYTHON。
+    注意：Python 3.14+ 暂不支持（当前锁定依赖暂无对应 wheel）。
 EOF
 }
 
@@ -284,14 +308,14 @@ printf 'WAF 控制台一键安装（Linux）\n仓库：%s\n' "$ROOT"
 
 PY=""
 if ! PY="$(find_python)"; then
-    warn "缺少 Python 3.10"
+    warn "缺少 Python 3.10–3.13"
     if [ "$NO_INSTALL_DEPS" -eq 1 ]; then
         python_hint
         exit 1
     fi
     if [ "$DRY_RUN" -eq 1 ]; then
         install_python_deps
-        PY="python3.10"
+        PY="python3"
     else
         install_python_deps
         if ! PY="$(find_python)"; then
@@ -300,7 +324,11 @@ if ! PY="$(find_python)"; then
         fi
     fi
 fi
-ok "Python 3.10：$PY"
+if [ "$DRY_RUN" -eq 1 ]; then
+    ok "Python 3.10–3.13（dry-run 未校验）：$PY"
+else
+    ok "Python $(python_version "$PY")：$PY"
+fi
 
 if ! node_ok; then
     warn "缺少 Node.js 18+（含 npm）"
@@ -327,6 +355,9 @@ if [ "$NO_VENV" -eq 1 ]; then
     warn "使用当前 Python（--no-venv）：$VENV_PY"
 else
     VENV_PY="$VENV/bin/python"
+    if [ -x "$VENV_PY" ] && ! python_ok "$VENV_PY"; then
+        die "现有 .venv 的 Python 版本不在 3.10–3.13：$VENV_PY（删除 $VENV 后重试）"
+    fi
     if [ ! -x "$VENV_PY" ]; then
         log "创建 venv：$VENV"
         run "$PY" -m venv "$VENV"
