@@ -1,6 +1,9 @@
-# 控制面 API 依赖（Python 3.10–3.13，Windows x86_64）
+# 控制面依赖（Python 3.10–3.13）
 #
-# 与训练/评估依赖分开安装：训练机不需要 Web 框架，控制面也不需要 xgboost/onnx。
+# 控制面不只要跑 Web API：策略标定（thresholds.py）、策略预览 / 零日开关、
+# 切模型门禁（export_testvec.py / export_shap_ref.py）都由控制台通过子进程调用，
+# 因此这里必须包含 numpy / onnxruntime / xgboost。
+# 训练 / 评估用的其余依赖（pandas、scipy、scikit-learn、onnx、scapy 等）见 requirements.txt。
 #   py -3.10 -m pip install -r python\requirements-service.txt
 #
 # 版本与本机验证通过的运行环境一致；升级前先跑 service 测试与 smoke。
@@ -8,3 +11,7 @@ fastapi==0.146.0
 uvicorn[standard]==0.52.2
 pydantic==2.13.4
 python-multipart==0.0.32
+# 策略标定（thresholds.py）与切模型流程所需的推理 / 训练依赖
+numpy==2.1.3
+onnxruntime==1.20.0
+xgboost==3.2.0

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -186,6 +187,18 @@ class SeedImportTest(unittest.TestCase):
         config.REGISTRY_SEED.write_text(
             json.dumps({"schema": 1, "models": items}, ensure_ascii=False), encoding="utf-8")
 
+    def write_policy(self, sup_sha, zd_sha=None):
+        payload = {"supervised": {"artifact": "xgboost_v20261015_001.onnx",
+                                  "artifact_sha1_16": sup_sha}}
+        if zd_sha:
+            payload["zero_day"] = {"artifact": "iforest_lean_v20261015_001.onnx",
+                                   "artifact_sha1_16": zd_sha}
+        config.POLICY_JSON.write_text(json.dumps(payload), encoding="utf-8")
+
+    def write_live(self, channel, snap):
+        live = config.LIVE_SLOTS[channel]
+        shutil.copy2(snap / "model.onnx", config.ARTIFACTS / live["onnx"])
+
     def test_import_seed_builds_lineage(self):
         snap1, rel1, sha1 = self.make_snapshot("supervised", 1, "aaaa11112222")
         snap2, rel2, sha2 = self.make_snapshot("supervised", 2, "bbbb33334444")
@@ -256,6 +269,94 @@ class SeedImportTest(unittest.TestCase):
         self.assertEqual(len(out["downgraded"]), 1)
         actives = [m for m in reg.list_models("zero_day") if m["status"] == "active"]
         self.assertEqual([m["generation"] for m in actives], [2])
+
+    # -- 升级：非空库补缺失代次（g3 场景） ------------------------------
+    def _seed_item(self, channel, gen, rel, sha, status, parent=None):
+        meta = "xgboost_meta.json" if channel == "supervised" else "iforest_meta.json"
+        item = {"channel": channel, "generation": gen, "snapshot_dir": rel,
+                "sha1_16": sha, "meta_path": f"{rel}/{meta}", "status": status}
+        if parent is not None:
+            item["parent_generation"] = parent
+        return item
+
+    def test_merge_seed_adds_missing_generation_to_nonempty_db(self):
+        _, rel1, sha1 = self.make_snapshot("supervised", 1, "aaaa00001111")
+        _, rel2, sha2 = self.make_snapshot("supervised", 2, "bbbb22223333")
+        self.write_seed([
+            self._seed_item("supervised", 1, rel1, sha1, "archived"),
+            self._seed_item("supervised", 2, rel2, sha2, "active", parent=1),
+        ])
+        self.assertEqual(reg.import_seed("tester")["imported"], 2)
+
+        # 模拟 git pull 带来 g3：非空库默认导入仍是 no-op
+        _, rel3, sha3 = self.make_snapshot("supervised", 3, "cccc44445555")
+        self.write_seed([
+            self._seed_item("supervised", 1, rel1, sha1, "archived"),
+            self._seed_item("supervised", 2, rel2, sha2, "archived", parent=1),
+            self._seed_item("supervised", 3, rel3, sha3, "active", parent=2),
+        ])
+        self.assertEqual(reg.import_seed("tester")["reason"], "not_empty")
+
+        out = reg.import_seed("tester", merge=True)
+        self.assertEqual(out["imported"], 1, out)
+        by_gen = {m["generation"]: m for m in reg.list_models("supervised")}
+        self.assertEqual(by_gen[3]["parent_id"], by_gen[2]["id"])
+        self.assertTrue(by_gen[3]["snapshot_available"])
+        # 已有现役不被清单顶掉（真正生效由 sync_seed 按策略决定）
+        self.assertEqual(by_gen[2]["status"], "active")
+        self.assertEqual(by_gen[3]["status"], "archived")
+        self.assertEqual(len(out["downgraded"]), 1)
+
+        # 幂等：再 merge 一次不新增、不报唯一索引错误
+        again = reg.import_seed("tester", merge=True)
+        self.assertEqual(again["imported"], 0)
+        self.assertEqual(again["reason"], "nothing_imported")
+        self.assertEqual(len(reg.list_models("supervised")), 3)
+
+    def test_sync_seed_activates_policy_model_after_upgrade(self):
+        _, rel1, sha1 = self.make_snapshot("supervised", 1, "aaaa66667777")
+        _, rel2, sha2 = self.make_snapshot("supervised", 2, "bbbb88889999")
+        self.write_seed([
+            self._seed_item("supervised", 1, rel1, sha1, "archived"),
+            self._seed_item("supervised", 2, rel2, sha2, "active", parent=1),
+        ])
+        reg.import_seed("tester")
+
+        snap3, rel3, sha3 = self.make_snapshot("supervised", 3, "ccccaaaabbbb")
+        self.write_seed([
+            self._seed_item("supervised", 1, rel1, sha1, "archived"),
+            self._seed_item("supervised", 2, rel2, sha2, "archived", parent=1),
+            self._seed_item("supervised", 3, rel3, sha3, "active", parent=2),
+        ])
+        self.write_live("supervised", snap3)
+        self.write_policy(sha3)
+
+        out = reg.sync_seed("tester")
+        self.assertEqual(out["seed"]["imported"], 1, out)
+        acts = {r["channel"]: r for r in out["reconciled"]}
+        self.assertEqual(acts["supervised"]["action"], "activated")
+        by_gen = {m["generation"]: m for m in reg.list_models("supervised")}
+        self.assertEqual(by_gen[3]["status"], "active")
+        self.assertEqual(by_gen[2]["status"], "archived")
+
+    def test_sync_seed_keeps_user_active_model(self):
+        models = [self.register("train_realdata", f"u{i}") for i in range(5)]
+        custom = models[-1]
+        db.execute("UPDATE model_registry SET status='active' WHERE id=?", (custom["id"],))
+        custom_snap = reg._artifact_path(custom["snapshot_dir"])
+
+        snap3, rel3, sha3 = self.make_snapshot("supervised", 6, "ccccccccdddd")
+        self.write_seed([self._seed_item("supervised", 6, rel3, sha3, "active", parent=None)])
+        self.write_live("supervised", custom_snap)
+        self.write_policy(custom["sha1_16"])
+
+        out = reg.sync_seed("tester")
+        self.assertEqual(out["seed"]["imported"], 1, out)
+        by_gen = {m["generation"]: m for m in reg.list_models("supervised")}
+        self.assertEqual(by_gen[6]["status"], "archived")
+        self.assertEqual(by_gen[custom["generation"]]["status"], "active")
+        acts = {r["channel"]: r for r in out["reconciled"]}
+        self.assertEqual(acts["supervised"]["action"], "already_active")
 
 
 if __name__ == "__main__":

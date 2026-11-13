@@ -2,7 +2,7 @@
   "schema": 1,
   "generated_by": "service.export_registry_seed",
   "generated_at": 1794490791258,
-  "note": "随仓库发布的预置代次清单：只描述 artifacts/models/ 下实际入库的快照。首次启动且 model_registry 为空时由 model_registry.import_seed() 导入；schema/字段说明见 model_registry.SEED_MODEL_KEYS。",
+  "note": "随仓库发布的预置代次清单：只描述 artifacts/models/ 下实际入库的快照。启动时由 model_registry.sync_seed() 导入（空库完整导入，非空库只补缺失代次并按策略校正 active）；schema/字段说明见 model_registry.SEED_MODEL_KEYS。",
   "models": [
     {
       "channel": "supervised",

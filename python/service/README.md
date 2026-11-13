@@ -4,7 +4,7 @@ WAF 控制台的后端。**单机 + 账号 RBAC + 审计**，FastAPI + SQLite。
 
 ```bash
 cd python
-py -3.10 -m pip install -r requirements-service.txt   # 只需一次
+py -3.10 -m pip install -r requirements-service.txt   # 只需一次（含标定/切模型所需 numpy/onnxruntime/xgboost）
 py -3.10 -m service.bootstrap             # 幂等建库 + admin（不启动服务）
 py -3.10 -m service.run                   # http://127.0.0.1:8090/docs
 ```

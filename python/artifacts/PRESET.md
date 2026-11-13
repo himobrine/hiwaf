@@ -27,17 +27,22 @@ warm start 需要 `xgb_model.json`。两者本来就在库里。
 
 **为什么还需要 `registry_seed.json`**：代次与血缘存在 `python/service/console.db` 里，
 而 db（含用户、审计、密钥）**不入库**。清单把「哪几个目录组成哪一代、父代是谁」固化成
-一份小 JSON，首次启动且 `model_registry` 表为空时由
-`model_registry.import_seed()` 导入。
+一份小 JSON，启动时由 `model_registry.sync_seed()` 导入：
+
+- 空库：完整导入（与旧版首次启动行为一致）；
+- 非空库（升级）：只补入缺失的 `(channel, generation)` / sha，不覆盖任何已有行；
+  随后按 `decision_policy.json` 的 `artifact_sha1_16`（缺失时退回现役槽位文件的 sha1）
+  校正 `active`——库里已有的现役若与磁盘/策略不一致才切换，不会顶掉用户自己切的模型。
 
 导入时的硬性校验（任一不满足就跳过该行，不会登记出磁盘上不存在的代次）：
 
 1. `snapshot_dir/model.onnx` 存在；
 2. 其实际 `sha1_16` 与清单一致；
 3. `meta_path` 存在；
-4. 每通道最多一个 `active`（多余降级为 `archived`）。
+4. 每通道最多一个 `active`（同一次导入里多余降级为 `archived`；非空库已有现役时，
+   新补入的清单 active 先记为 `archived`，由上面的策略校正决定是否真正生效）。
 
-非空表**绝不覆盖**——用户自己训练的历史优先。
+用户自己训练/导入的代次永远优先：清单不会改写它们的名称、状态或快照。
 
 ## 3. 训练配方（摘自 meta，完整字段见各代 `*_meta.json`）
 

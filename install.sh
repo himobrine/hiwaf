@@ -297,6 +297,31 @@ has_rust_toolchain() {
     return 0
 }
 
+# xgboost 的 Linux wheel 依赖 OpenMP 运行库（libgomp）。只装 Python 的镜像
+# （slim / 容器）可能没有它，表现是 import xgboost 时 libgomp.so.1 找不到。
+have_libgomp() {
+    if command -v ldconfig >/dev/null 2>&1; then
+        ldconfig -p 2>/dev/null | grep -q 'libgomp\.so' && return 0
+        return 1
+    fi
+    ls /usr/lib*/libgomp.so* /usr/lib/*/libgomp.so* >/dev/null 2>&1
+}
+
+ensure_xgboost_runtime() {
+    [ "$PM" = "none" ] && return 0
+    have_libgomp && return 0
+    if [ "$NO_INSTALL_DEPS" -eq 1 ]; then
+        warn "未找到 libgomp（xgboost 运行时依赖）；import xgboost 可能失败，需手动安装。"
+        return 0
+    fi
+    log "安装 xgboost 运行时依赖 libgomp"
+    case "$PM" in
+        apt)    pkg_install libgomp1 ;;
+        dnf|yum) pkg_install libgomp ;;
+        pacman) pkg_install gcc-libs ;;
+    esac
+}
+
 # ---------------------------------------------------------------------------
 # 主流程
 # ---------------------------------------------------------------------------
@@ -365,10 +390,24 @@ else
 fi
 
 log "安装控制面 Python 依赖"
+ensure_xgboost_runtime
 PIP_ARGS=()
 if [ -n "$PIP_INDEX" ]; then PIP_ARGS=(-i "$PIP_INDEX"); fi
 run "$VENV_PY" -m pip install --upgrade pip ${PIP_ARGS[@]+"${PIP_ARGS[@]}"}
 run "$VENV_PY" -m pip install -r "$ROOT/python/requirements-service.txt" ${PIP_ARGS[@]+"${PIP_ARGS[@]}"}
+# 控制台会通过子进程调用 thresholds.py / export_shap_ref.py；这三个包缺失时
+# 只会在页面上点「策略标定 / 切模型」时才炸（ModuleNotFoundError），所以安装后立即断言。
+if [ "$DRY_RUN" -eq 0 ]; then
+    if ! "$VENV_PY" -c 'import numpy, onnxruntime, xgboost' >/dev/null 2>&1; then
+        err "控制面依赖导入失败：numpy / onnxruntime / xgboost 至少缺一个。"
+        err "  这会让策略标定与切模型在运行时才报 ModuleNotFoundError。"
+        err "  若 xgboost 报 libgomp.so.1 找不到，请安装对应发行版的 libgomp。"
+        err "  请检查 pip 网络/镜像后重试，或手动执行："
+        err "    \"$VENV_PY\" -m pip install -r \"$ROOT/python/requirements-service.txt\""
+        die "控制面依赖安装不完整"
+    fi
+    ok "控制面依赖可导入：numpy / onnxruntime / xgboost"
+fi
 if [ "$WITH_TRAINING" -eq 1 ]; then
     log "安装训练依赖（体积较大）"
     run "$VENV_PY" -m pip install -r "$ROOT/python/requirements.txt" ${PIP_ARGS[@]+"${PIP_ARGS[@]}"}

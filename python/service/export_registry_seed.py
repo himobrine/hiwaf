@@ -1,8 +1,9 @@
 """把本地 `model_registry` 导出成随仓库发布的代次清单 `artifacts/registry_seed.json`。
 
 用途：`console.db` 不入库，而模型代次/血缘存在库里。发布预置模型时把「哪些快照
-组成哪一代、父代是谁」固化成一张小 JSON，首次启动由 `model_registry.import_seed()`
-导入，clone 下来就有完整的代次树。
+组成哪一代、父代是谁」固化成一张小 JSON，启动时由
+`model_registry.sync_seed()` / `import_seed(merge=True)` 导入（空库完整导入，
+非空库只补缺失代次），clone 下来就有完整的代次树。
 
 只导出**快照目录真实存在**的行；sha1 以磁盘文件为准重新计算，与登记值不一致时
 打印警告并以磁盘为准（清单必须描述仓库里实际有的东西）。
@@ -80,7 +81,8 @@ def build_seed() -> Dict[str, Any]:
         "generated_by": "service.export_registry_seed",
         "generated_at": db.now_ms(),
         "note": ("随仓库发布的预置代次清单：只描述 artifacts/models/ 下实际入库的快照。"
-                 "首次启动且 model_registry 为空时由 model_registry.import_seed() 导入；"
+                 "启动时由 model_registry.sync_seed() 导入（空库完整导入，"
+                 "非空库只补缺失代次并按策略校正 active）；"
                  "schema/字段说明见 model_registry.SEED_MODEL_KEYS。"),
         "models": models,
         "_warnings": warnings,

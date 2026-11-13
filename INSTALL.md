@@ -14,7 +14,7 @@
 
 | 项 | 默认值 | 说明 |
 | --- | --- | --- |
-| 安装范围 | **控制台优先** | 只装 `python/requirements-service.txt`；训练依赖要显式 `--with-training` / `-WithTraining` |
+| 安装范围 | **控制台优先** | 只装 `python/requirements-service.txt`（含 numpy/onnxruntime/xgboost，供策略标定与切模型）；完整训练依赖要显式 `--with-training` / `-WithTraining` |
 | Python | **3.10 – 3.13** | 优先复用现有解释器；3.14+ 因锁定依赖暂无 wheel 暂不支持 |
 | Node.js | **18+** | 只用于构建前端 |
 | 端口 / 监听 | `8090` / `127.0.0.1` | 仅本机可访问 |
@@ -26,13 +26,15 @@
 产物位置：
 
 - 控制台入口：`web/dist`（由 FastAPI 单端口托管）
-- 数据库：`python/service/console.db`（**不入库**；首次启动会把仓库自带的预置代次清单
-  `python/artifacts/registry_seed.json` 导入这张表）
+- 数据库：`python/service/console.db`（**不入库**；启动时会把仓库自带的预置代次清单
+  `python/artifacts/registry_seed.json` 同步进这张表：空库完整导入，非空库只补缺失代次）
 - 预置模型：`python/artifacts/`（两个 ONNX、零日训练件）+
   `python/artifacts/models/{supervised,zero_day}/gen-*`（代次快照，见 `PRESET.md`）
 - 初始密码：`python/service/.admin_password`（首次创建 admin 时生成）
-- 采集器二进制：`bin/waf-collector.exe`（Windows）/ `bin/waf-collector`（Linux）；
-  `proxy/build.bat|sh build --release` 成功后自动复制到这里，控制台优先使用它
+- 采集器 / 门禁二进制：Linux 的 `bin/waf-collector`、`bin/waf-ai-proto`、`bin/loadgen`、
+  `bin/echo_upstream` 随仓库发布，默认直接复用；Windows 为 `bin/waf-collector.exe`
+  （从 Releases 下载）。`proxy/build.bat|sh build --release` 成功后会自动复制到这里，
+  控制台优先使用它
 - Rust 构建缓存：Windows 默认 `%LOCALAPPDATA%\waf-cargo-target`（作者本机指向 `E:\waf-target`，
   见 `SETUP.md` 附录 A）；
   Linux 为 `~/.cache/waf-cargo-target`
@@ -173,6 +175,10 @@ Fedora / RHEL 可用 dnf 的 `python3.11` / `python3.12` 模块，或用 pyenv �
 非 root 且没有 `sudo` 时，脚本会在安装系统依赖前失败；先用 root 装好依赖，
 再加 `--no-install-deps` 以普通用户运行。
 
+> xgboost 的 Linux wheel 需要 OpenMP 运行库；脚本在装 Python 依赖前会检查 `libgomp`，
+> 缺失时自动安装（apt: `libgomp1` / dnf,yum: `libgomp` / pacman: `gcc-libs`），
+> 否则 `import xgboost` 会报 `libgomp.so.1: cannot open shared object file`。
+
 Rust 工具链在 `--with-rust` / `--full` 下自动安装：发行版包（gcc/make/cmake/ninja）
 + rustup（`https://sh.rustup.rs`）。默认「尽力构建」时，工具链不完整只警告。
 
@@ -183,9 +189,10 @@ Rust 工具链在 `--with-rust` / `--full` 下自动安装：发行版包（gcc/
 1. **检查仓库完整性**：`python/service/app.py`、`web/package.json`、`proxy/Cargo.toml`。
 2. **找 Python 3.10–3.13 / Node 18+**，缺失则按上面的策略安装。
 3. **创建 `.venv`**（已存在则复用）。
-4. `pip install --upgrade pip` + `pip install -r python/requirements-service.txt`。
+4. `pip install --upgrade pip` + `pip install -r python/requirements-service.txt`，
+   然后断言 `numpy / onnxruntime / xgboost` 可导入（否则策略标定/切模型会在运行时才报错）。
 5. **前端**：`npm ci`（无 lock 时 `npm install`）→ `npm run typecheck` → `npm run build`。
-6. **初始化 DB/admin**：`python -m service.bootstrap`（幂等）。
+6. **初始化 DB/admin**：`python -m service.bootstrap`（幂等，并同步预置模型代次）。
 7. **Rust/采集器**（可选）：`rust/build.sh build --release`、
    `proxy/build.sh build --release`，共用 `WAF_CARGO_TARGET`。
 8. **启动**：前台、`--verify` 临时启动跑 smoke、或 `--systemd` 常驻。
@@ -273,6 +280,13 @@ Nginx/Caddy 之后，并配置 HTTPS 与访问控制。
 
 不会。DB 用 `CREATE TABLE IF NOT EXISTS`；已有 admin 不改密码；
 `.secret`（JWT 密钥）只在缺失时生成。`--force` 也不会删数据。
+
+**升级后模型页看不到新代次（g3）**
+
+`git pull` 后重启控制台即可：启动时 `model_registry.sync_seed()` 会把仓库新增的
+预置代次补进现有 `console.db`（只补缺失项，不覆盖你自己的训练记录），并按
+`decision_policy.json` 校正现役。也可以手动跑一次
+`python -m service.bootstrap`。**不需要删 `console.db`**。
 
 **重置环境（谨慎）**
 

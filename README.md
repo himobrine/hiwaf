@@ -158,8 +158,11 @@ install.bat -WithRust        :: 连 Rust 判定引擎与采集器一起构建
 
 预编译二进制在 [Releases](https://github.com/himobrine/hiwaf/releases)：下载
 `waf-collector-v0.1.0-windows-x86_64.exe` 放进 `bin\waf-collector.exe` 即可，
-模型/策略/规则仍用仓库里的 `python/artifacts/`。当前只有 Windows x64；Linux 产物待补，
-Linux 用户先按下面的 `build.sh` 自行构建。
+模型/策略/规则仍用仓库里的 `python/artifacts/`。
+
+**Linux x86_64 不需要另找 Release**：`bin/waf-collector`、`bin/waf-ai-proto`、
+`bin/loadgen`、`bin/echo_upstream` 已随仓库发布，`install.sh` 默认直接复用。
+要本地重建再按下面的 `build.sh`。
 
 ### Linux
 

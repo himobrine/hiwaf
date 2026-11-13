@@ -398,6 +398,18 @@ function Ensure-PythonDeps {
     if ($PipIndex) { $install += @("-i", $PipIndex) }
     Run -Exe $script:VenvPy -Arguments $install
 
+    # 控制台会通过子进程调用 thresholds.py / export_shap_ref.py；缺包只会在点
+    # 「策略标定 / 切模型」时才炸（ModuleNotFoundError），所以安装后立即断言。
+    $probe = Invoke-External -Exe $script:VenvPy -Arguments @("-c", "import numpy, onnxruntime, xgboost")
+    if ($probe -ne 0) {
+        Write-Err "控制面依赖导入失败：numpy / onnxruntime / xgboost 至少缺一个。"
+        Write-Err "  这会让策略标定与切模型在运行时才报 ModuleNotFoundError。"
+        Write-Err "  请检查 pip 网络/镜像后重试，或手动执行："
+        Write-Err "    `"$($script:VenvPy)`" -m pip install -r `"$req`""
+        throw "控制面依赖安装不完整"
+    }
+    Write-Ok "控制面依赖可导入：numpy / onnxruntime / xgboost"
+
     if ($WithTraining) {
         Write-Step "安装训练依赖（体积较大）"
         $trainReq = Join-Path $script:Root "python\requirements.txt"

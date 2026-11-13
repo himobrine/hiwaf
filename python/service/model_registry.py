@@ -570,21 +570,27 @@ SEED_MODEL_KEYS = (
 
 
 def import_seed(actor: str = "bootstrap",
-                seed_path: Optional[os.PathLike | str] = None) -> Dict[str, Any]:
-    """把随仓库发布的代次清单导入空库（幂等）。
+                seed_path: Optional[os.PathLike | str] = None,
+                merge: bool = False) -> Dict[str, Any]:
+    """把随仓库发布的代次清单导入 `model_registry`（幂等）。
 
-    只有 `model_registry` 为空时才动作：非空直接返回 `reason="not_empty"`，
-    避免覆盖用户自己的训练历史。
+    默认（`merge=False`）只在空库时动作：非空直接返回 `reason="not_empty"`。
+    `merge=True` 用于**升级**：不覆盖任何已有行，只补入缺失的
+    `(channel, generation)` / `(channel, sha1_16)`，并沿用已有行的 id 建立父代关系。
 
     安全约束：
       * 逐行校验 `snapshot_dir/model.onnx` 的实际 sha1 与清单一致，**不一致就跳过**，
         防止清单与文件漂移后登记出一个磁盘上并不存在的代次；
       * 父代按 `(channel, generation)` 引用，父代被跳过时子代降级为根（`parent_id=None`）；
-      * 每通道最多一个 `active`（与 `ux_model_one_active` 唯一索引一致），多余降级为
-        `archived` 并记入返回值的 `downgraded`。
+      * 每通道最多一个 `active`（与 `ux_model_one_active` 唯一索引一致）。
+        merge 时若通道**已有**现役，新补入的清单 active 降级为 `archived`，
+        不会顶掉用户自己切换的模型；同一次导入内出现多个 active 时仍保留代次更高者。
     """
-    out: Dict[str, Any] = {"imported": 0, "skipped": [], "downgraded": [], "reason": None}
-    if db.one("SELECT id FROM model_registry LIMIT 1"):
+    out: Dict[str, Any] = {"imported": 0, "skipped": [], "downgraded": [],
+                           "reason": None, "merged": merge}
+    existing = db.rows(
+        "SELECT id, channel, generation, sha1_16, status FROM model_registry")
+    if existing and not merge:
         out["reason"] = "not_empty"
         return out
 
@@ -601,8 +607,15 @@ def import_seed(actor: str = "bootstrap",
         except ValueError:
             return (len(CHANNELS), int(m.get("generation") or 0))
 
-    ids: Dict[Tuple[str, int], int] = {}
-    active_cur: Dict[str, Tuple[int, int]] = {}
+    # 已有行参与父代解析：升级补入 g3 时父代可能正是库里的 g2。
+    ids: Dict[Tuple[str, int], int] = {
+        (r["channel"], int(r["generation"])): int(r["id"]) for r in existing}
+    existing_sha = {(r["channel"], r["sha1_16"]) for r in existing}
+    active_cur: Dict[str, Tuple[int, int]] = {
+        r["channel"]: (int(r["id"]), int(r["generation"]))
+        for r in existing if r["status"] == "active"}
+    pre_active = set(active_cur)          # 导入前就已存在的现役（不能被清单顶掉）
+
     for it in sorted((x for x in items if isinstance(x, dict)), key=_sort_key):
         ch = it.get("channel")
         if ch not in CHANNELS:
@@ -612,10 +625,18 @@ def import_seed(actor: str = "bootstrap",
         if gen <= 0:
             out["skipped"].append({"channel": ch, "generation": gen, "reason": "generation 非法"})
             continue
+        if (ch, gen) in ids:
+            out["skipped"].append({"channel": ch, "generation": gen, "reason": "代次已存在",
+                                   "id": ids[(ch, gen)]})
+            continue
         snap = _artifact_path(it.get("snapshot_dir"))
         want_sha = it.get("sha1_16")
         if not it.get("snapshot_dir") or not want_sha:
             out["skipped"].append({"channel": ch, "generation": gen, "reason": "缺 snapshot_dir/sha1_16"})
+            continue
+        if (ch, want_sha) in existing_sha:
+            out["skipped"].append({"channel": ch, "generation": gen,
+                                   "reason": "同一 sha1 已登记", "sha1_16": want_sha})
             continue
         disk_sha = sha1_16_file(snap / "model.onnx") if snap else None
         if disk_sha is None:
@@ -641,14 +662,22 @@ def import_seed(actor: str = "bootstrap",
         if status == "pruned":
             status = "archived"
         if status == "active" and ch in active_cur:
-            # 清单里同一通道出现多个 active：保留代次更高的那个（上面的排序保证后来者更新），
-            # 旧的一条降级为 archived，避免撞 `ux_model_one_active`。
-            old_id, old_gen = active_cur.pop(ch)
-            db.execute(
-                "UPDATE model_registry SET status='archived', retired_at=?, updated_at=? "
-                "WHERE id=? AND status='active'", (now_ms(), now_ms(), old_id))
-            out["downgraded"].append({"channel": ch, "generation": old_gen,
-                                      "from": "active", "to": "archived"})
+            if ch in pre_active:
+                # 库里已有现役（可能是用户自己切过去的）——清单只补历史记录，
+                # 不夺权；真正该生效的代次由 sync_seed() 按策略/现役槽位校正。
+                status = "archived"
+                out["downgraded"].append({"channel": ch, "generation": gen,
+                                          "from": "active", "to": "archived",
+                                          "reason": "通道已有现役"})
+            else:
+                # 同一次导入里出现多个 active：保留代次更高的那个
+                # （排序保证后来者更新），旧的一条降级。
+                old_id, old_gen = active_cur.pop(ch)
+                db.execute(
+                    "UPDATE model_registry SET status='archived', retired_at=?, updated_at=? "
+                    "WHERE id=? AND status='active'", (now_ms(), now_ms(), old_id))
+                out["downgraded"].append({"channel": ch, "generation": old_gen,
+                                          "from": "active", "to": "archived"})
         labels = it.get("labels")
         metrics = it.get("metrics")
         recipe = it.get("recipe")
@@ -674,15 +703,71 @@ def import_seed(actor: str = "bootstrap",
              it.get("activated_at"), it.get("retired_at"), actor),
         )
         ids[(ch, gen)] = int(model_id)
+        existing_sha.add((ch, want_sha))
         if status == "active":
             active_cur[ch] = (int(model_id), gen)
         out["imported"] += 1
 
-    _audit(actor, "model_seed_import", "models:seed",
-           {"imported": out["imported"], "skipped": out["skipped"],
-            "downgraded": out["downgraded"], "seed": str(path)})
+    # 升级时每次启动 merge 都会看到一堆「代次已存在」，不要因此刷审计。
+    unexpected = [s for s in out["skipped"]
+                  if s.get("reason") not in ("代次已存在", "同一 sha1 已登记")]
+    if out["imported"] or unexpected:
+        _audit(actor, "model_seed_import", "models:seed",
+               {"imported": out["imported"], "skipped": out["skipped"],
+                "downgraded": out["downgraded"], "merged": merge, "seed": str(path)})
     if not out["imported"]:
         out["reason"] = "nothing_imported"
+    return out
+
+
+def sync_seed(actor: str = "bootstrap") -> Dict[str, Any]:
+    """启动时对齐「预置代次清单 / 注册表 / 现役槽位」（幂等、非破坏性）。
+
+    解决升级场景：`console.db` 里已经有旧代次时，旧的 `import_seed()` 会因
+    `not_empty` 直接退出，`git pull` 带来的新预置代次（如 g3）永远不出现。
+
+    流程：
+      1. `import_seed(merge=True)`：只补缺失代次，不覆盖任何已有行；
+      2. 按 `decision_policy.json` 的 `artifact_sha1_16`（缺失时退回现役槽位文件的
+         sha1）找对应注册行；它若不是 active，则把旧 active 降级并激活它；
+      3. 注册表里找不到现役槽位（老产物/手工拷贝）时，退回 `register_live()`。
+
+    只在**策略与磁盘一致**时激活，因此不会把用户自己切到一半的模型顶掉。
+    """
+    out: Dict[str, Any] = {"seed": import_seed(actor, merge=True),
+                           "reconciled": [], "skipped": [], "reason": None}
+    pol = _read_json(config.POLICY_JSON, {}) or {}
+    for ch in CHANNELS:
+        live = config.LIVE_SLOTS[ch]
+        live_sha = sha1_16_file(config.ARTIFACTS / live["onnx"])
+        want_sha = (pol.get(ch) or {}).get("artifact_sha1_16") or live_sha
+        if not want_sha:
+            out["skipped"].append({"channel": ch, "reason": "现役槽位缺失"})
+            continue
+        row = db.one("SELECT * FROM model_registry WHERE channel=? AND sha1_16=?",
+                     (ch, want_sha))
+        if not row:
+            reg = register_live(actor, ch)
+            out["reconciled"].append({"channel": ch, "action": "register_live", **reg})
+            continue
+        if row.get("status") == "active":
+            out["reconciled"].append({"channel": ch, "action": "already_active",
+                                      "id": row["id"], "generation": row["generation"]})
+            continue
+        now = now_ms()
+        db.execute(
+            "UPDATE model_registry SET status='archived', retired_at=?, updated_at=? "
+            "WHERE channel=? AND status='active' AND id<>?",
+            (now, now, ch, row["id"]))
+        db.execute(
+            "UPDATE model_registry SET status='active', activated_at=?, updated_at=? "
+            "WHERE id=?", (now, now, row["id"]))
+        _audit(actor, "model_sync_active", f"model:{row['id']}",
+               {"channel": ch, "generation": row["generation"],
+                "sha1_16": want_sha, "source": "policy_or_live_slot"})
+        out["reconciled"].append({"channel": ch, "action": "activated",
+                                  "id": row["id"], "generation": row["generation"],
+                                  "sha1_16": want_sha})
     return out
 
 

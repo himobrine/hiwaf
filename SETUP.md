@@ -8,8 +8,8 @@
 > `rust/README.md`、`proxy/README.md`、`python/README.md`。
 >
 > **只想把控制台跑起来**：Windows 用 `install.bat`，Linux 用 `./install.sh`，
-> 见 **`INSTALL.md`**。脚本默认创建 `.venv`、只装控制面依赖（`requirements-service.txt`）、
-> 前台启动；训练/评估/改 Rust 仍按本文的手工步骤。
+> 见 **`INSTALL.md`**。脚本默认创建 `.venv`、只装控制面依赖（`requirements-service.txt`，
+> 含策略标定/切模型所需的 numpy / onnxruntime / xgboost）、前台启动；训练/评估/改 Rust 仍按本文的手工步骤。
 >
 > **路径约定**：本文所有命令都假设当前目录是**仓库根目录**，`cd python` / `cd rust`
 > 等均为相对路径。作者本机把仓库放在 `F:\waf`、构建缓存放 `E:\waf-target`，
@@ -134,12 +134,16 @@ cd python
 py -3.10 -m pip install -r requirements.txt
 ```
 
-控制面 API 的依赖单独放在 `python\requirements-service.txt`（训练机不需要；
-控制面也不需要 xgboost/onnx）：
+控制面依赖单独放在 `python\requirements-service.txt`。控制台不只是 Web API：
+策略标定（`thresholds.py`）、零日开关和切模型（`export_testvec.py` / `export_shap_ref.py`）
+都由它通过子进程调用，因此清单里包含 **numpy / onnxruntime / xgboost**：
 
 ```bat
 py -3.10 -m pip install -r requirements-service.txt
 ```
+
+> 训练 / 评估用的其余依赖（pandas、scipy、scikit-learn、onnx、scapy 等）仍在
+> `requirements.txt`；只跑控制台时不必安装，需要训练时再加。
 
 > **推荐用 venv**：一键安装默认在仓库根建 `.venv`。手工安装也可以：
 >
@@ -634,7 +638,7 @@ CPU/内存/QPS/延迟这类**基础设施运维指标仍归 Grafana + Prometheus
 > `.venv`：把 `py -3.10` 换成 `.venv\Scripts\python.exe` 即可。
 
 ```bat
-:: 1) 装控制面依赖（只需一次；版本与 requirements-service.txt 一致）
+:: 1) 装控制面依赖（只需一次；版本与 requirements-service.txt 一致，含 numpy / onnxruntime / xgboost）
 py -3.10 -m pip install -r requirements-service.txt
 
 :: 2) 构建前端（产物 web\dist，由 FastAPI 单端口托管）
