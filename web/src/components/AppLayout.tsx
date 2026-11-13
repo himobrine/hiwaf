@@ -161,7 +161,7 @@ export default function AppLayout({
         // 已恢复的：关掉弹窗，并清掉它的 12h 忽略标记（下次异常还要提醒）。
         for (const id of Array.from(open)) {
           if (!active.has(id)) {
-            notification.close(`perf:${id}`)
+            notification.destroy(`perf:${id}`)
             open.delete(id)
             try {
               const m = JSON.parse(localStorage.getItem('waf_perf_snooze') || '{}')
@@ -192,7 +192,7 @@ export default function AppLayout({
                     m[id] = Date.now() + 12 * 3600 * 1000
                     localStorage.setItem('waf_perf_snooze', JSON.stringify(m))
                   } catch { /* ignore */ }
-                  notification.close(`perf:${id}`)
+                  notification.destroy(`perf:${id}`)
                   open.delete(id)
                 }}
               >
