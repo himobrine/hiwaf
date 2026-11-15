@@ -1,0 +1,141 @@
+{
+  "generated_at": "2026-11-15 16:52:39",
+  "policy": {
+    "version": 23,
+    "schema": 2,
+    "zero_day_threshold": -6.804936408996582,
+    "supervised_threshold": 0.0029487628489732742,
+    "zero_day_enabled": true
+  },
+  "datasets": {
+    "fur_test_normal": 984,
+    "fur_test_anomaly": 137,
+    "exploit_http": 172,
+    "exploit_by_label": {
+      "xss": 51,
+      "traversal": 21,
+      "cmdi": 89,
+      "sqli": 11
+    }
+  },
+  "zero_day": {
+    "live": {
+      "artifact": "artifacts\\iforest_lean_v20261015_001.onnx",
+      "threshold": -6.804936,
+      "fur_normal_fpr": 0.0051,
+      "fur_anomaly_detect_rate": 0.2117,
+      "exploit_recall": 0.0814,
+      "exploit_by_class": {
+        "sqli": {
+          "n": 11,
+          "recall_at_policy_threshold": 0.0
+        },
+        "xss": {
+          "n": 51,
+          "recall_at_policy_threshold": 0.0392
+        },
+        "cmdi": {
+          "n": 89,
+          "recall_at_policy_threshold": 0.1236
+        },
+        "traversal": {
+          "n": 21,
+          "recall_at_policy_threshold": 0.0476
+        }
+      },
+      "fur_normal_score_quantiles": {
+        "p50": -8.8512,
+        "p90": -7.5794,
+        "p95": -7.3431,
+        "p99": -6.6171
+      },
+      "official_holdout_score_quantiles": {
+        "p50": -11.4158,
+        "p90": -10.3466,
+        "p95": -9.6078,
+        "p99": -5.8585
+      },
+      "threshold_for_1pct_fpr_on_fur": -6.9982,
+      "threshold_for_5pct_fpr_on_fur": -7.3431,
+      "threshold_for_1pct_fpr_on_official": -7.2839
+    },
+    "staged": {
+      "artifact": "artifacts\\staging\\fur_api_add\\model\\model.onnx",
+      "threshold": -6.804936,
+      "fur_normal_fpr": 0.003,
+      "fur_anomaly_detect_rate": 0.1679,
+      "exploit_recall": 0.0698,
+      "exploit_by_class": {
+        "sqli": {
+          "n": 11,
+          "recall_at_policy_threshold": 0.0
+        },
+        "xss": {
+          "n": 51,
+          "recall_at_policy_threshold": 0.0392
+        },
+        "cmdi": {
+          "n": 89,
+          "recall_at_policy_threshold": 0.1124
+        },
+        "traversal": {
+          "n": 21,
+          "recall_at_policy_threshold": 0.0
+        }
+      },
+      "fur_normal_score_quantiles": {
+        "p50": -8.9454,
+        "p90": -7.6088,
+        "p95": -7.37,
+        "p99": -6.7067
+      },
+      "official_holdout_score_quantiles": {
+        "p50": -11.8592,
+        "p90": -10.6839,
+        "p95": -9.9618,
+        "p99": -5.9371
+      },
+      "threshold_for_1pct_fpr_on_fur": -6.9636,
+      "threshold_for_5pct_fpr_on_fur": -7.37,
+      "threshold_for_1pct_fpr_on_official": -7.4112
+    }
+  },
+  "supervised": {
+    "live": {
+      "artifact": "artifacts\\xgboost_v20261015_001.onnx",
+      "threshold": 0.002949,
+      "fur_normal_fpr": 0.6535,
+      "fur_anomaly_detect_rate": 0.8832,
+      "exploit_recall": 0.9826,
+      "exploit_argmax_acc": 0.8779,
+      "exploit_by_class": {
+        "sqli": {
+          "n": 11,
+          "recall_at_policy_threshold": 1.0,
+          "argmax_acc": 0.8182
+        },
+        "xss": {
+          "n": 51,
+          "recall_at_policy_threshold": 1.0,
+          "argmax_acc": 1.0
+        },
+        "cmdi": {
+          "n": 89,
+          "recall_at_policy_threshold": 0.9663,
+          "argmax_acc": 0.7978
+        },
+        "traversal": {
+          "n": 21,
+          "recall_at_policy_threshold": 1.0,
+          "argmax_acc": 0.9524
+        }
+      },
+      "fur_normal_score_quantiles": {
+        "p50": 0.0893,
+        "p90": 0.9968,
+        "p95": 0.9988,
+        "p99": 0.9999
+      }
+    }
+  }
+}
