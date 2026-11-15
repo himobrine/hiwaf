@@ -1477,3 +1477,87 @@ py -3.10 eval_wafdata.py --models live,new,scratch
 py -3.10 iforest_lean_onnx.py --data waf --trees 200 --parent-model artifacts/iforest_model.joblib --export --out-dir artifacts/staging/iforest_waf2026 --onnx-name model.onnx
 py -3.10 thresholds.py --pool file:artifacts/staging/waf2026_scratch/calibration_pool.jsonl --train-keys artifacts/staging/waf2026_scratch/training_keys.txt --rules artifacts/rules_authoritative.json --xgb-onnx artifacts/staging/waf2026_scratch/model.onnx --iforest-onnx artifacts/staging/iforest_waf2026/model.onnx --xgb-meta artifacts/staging/waf2026_scratch/xgboost_meta.json --out artifacts/staging/waf2026_scratch/decision_policy_preview.json --no-testvec
 ```
+
+---
+
+## 14. 2026-11-15 零日 g4：FUR-API 良性增量（加训 A/B）
+
+### 14.1 两份新数据与可用性
+
+| 数据 | 规模 | 结论 |
+|---|---|---|
+| `FUR-API/train.csv` | 20,060 行，`normal` 20,000 / `anomaly` 60（0.30%） | **只当良性**加训；`anomaly` 是"业务异常"、不是攻击子类 |
+| `FUR-API/test.csv` | 1,150 行，1,000 / 150（13%） | 评估集；`anomaly` 仅报检出率，不与 5 类对齐 |
+| `exploit_dataset.jsonl` | 1,156 个对象，Web 706 / Software 329 / Network 72 | **只做评估**：CVE 编号成块连号、标题与编号不符，疑似合成数据 |
+
+三个转换器按项目口径归一化（`method/path/query/body/label`）：
+
+- `convert_fur_api.py`：显式映射 `normal→0 / anomaly→1`。**不能直接用 `upload_parse`**：
+  它的标签别名表没有 `anomaly`，会静默丢弃全部异常行；`request_headers/response_*` 不入库。
+  去重后 train 保留 18,203 条（18,144 良性 / 59 异常，丢重复 1,857），test 保留 1,121 条。
+- `convert_exploit.py`：源文件是**缺逗号的 pretty-printed JSON 数组**，`json.loads` 必失败；
+  按 2 空格缩进切块修复（1,156 块 → 1,107 个对象，49 块因非法 `\` 转义失败，样本全为
+  Software 平台），再从 `poc` 拆 HTTP 报文。只收 Web + 4 类可映射攻击、去重后 **172 条**
+  （xss 51 / cmdi 89 / traversal 21 / sqli 11）。
+- 单测：`python/test_convert_newdata.py`（12 项，缺逗号切块 / `poc` 拆分 / 标签映射 /
+  FUR CSV 标签映射 / 坏块统计）。
+
+### 14.2 加训配置
+
+`iforest_lean_onnx.py --data waf --export --upload-manifest ... --upload-mode add
+--calib-mode official --parent-model gen-0003/iforest_model.joblib --trees 225`：
+
+- 父代 g3（200 棵）warm start 到 **225 棵**；`max_samples=256` 不变；Spearman vs sklearn 0.9999999991。
+- 校准仍用**官方 12k 留出**（`--calib-mode official`），meta 与 policy 阈值可比；
+  污染检查：训练指纹与校准池交集 **0**。
+- 产物先落 `artifacts/staging/fur_api_add/`，再按切换门禁登记为
+  `models/zero_day/gen-0004-cfead12f36a4`（父代 g3，`trainable=1`）。
+
+### 14.3 A/B（同一阈值档位 0.5% FPR）
+
+| 指标 | g3（–6.804936） | **g4（–6.824606）** |
+|---|---|---|
+| FUR-API test 正常流量 FPR | 0.51% | **0.30%** |
+| 官方 12k 留出 FPR | 0.54% | **0.50%** |
+| FUR-API `anomaly` 检出 | 21.17% | 18.25% |
+| exploit HTTP 召回（n=172） | 8.72% | 6.98% |
+
+**怎么读这张表**：
+
+1. 两条 FPR 的改善都只有几条样本的量级（984 条里 5→3、12,000 条里 65→60），
+   **在统计噪声内**；真正的收益是"并入一批新分布良性后，官方留出 FPR 没有变差"。
+2. `anomaly` 检出下降同样在噪声内，且该集合是"业务异常"而非攻击，**不作为检出能力指标**。
+3. exploit 集合召回本来就低（`sqli` 0/11、`traversal` 0/21），零日通道只做 alert；
+   已知攻击的召回应看监督通道（同批 98.26%，argmax 87.79%）。
+4. FUR-API 对零日通道近似**同分布**（0.51% vs 0.50%），对监督通道则是 OOD
+   （同阈值下 FUR 正常流量误报 **65.35%**）——这也是本轮只动零日、不动监督的原因。
+
+### 14.4 上线与门禁（2026-11-15）
+
+走控制台同一条「切换现役」编排（备份 → 写固定槽位 → `thresholds.py` → `export_testvec.py`
+→ `waf-ai-proto` → 登记表），`switch#14` 全过：特征逐位一致、XGBoost 1.76e-6、
+IForest 6.68e-6、融合动作 200/200、policy↔testvec 阈值 0.000e0、`cargo test` 18/18。
+策略 `v23 → v24`，校准池指向新快照（同 12k 内容）。
+
+> ⚠️ `iforest_meta.json` 只有 0.001/0.01/0.03/0.05/0.1 档位，没有 0.005，
+> 所以 `main.rs` 的 meta↔policy 交叉校验**跳过并告警**（policy↔testvec 仍校验）。
+> 要恢复三方校验，需在 `iforest_lean_onnx.py` 的 `FPR_BUDGETS` 加入 0.005 档。
+
+### 14.5 已知限制
+
+1. `traindata/` 在 `.gitignore` 里，两份新数据**不入库**；来源/授权均未核实（见
+   `THIRD_PARTY_NOTICES.md` §2）。
+2. FUR-API 的 `normal/anomaly` 标注来自其原始采集口径，未做去污染；本轮只把它当良性。
+3. exploit 集合疑似合成，召回数字**不能与真实在野评估横向比较**。
+
+### 14.6 复现
+
+```bat
+py -3.10 convert_fur_api.py --input ..\traindata\FUR-API\train.csv --out artifacts\staging\fur_api\train
+py -3.10 convert_fur_api.py --input ..\traindata\FUR-API\test.csv  --out artifacts\staging\fur_api\test
+py -3.10 convert_exploit.py
+py -3.10 -m unittest test_convert_newdata -v
+py -3.10 eval_newdata.py --extra-iforest staged=artifacts/staging/fur_api_add/model/model.onnx
+py -3.10 iforest_lean_onnx.py --data waf --export --upload-manifest artifacts\staging\fur_api_add\datasets.json --upload-mode add --calib-mode official --parent-model artifacts\models\zero_day\gen-0003-8d21a7c2dce8\iforest_model.joblib --trees 225 --out-dir artifacts\staging\fur_api_add\model --onnx-name model.onnx
+```
+

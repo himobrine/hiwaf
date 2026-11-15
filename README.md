@@ -108,20 +108,20 @@ flowchart LR
 
 ## 当前状态
 
-> 以下为 2026-11-12 的现役产物（2026-11 语料换代后的 g3）。**唯一事实来源是
+> 以下为 2026-11-15 的现役产物（监督 g3 + 零日 g4，零日已并入 FUR-API 良性增量）。**唯一事实来源是
 > `python/artifacts/decision_policy.json`**，本表只是快照。
 
 | 项 | 值 |
 |---|---|
-| 策略版本 | **v22** |
+| 策略版本 | **v24** |
 | 监督通道 | XGBoost **g3**（4000 棵树 / 210,706 节点 / 深度 8），sha `abe16c602d1e4893` |
 | 监督阈值 | `0.002949` @ 有效目标 FPR 0.6336%（已扣规则 0.3664%） |
-| 零日通道 | IForest **g3**（200 棵树，CSIC 125 → warm start +75），sha `8d21a7c2dce87e85` |
-| 零日阈值 | `-6.804936` @ 目标 FPR **0.5%**（与监督档位独立，同 12k 池标定） |
-| 零日开关 | `zero_day_enabled = true`（**仅告警、不阻断**；实测 FPR 0.69%、payload 召回 29.9%） |
+| 零日通道 | IForest **g4**（225 棵树，CSIC-IF 125 → g3 200 → warm start +25），sha `cfead12f36a4dd7c` |
+| 零日阈值 | `-6.824606` @ 目标 FPR **0.5%**（与监督档位独立，同 12k 池标定） |
+| 零日开关 | `zero_day_enabled = true`（**仅告警、不阻断**；官方 12k 留出 FPR 0.50%、FUR-API 正常流量 FPR 0.30%） |
 | 现役规则集 | **91 条 / 41 条 block**，sha `5425465fd0085457` |
 | 校准池 | 12,000 条去污染良性留出（与训练集交集 0） |
-| 采集器 | 切换后需重启才加载 g3（控制台显示 `pending_restart`） |
+| 采集器 | 切换后需重启才加载 g4（控制台显示 `pending_restart`） |
 
 门禁（`rust/` 一致性 harness，全部通过）：
 
@@ -129,9 +129,9 @@ flowchart LR
 |---|---|
 | Rust 特征 vs Python v2 | **逐位一致**，200×80 全 0 差异 |
 | XGBoost 推理 vs onnxruntime | max\|diff\| ≈ 1.76e-6，argmax 200/200 |
-| IForest 推理 | max\|diff\| ≈ 7.6e-6 |
+| IForest 推理 | max\|diff\| ≈ 6.7e-6 |
 | TreeSHAP vs `pred_contribs` | max\|diff\| ≈ 1.43e-5 |
-| 阈值交叉核对 | 0.000e0（零日 meta vs policy ≤ 9.5e-7） |
+| 阈值交叉核对 | 0.000e0（policy vs testvec；`iforest_meta` 无 0.005 档位，meta↔policy 交叉校验跳过） |
 | 融合动作一致性 | 200/200 |
 
 单请求延迟（release，i5-12500H；**g3 4000 棵深树实测，2026-11-12**）：
@@ -140,9 +140,10 @@ alert/block **p50 ≈ 3.9 ms / p99 ≈ 5.2 ms**（单类 TreeSHAP）。
 g3 的树更深（平均 52.7 节点/树，g2 为 5.9），TreeSHAP 成本相应上升；采集器只在
 **已命中**的请求上算 SHAP，allow 路径不受影响。
 
-零日通道（2026-11 语料）：g3 = CSIC-IF 125 棵 warm start 到 200 棵；**目标 FPR 0.5%（alert-only）**，
-实测 parquet test 正常流量 FPR **0.69%**、`anomalous` 召回 12.4%、载荷攻击召回 29.9%、
-5 类 test 攻击召回 52.8%（其余大多已被监督通道阻断）。零日只产生 alert、不阻断；
+零日通道（2026-11 语料 + FUR-API）：g3 = CSIC-IF 125 棵 warm start 到 200 棵；g4 再 +25 棵，
+并入 FUR-API `train.csv` 的 18,144 条去重良性（`--upload-mode add`），**目标 FPR 0.5%（alert-only）**。
+当前官方 12k 留出 FPR **0.50%**、FUR-API test 正常流量 FPR **0.30%**（A/B 见
+[`REALDATA_EVALUATION.md`](REALDATA_EVALUATION.md)）。零日只产生 alert、不阻断；
 档位可用 `thresholds.py --zero-day-fpr` 或控制台「零日目标 FPR」单独调整。
 
 ## 快速开始
@@ -220,8 +221,8 @@ cd proxy
 
 `traindata/`（数据集）、`console.db`、日志、上传件等运行态与大文件都在 `.gitignore` 里。
 
-**仓库自带预置模型产物（v22）**：两个现役 ONNX、零日 warm start 训练件，以及
-`python/artifacts/models/` 下三代快照（含血缘清单 `registry_seed.json`）。
+**仓库自带预置模型产物（v24）**：两个现役 ONNX、零日 warm start 训练件，以及
+`python/artifacts/models/` 下四代快照（含血缘清单 `registry_seed.json`）。
 克隆后直接启动控制台即可看到模型在跑、代次树完整，**不需要先训练**。
 预置代次清单的校验规则见 [`python/artifacts/PRESET.md`](python/artifacts/PRESET.md)；
 要复现、增量训练或换成自己的数据，再按 [`SETUP.md`](SETUP.md) 走一遍。

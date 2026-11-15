@@ -1,18 +1,18 @@
 {
   "schema": 2,
-  "version": 23,
+  "version": 26,
   "generated_by": "thresholds.py",
-  "generated_at": "2026-11-12 21:21:11",
+  "generated_at": "2026-11-15 17:12:29",
   "zero_day_enabled": true,
   "calibration_pool": {
     "name": "本地流量文件 calibration_pool.jsonl 共 12000 条",
-    "source": "file:F:\\waf\\python\\artifacts/models/zero_day/gen-0003-8d21a7c2dce8/calibration_pool.jsonl",
+    "source": "file:F:\\waf\\python\\artifacts\\models\\zero_day\\gen-0004-cfead12f36a4\\calibration_pool.jsonl",
     "n": 12000,
     "n_overlap": 0,
     "overlap_rate": 0.0,
-    "training_set": "训练指纹仅来自 --train-keys（不重建旧语料） + upload_keys=246362",
+    "training_set": "训练指纹仅来自 --train-keys（不重建旧语料） + upload_keys=18144",
     "n_training": 0,
-    "n_upload_training": 246362
+    "n_upload_training": 18144
   },
   "supervised": {
     "artifact": "xgboost_v20261015_001.onnx",
@@ -45,14 +45,14 @@
   },
   "zero_day": {
     "artifact": "iforest_lean_v20261015_001.onnx",
-    "artifact_sha1_16": "8d21a7c2dce87e85",
+    "artifact_sha1_16": "cfead12f36a4dd7c",
     "score_def": "-avg_path_len",
-    "target_fpr": "0.005",
-    "threshold": -6.804936408996582,
+    "target_fpr": "0.01",
+    "threshold": -7.411191463470459,
     "thresholds": {
-      "0.001": -5.858473300933838,
-      "0.01": -7.283901214599609,
-      "0.03": -8.951040267944336
+      "0.001": -5.937148571014404,
+      "0.01": -7.411191463470459,
+      "0.03": -9.214156150817871
     },
     "actual_fpr": {
       "0.001": 0.001,
@@ -96,8 +96,8 @@
       "block": "阻断（监督通道 或 权重和≥阻断线的 block 规则；当前 41 条）"
     }
   },
-  "union_fpr_on_pool": 0.011083333333333334,
+  "union_fpr_on_pool": 0.01575,
   "block_fpr_on_pool": 0.006416666666666667,
   "fused_block_fpr_on_pool": 0.009000000000000001,
-  "effective_fused_fpr_on_pool": 0.013666666666666667
+  "effective_fused_fpr_on_pool": 0.018333333333333333
 }

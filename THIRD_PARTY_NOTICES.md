@@ -113,6 +113,8 @@ AGPL §13（远程网络交互）提示：如果你修改本项目并把它作�
 | OWASP ModSecurity 审计日志（`owasp/*/modsec_audit.anon.log`） | 真实在野攻击（训练 + 召回评估；零良性） | 是 | OWASP CRS 相关公开数据；Anonymous 化；**未核实**再分发条款 |
 | `WAF-Payload-Collection`（nuclei payloads） | 攻击载荷集 + **已知误报**困难良性负例 | 是 | 仓库 **GPL-3.0**；载荷整合自 SecLists / PayloadsAllTheThings / GoTestWAF 等，**逐条上游许可未核实** |
 | `WAF_DETECTION_DATASET.jsonl` | 外部 WAF 检测结果（无子类，只做二分类评估） | 否（只有 payload，无请求上下文） | 来源不明；**未核实** |
+| `FUR-API`（`train.csv` / `test.csv`，2026-11 新增） | 零日通道**良性增量**（`type=anomaly` 只是业务异常的 0.3%，仅用于评估，不当攻击标签） | 是（train 去重后 18,144 条良性，仅零日 g4） | 来源/授权未随数据提供；**未核实，禁止对外分发** |
+| `exploit_dataset.jsonl`（2026-11 新增） | 已知 CVE 的 PoC 请求，**只做评估**（CVE 编号成块连号、标题与编号不符，疑似合成/增强数据；1,156 块里 45% 非 Web 平台） | 否 | 来源不明；**未核实；疑似合成数据，不进训练** |
 | `CVE_list.json` | **不可用**：JSON 在 9.5MB 处截断，且不是 HTTP 请求 | 否 | 来源不明；**禁止入训练** |
 | `AgentCyberRangeWebExploitBench/` | **不可用**：只有 readme（"等待通过"），无数据 | 否 | — |
 | `http-attack-requests.json` | **不可用**：395 字节的清单说明，不是数据 | 否 | — |

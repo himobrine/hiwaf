@@ -1,4 +1,4 @@
-# 预置模型产物（v22）
+# 预置模型产物（v24）
 
 本目录下的模型**随仓库发布**，克隆后无需训练即可启动控制台并看到完整代次树。
 唯一的判定事实来源仍是 [`decision_policy.json`](decision_policy.json)；本文件只是快照说明。
@@ -8,8 +8,8 @@
 | 通道 | 文件 | SHA1 前 16 | 大小 |
 |---|---|---|---|
 | 监督 | `xgboost_v20261015_001.onnx` | `abe16c602d1e4893` | 6.54 MB |
-| 零日 | `iforest_lean_v20261015_001.onnx` | `8d21a7c2dce87e85` | 610 KB |
-| 零日 warm start 训练件 | `iforest_model.joblib` | —（sklearn 产物，不参与推理） | 1.85 MB |
+| 零日 | `iforest_lean_v20261015_001.onnx` | `cfead12f36a4dd7c` | 673 KB |
+| 零日 warm start 训练件 | `iforest_model.joblib` | —（sklearn 产物，不参与推理） | 2.05 MB |
 
 监督通道的 TreeSHAP 还需要 `xgb_trees.json`（与 ONNX 同源、同一个 booster）；
 warm start 需要 `xgb_model.json`。两者本来就在库里。
@@ -23,7 +23,8 @@ warm start 需要 `xgb_model.json`。两者本来就在库里。
 | 监督 | g3 | `models/supervised/gen-0003-abe16c602d1e` | `abe16c602d1e4893` | **active** | g2 | 是 |
 | 零日 | g1 | `models/zero_day/gen-0001-c3af8fc61410` | `c3af8fc61410b008` | archived | — | 是（100 棵） |
 | 零日 | g2 | `models/zero_day/gen-0002-1a6967a746ea` | `1a6967a746eaa40e` | archived | g1 | 是（125 棵，warm start） |
-| 零日 | g3 | `models/zero_day/gen-0003-8d21a7c2dce8` | `8d21a7c2dce87e85` | **active** | g2 | 是（200 棵，warm start） |
+| 零日 | g3 | `models/zero_day/gen-0003-8d21a7c2dce8` | `8d21a7c2dce87e85` | archived | g2 | 是（200 棵，warm start） |
+| 零日 | g4 | `models/zero_day/gen-0004-cfead12f36a4` | `cfead12f36a4dd7c` | **active** | g3 | 是（225 棵，warm start） |
 
 **为什么还需要 `registry_seed.json`**：代次与血缘存在 `python/service/console.db` 里，
 而 db（含用户、审计、密钥）**不入库**。清单把「哪几个目录组成哪一代、父代是谁」固化成
@@ -50,7 +51,9 @@ warm start 需要 `xgb_model.json`。两者本来就在库里。
   g1 = 2000 棵树；g2 从 g1 warm start 到 4000 棵树；g3 基于 2026-11 语料从 g2
   warm start 到 4000 棵深树（210,706 节点）。
 - **零日**：IsolationForest。g1 = 100 棵，g2 warm start 到 125 棵（CSIC）；
-  g3 基于 2026-11 parquet 正常流量从 g2 warm start 到 200 棵，目标 FPR 0.5%（alert-only）。
+  g3 基于 2026-11 parquet 正常流量从 g2 warm start 到 200 棵，目标 FPR 0.5%（alert-only）；
+  g4 从 g3 warm start 到 225 棵，`--upload-mode add` 并入 FUR-API `train.csv` 的
+  18,144 条去重良性（校准仍用官方 12k 留出，`--calib-mode official`，与训练集交集 0）。
 
 复现、换本地数据重训、增量训练：见仓库根 `SETUP.md` 第 4-6 步。
 
@@ -69,5 +72,7 @@ cd python
 
 g1/g2 权重由 **CSIC 2010** 与 **HTTP Params 2015** 训练而来；g3 改用 2026-11 语料
 （`WAF Data v2` parquet、OWASP ModSecurity 日志、WAF-Payload-Collection、
-`WAF_DETECTION_DATASET.jsonl` 等）。各数据集的再分发条款见仓库根
-`THIRD_PARTY_NOTICES.md` §2；内部/自用不受影响，**对外分发前请自行复核并承担合规责任**。
+`WAF_DETECTION_DATASET.jsonl` 等）；g4 在 g3 基础上增加了 **FUR-API** 的良性样本
+（`traindata/FUR-API/train.csv`）。各数据集的再分发条款见仓库根
+`THIRD_PARTY_NOTICES.md` §2；内部/自用不受影响，**对外分发前请自行复核并承担合规责任**
+（FUR-API 的来源与授权未随数据提供，**未核实**）。

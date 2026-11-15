@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "generated_by": "service.export_registry_seed",
-  "generated_at": 1794490791258,
+  "generated_at": 1794734327865,
   "note": "随仓库发布的预置代次清单：只描述 artifacts/models/ 下实际入库的快照。启动时由 model_registry.sync_seed() 导入（空库完整导入，非空库只补缺失代次并按策略校正 active）；schema/字段说明见 model_registry.SEED_MODEL_KEYS。",
   "models": [
     {
@@ -487,10 +487,87 @@
         "base_trees": 125,
         "total_trees": 200
       },
-      "status": "active",
+      "status": "archived",
       "created_at": 1794487768663,
-      "updated_at": 1794487907677,
+      "updated_at": 1794733537398,
       "activated_at": 1794487907677,
+      "retired_at": 1794733537398
+    },
+    {
+      "channel": "zero_day",
+      "variant": "official",
+      "generation": 4,
+      "display_name": "IForest g4",
+      "artifact_name": "iforest_lean_v20261015_001.onnx",
+      "snapshot_dir": "models/zero_day/gen-0004-cfead12f36a4",
+      "sha1_16": "cfead12f36a4dd7c",
+      "bytes": 688638,
+      "meta_path": "models/zero_day/gen-0004-cfead12f36a4/iforest_meta.json",
+      "curve_path": null,
+      "trainable": true,
+      "parent_generation": 3,
+      "inherit_mode": "warm_start",
+      "features_version": "v2",
+      "feature_dim": 80,
+      "labels": {},
+      "metrics": {
+        "trees": 225,
+        "max_samples": 256,
+        "detect": {
+          "0.001": 0.008305827606731238,
+          "0.01": 0.8105621990152048,
+          "0.03": 0.9974568475731833,
+          "0.05": 0.9999188355608463,
+          "0.1": 1.0
+        },
+        "thresholds": {
+          "0.001": -5.937146355628947,
+          "0.01": -7.411190366744994,
+          "0.03": -9.214157800674444,
+          "0.05": -9.961817264556887,
+          "0.1": -10.683924198150635
+        }
+      },
+      "recipe": {
+        "inherit_mode": "warm_start",
+        "parent_id": 8,
+        "parent_sha1_16": "8d21a7c2dce87e85",
+        "base_trees": 200,
+        "total_trees": 225,
+        "datasets": [
+          {
+            "id": 9001,
+            "name": "FUR-API benign (train.csv, 去重)",
+            "requests_path": "F:/waf/python/artifacts/staging/fur_api/train/requests.jsonl",
+            "train_path": "F:/waf/python/artifacts/staging/fur_api/train/requests.jsonl",
+            "benign": 18144,
+            "role": "benign",
+            "source": "traindata/FUR-API/train.csv"
+          }
+        ],
+        "upload": {
+          "mode": "add",
+          "datasets": [
+            {
+              "id": 9001,
+              "name": "FUR-API benign (train.csv, 去重)",
+              "requests_path": "F:/waf/python/artifacts/staging/fur_api/train/requests.jsonl",
+              "train_path": "F:/waf/python/artifacts/staging/fur_api/train/requests.jsonl",
+              "benign": 18144,
+              "role": "benign",
+              "source": "traindata/FUR-API/train.csv"
+            }
+          ],
+          "calib": {},
+          "n_train_rows": 18144,
+          "n_holdout_rows": 0,
+          "overlap_official_eval": {}
+        }
+      },
+      "status": "active",
+      "created_at": 1794733396105,
+      "updated_at": 1794733537398,
+      "activated_at": 1794733537398,
       "retired_at": null
     }
   ]
