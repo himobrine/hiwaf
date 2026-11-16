@@ -1,0 +1,268 @@
+{
+  "feature_names": [
+    "method_id",
+    "path_depth",
+    "ext_len",
+    "num_params",
+    "has_query",
+    "has_body",
+    "is_form_body",
+    "is_json_body",
+    "log_url_len",
+    "log_query_len",
+    "log_body_len",
+    "entropy",
+    "digit_ratio",
+    "alpha_ratio",
+    "upper_ratio",
+    "nonalnum_ratio",
+    "urlencode_ratio",
+    "max_repeat",
+    "num_tokens",
+    "log_num_tokens",
+    "avg_token_len",
+    "max_token_len",
+    "sql_strong_present",
+    "sql_strong_log",
+    "sql_strong_r",
+    "sql_weak_r",
+    "xss_strong_present",
+    "xss_strong_log",
+    "xss_strong_r",
+    "xss_weak_r",
+    "cmd_strong_present",
+    "cmd_strong_log",
+    "cmd_strong_r",
+    "cmd_weak_r",
+    "trav_strong_present",
+    "trav_strong_log",
+    "trav_strong_r",
+    "trav_weak_r",
+    "has_or_1eq1",
+    "has_comment",
+    "has_union_select",
+    "random_case_sql",
+    "quote_imbalance",
+    "paren_imbalance",
+    "max_delim_run",
+    "double_encode",
+    "hex_escape",
+    "val_len_avg",
+    "val_len_max",
+    "val_special_r",
+    "quote_r",
+    "dquote_r",
+    "backtick_r",
+    "lt_r",
+    "gt_r",
+    "lparen_r",
+    "rparen_r",
+    "lbrace_r",
+    "rbrace_r",
+    "lbracket_r",
+    "rbracket_r",
+    "semicolon_r",
+    "comma_r",
+    "eq_r",
+    "percent_r",
+    "amp_r",
+    "slash_r",
+    "backslash_r",
+    "dot_r",
+    "colon_r",
+    "hyphen_r",
+    "plus_r",
+    "star_r",
+    "bang_r",
+    "hash_r",
+    "dollar_r",
+    "pipe_r",
+    "at_r",
+    "tilde_r",
+    "caret_r"
+  ],
+  "labels": {
+    "0": "normal",
+    "1": "sqli",
+    "2": "xss",
+    "3": "cmdi",
+    "4": "traversal"
+  },
+  "features_version": "v2",
+  "base_trees": 0,
+  "total_trees": 800,
+  "parent_model": null,
+  "inherit_mode": "full",
+  "training_recipe": {
+    "n_estimators": 800,
+    "max_depth": 8,
+    "lr": 0.1,
+    "early_stopping_rounds": 0,
+    "best_iteration": -1,
+    "base_trees": 0,
+    "total_trees": 800,
+    "inherit_mode": "full",
+    "class_weight": "balanced (inverse frequency)",
+    "hard_neg": "waf2026",
+    "hard_neg_added": 12000,
+    "hard_neg_note": "新版 traindata（xlsx 事务级 + parquet 正常 + ModSec 在野 + 载荷集 + 2026-11-16 新增：FUR 良性/sqliv5/wafamole/wafrift/waffled）；FUR 良性上限 20,000",
+    "lexical_split": "",
+    "seed": 20261112,
+    "dict_augmentation": null,
+    "extra_benign": 0,
+    "local_benign_added": 0,
+    "local_benign_source": null,
+    "local_eval_n": 0,
+    "local_eval_n_attack": 0,
+    "balance": "weight",
+    "es_monitored": null,
+    "es_metric": null,
+    "valid_frac": 0.0,
+    "n_valid": 16590,
+    "n_train": 292177,
+    "dataset": "traindata 2026-11：combined_final_dataset_augmented.xlsx（事务级） + WAF Data v2 正常 + OWASP ModSecurity 在野攻击 + WAF-Payload-Collection + FUR-API 良性 + SQLiV5 + WAF-A-MoLE + wafrift + waffled",
+    "upload_mode": null,
+    "upload_datasets": null,
+    "upload_calib": null
+  },
+  "training_keys_file": "training_keys.txt",
+  "calibration_pool": {
+    "file": "calibration_pool.jsonl",
+    "n": 12000,
+    "source": "parquet WAF Data v2 正常流量留出桶（与训练桶按请求 sha1 互斥，已做良性去污染）"
+  },
+  "decision_threshold": {
+    "score_def": "1 - P(normal)",
+    "calibration_pool": "parquet WAF Data v2 正常流量留出桶（12,000 条，与训练桶按请求 sha1 互斥）",
+    "n_pool": 12000,
+    "thresholds": {
+      "0.001": 0.4352685213088989,
+      "0.01": 0.0007479985943064094,
+      "0.03": 8.606910705566406e-05
+    },
+    "actual_fpr": {
+      "0.001": 0.001,
+      "0.01": 0.01,
+      "0.03": 0.033
+    },
+    "recommended": "0.01",
+    "authoritative_source": "artifacts/decision_policy.json（由 thresholds.py 生成；本字段仅为训练记录）",
+    "warning": "阈值必须在**独立留出**流量上重标定；绝不能把训练用良性样本放进校准池（否则估计偏乐观，实测可差 8 倍，见 §8.3）"
+  },
+  "metrics": {
+    "test": {
+      "n": 9352,
+      "accuracy": 0.9909110350727117,
+      "auc_binary": 0.9990320933919049,
+      "per_class": {
+        "normal": {
+          "n": 162,
+          "precision": 0.8095238095238095,
+          "recall": 0.9444444444444444,
+          "f1": 0.8717948717948718
+        },
+        "sqli": {
+          "n": 2785,
+          "precision": 0.9985585585585586,
+          "recall": 0.9949730700179533,
+          "f1": 0.9967625899280576
+        },
+        "xss": {
+          "n": 3315,
+          "precision": 0.9975859987929994,
+          "recall": 0.9972850678733032,
+          "f1": 0.9974355106350883
+        },
+        "cmdi": {
+          "n": 517,
+          "precision": 0.943609022556391,
+          "recall": 0.9709864603481625,
+          "f1": 0.9571020019065777
+        },
+        "traversal": {
+          "n": 2573,
+          "precision": 0.9972462627852084,
+          "recall": 0.9852312475709288,
+          "f1": 0.9912023460410557
+        }
+      },
+      "budgets": {
+        "0.001": {
+          "detect": 0.9820457018498367,
+          "fpr": 0.006172839506172839
+        },
+        "0.01": {
+          "detect": 0.9868335146898803,
+          "fpr": 0.012345679012345678
+        },
+        "0.03": {
+          "detect": 0.9949945593035908,
+          "fpr": 0.030864197530864196
+        },
+        "0.05": {
+          "detect": 0.996082698585419,
+          "fpr": 0.05555555555555555
+        }
+      }
+    },
+    "lexical": {
+      "n": 16590,
+      "accuracy": 0.9920433996383363,
+      "auc_binary": 0.9998930177230184,
+      "per_class": {
+        "normal": {
+          "n": 2973,
+          "precision": 0.9894986449864499,
+          "recall": 0.9825092499159098,
+          "f1": 0.9859915611814345
+        },
+        "sqli": {
+          "n": 7117,
+          "precision": 0.9985917476411773,
+          "recall": 0.9963467753266826,
+          "f1": 0.9974679983119988
+        },
+        "xss": {
+          "n": 3398,
+          "precision": 0.9958871915393654,
+          "recall": 0.9976456739258387,
+          "f1": 0.996765657159659
+        },
+        "cmdi": {
+          "n": 567,
+          "precision": 0.8847402597402597,
+          "recall": 0.9611992945326279,
+          "f1": 0.9213863060016906
+        },
+        "traversal": {
+          "n": 2535,
+          "precision": 0.9976162097735399,
+          "recall": 0.9905325443786982,
+          "f1": 0.9940617577197148
+        }
+      },
+      "budgets": {
+        "0.001": {
+          "detect": 0.9917749871484174,
+          "fpr": 0.0010090817356205853
+        },
+        "0.01": {
+          "detect": 0.9963281192626864,
+          "fpr": 0.010427177934746047
+        },
+        "0.03": {
+          "detect": 0.9996328119262686,
+          "fpr": 0.030272452068617558
+        },
+        "0.05": {
+          "detect": 0.9998531247705075,
+          "fpr": 0.05011772620248907
+        }
+      }
+    },
+    "n_trees": 4000,
+    "n_nodes": 230732,
+    "train_seconds": 91.82
+  },
+  "model": "model.onnx"
+}

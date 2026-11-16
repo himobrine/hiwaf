@@ -17,8 +17,8 @@ warm start 需要 `xgb_model.json`。两者本来就在库里。
 > **2026-11-16 切换（policy v26 → v28 → v30）**：
 > v28 = 监督 `gen-0004-87f851e0304d` + 零日 `gen-0005-2ae506b52115`；
 > v30 = 监督 `gen-0005-ddd54ebc2946`（cmdi 形态对齐）+ 同一零日。
-> 这三代目前**只在本地**——`.gitignore` 尚未放行，`registry_seed.json` 也未重导
-> （发布步骤见 §4）。仓库里已跟踪的代次仍是 g1–g3 / g1–g4。
+> 这三代**已随仓库发布**（`.gitignore` 已放行、`registry_seed.json` 已重导为 10 代），
+> 克隆后控制台能看到完整代次树并正确解析 `active`。
 
 ## 2. 代次快照（`models/<channel>/gen-XXXX-<sha12>/`）
 
@@ -81,7 +81,7 @@ warm start 需要 `xgb_model.json`。两者本来就在库里。
 ```bat
 :: 1) 训练 / 切换现役（走控制台「模型与门禁」，不要手改槽位文件）
 :: 2) 放开新代次的忽略规则（.gitignore 里 python/artifacts/models/* 那一段）
-::    本轮需追加：
+::    2026-11-16 已追加（v28/v30 发布）：
 ::      !python/artifacts/models/supervised/gen-0004-87f851e0304d/
 ::      !python/artifacts/models/supervised/gen-0005-ddd54ebc2946/
 ::      !python/artifacts/models/zero_day/gen-0005-2ae506b52115/

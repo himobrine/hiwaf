@@ -230,9 +230,9 @@ cd proxy
 预置代次清单的校验规则见 [`python/artifacts/PRESET.md`](python/artifacts/PRESET.md)；
 要复现、增量训练或换成自己的数据，再按 [`SETUP.md`](SETUP.md) 走一遍。
 
-> 2026-11-16 切到 v28/v30 的三代（监督 gen-0004 `87f851e0…`、gen-0005 `ddd54ebc…`，
-> 零日 gen-0005 `2ae506b5…`）目前**只在本地**：`.gitignore` 还没放行它们，
-> `registry_seed.json` 也未重导，发布步骤见 `PRESET.md` §4。
+> 2026-11-16 切到 v28/v30 的三代（监督 `gen-0004` `87f851e0…`、`gen-0005` `ddd54ebc…`，
+> 零日 `gen-0005` `2ae506b5…`）已随仓库发布：`.gitignore` 已放行、`registry_seed.json`
+> 已重导为 10 代，克隆后控制台的代次树与「当前现役」都能对上。
 
 > 只有「随仓库发布的预置代次」被 `.gitignore` 白名单放行；你本地新训练出来的代次
 > 默认仍不入库（见 `.gitignore` 里 `python/artifacts/models/*` 那一段）。

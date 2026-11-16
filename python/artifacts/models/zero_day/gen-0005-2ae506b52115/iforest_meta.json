@@ -1,0 +1,45 @@
+{
+  "n_features": 80,
+  "trees": 225,
+  "max_samples": 256,
+  "seed": 42,
+  "include_ngram": false,
+  "output_name": "avg_path_len",
+  "score_def": "zero_day_score = -avg_path_len（越大越异常）",
+  "zero_day_threshold": {
+    "thresholds": {
+      "0.001": -6.211301153659812,
+      "0.01": -7.112232890129084,
+      "0.03": -11.198994340896618,
+      "0.05": -12.778806304931642,
+      "0.1": -13.56790428161621
+    },
+    "detect": {
+      "0.001": 0.09155348736540231,
+      "0.01": 0.5907688977869163,
+      "0.03": 0.9999188355608463,
+      "0.05": 1.0,
+      "0.1": 1.0
+    },
+    "n_normal_pool": 12000,
+    "n_anomaly": 36962
+  },
+  "spearman_vs_sklearn": 0.9999999999114539,
+  "onnx": "iforest_lean_waf_001.onnx",
+  "base_trees": 0,
+  "total_trees": 225,
+  "parent_model": null,
+  "inherit_mode": "full",
+  "dataset": "traindata 2026-11：WAF Data v2 正常流量（只用正常训练，不看标签）",
+  "train_normal": 220768,
+  "holdout_normal": 12000,
+  "anomaly": 36962,
+  "split_protocol": "与监督通道同一批行：realdata_waf.build_dataset() 的 train（label=0）训练、benign_holdout（12,000，按请求 sha1 与训练桶互斥）校准",
+  "attack_source": "WAF-Payload-Collection true-positives（仅报告检出率，不进训练）",
+  "training_keys_file": "training_keys.txt",
+  "calibration_pool": {
+    "file": "calibration_pool.jsonl",
+    "n": 12000,
+    "source": "traindata 2026-11 良性留出（与训练桶互斥，已去污染）"
+  }
+}

@@ -1655,8 +1655,9 @@ payload / xlsx 100%。
   切换备份在 `artifacts/switch_backup/switch_15|16/`。
 - **采集器未重启**：`current_state` 显示监督通道 `pending_restart`（内存里仍是
   旧 sha `abe16c602d1e4893`），重启后新模型才生效。
-- **预置产物未发布**：新两代的快照还没解除 `.gitignore`、`registry_seed.json`
-  未重导（步骤见 `python/artifacts/PRESET.md` §4）。
+- **预置产物已发布**（2026-11-16）：`gen-0004-87f851e0304d`、
+  `gen-0005-ddd54ebc2946`、`zero_day/gen-0005-2ae506b52115` 已解除 `.gitignore`，
+  `registry_seed.json` 重导为 10 代（`PRESET.md` §2）。
 - 新语料没进 test，5 类 acc 只说明"没学坏旧分布"，不代表新语料自身的分类精度。
 - exploit 集合疑似合成，召回只能做相对比较（172 条里 1 条 = 0.58pp，94.19% 与
   94.77% 的差在噪声内）。
@@ -1740,8 +1741,8 @@ sha `ddd54ebc29469208`，快照 `models/supervised/gen-0005-ddd54ebc2946/`），
 ### 16.6 尚未做
 
 - **采集器未重启**：`current_state` 仍是 `pending_restart`。
-- 预置产物未发布（`g5_sup_fur`/`g6_sup_fur1n4` 两代快照未解除 `.gitignore`、
-  `registry_seed.json` 未重导）。
+- 预置产物已发布（`g5_sup_fur`/`g6_sup_fur1n4` 两代快照已放行，
+  `registry_seed.json` 重导为 10 代）。
 - exploit 集仍是 172 条合成味很重的样本；真实在野 cmdi 需要另建评估集
   （建议用 modsec `932/933` 规则命中 + body 抽）。
 - 形态对齐的良性/攻击比例只试了 1×/4×/等量三档，未做网格。

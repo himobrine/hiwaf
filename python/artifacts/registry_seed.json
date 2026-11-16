@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "generated_by": "service.export_registry_seed",
-  "generated_at": 1794734327865,
+  "generated_at": 1794807008352,
   "note": "随仓库发布的预置代次清单：只描述 artifacts/models/ 下实际入库的快照。启动时由 model_registry.sync_seed() 导入（空库完整导入，非空库只补缺失代次并按策略校正 active）；schema/字段说明见 model_registry.SEED_MODEL_KEYS。",
   "models": [
     {
@@ -343,10 +343,242 @@
         "parent_id": 3,
         "parent_sha1_16": "eab7b73e1b04ba0d"
       },
-      "status": "active",
+      "status": "archived",
       "created_at": 1794487681741,
-      "updated_at": 1794488054663,
+      "updated_at": 1794799670470,
       "activated_at": 1794488054663,
+      "retired_at": 1794799670470
+    },
+    {
+      "channel": "supervised",
+      "variant": "official",
+      "generation": 4,
+      "display_name": "XGBoost g4",
+      "artifact_name": "xgboost_v20261015_001.onnx",
+      "snapshot_dir": "models/supervised/gen-0004-87f851e0304d",
+      "sha1_16": "87f851e0304da39c",
+      "bytes": 7511003,
+      "meta_path": "models/supervised/gen-0004-87f851e0304d/xgboost_meta.json",
+      "curve_path": "models/supervised/gen-0004-87f851e0304d/curve.json",
+      "trainable": true,
+      "parent_generation": null,
+      "inherit_mode": "off",
+      "features_version": "v2",
+      "feature_dim": 80,
+      "labels": {
+        "0": "normal",
+        "1": "sqli",
+        "2": "xss",
+        "3": "cmdi",
+        "4": "traversal"
+      },
+      "metrics": {
+        "test": {
+          "n": 9352,
+          "accuracy": 0.9909110350727117,
+          "auc_binary": 0.9990320933919049,
+          "budgets": {
+            "0.001": {
+              "detect": 0.9820457018498367,
+              "fpr": 0.006172839506172839
+            },
+            "0.01": {
+              "detect": 0.9868335146898803,
+              "fpr": 0.012345679012345678
+            },
+            "0.03": {
+              "detect": 0.9949945593035908,
+              "fpr": 0.030864197530864196
+            },
+            "0.05": {
+              "detect": 0.996082698585419,
+              "fpr": 0.05555555555555555
+            }
+          },
+          "normal_recall": 0.9444444444444444
+        },
+        "lexical": {
+          "n": 16590,
+          "accuracy": 0.9920433996383363,
+          "auc_binary": 0.9998930177230184,
+          "budgets": {
+            "0.001": {
+              "detect": 0.9917749871484174,
+              "fpr": 0.0010090817356205853
+            },
+            "0.01": {
+              "detect": 0.9963281192626864,
+              "fpr": 0.010427177934746047
+            },
+            "0.03": {
+              "detect": 0.9996328119262686,
+              "fpr": 0.030272452068617558
+            },
+            "0.05": {
+              "detect": 0.9998531247705075,
+              "fpr": 0.05011772620248907
+            }
+          },
+          "normal_recall": 0.9825092499159098
+        },
+        "n_trees": 4000,
+        "n_nodes": 230732,
+        "train_seconds": 91.82
+      },
+      "recipe": {
+        "n_estimators": 800,
+        "max_depth": 8,
+        "lr": 0.1,
+        "early_stopping_rounds": 0,
+        "best_iteration": -1,
+        "base_trees": 0,
+        "total_trees": 800,
+        "inherit_mode": "off",
+        "class_weight": "balanced (inverse frequency)",
+        "hard_neg": "waf2026",
+        "hard_neg_added": 12000,
+        "hard_neg_note": "新版 traindata（xlsx 事务级 + parquet 正常 + ModSec 在野 + 载荷集 + 2026-11-16 新增：FUR 良性/sqliv5/wafamole/wafrift/waffled）；FUR 良性上限 20,000",
+        "lexical_split": "",
+        "seed": 20261112,
+        "dict_augmentation": null,
+        "extra_benign": 0,
+        "local_benign_added": 0,
+        "local_benign_source": null,
+        "local_eval_n": 0,
+        "local_eval_n_attack": 0,
+        "balance": "weight",
+        "es_monitored": null,
+        "es_metric": null,
+        "valid_frac": 0.0,
+        "n_valid": 16590,
+        "n_train": 292177,
+        "dataset": "traindata 2026-11：combined_final_dataset_augmented.xlsx（事务级） + WAF Data v2 正常 + OWASP ModSecurity 在野攻击 + WAF-Payload-Collection + FUR-API 良性 + SQLiV5 + WAF-A-MoLE + wafrift + waffled",
+        "upload_mode": null,
+        "upload_datasets": null,
+        "upload_calib": null,
+        "parent_id": null,
+        "parent_sha1_16": null
+      },
+      "status": "archived",
+      "created_at": 1794799509855,
+      "updated_at": 1794805961166,
+      "activated_at": 1794799670470,
+      "retired_at": 1794805961166
+    },
+    {
+      "channel": "supervised",
+      "variant": "official",
+      "generation": 5,
+      "display_name": "XGBoost g5",
+      "artifact_name": "xgboost_v20261015_001.onnx",
+      "snapshot_dir": "models/supervised/gen-0005-ddd54ebc2946",
+      "sha1_16": "ddd54ebc29469208",
+      "bytes": 8623968,
+      "meta_path": "models/supervised/gen-0005-ddd54ebc2946/xgboost_meta.json",
+      "curve_path": "models/supervised/gen-0005-ddd54ebc2946/curve.json",
+      "trainable": true,
+      "parent_generation": null,
+      "inherit_mode": "off",
+      "features_version": "v2",
+      "feature_dim": 80,
+      "labels": {
+        "0": "normal",
+        "1": "sqli",
+        "2": "xss",
+        "3": "cmdi",
+        "4": "traversal"
+      },
+      "metrics": {
+        "test": {
+          "n": 9352,
+          "accuracy": 0.9912318220701454,
+          "auc_binary": 0.9989447735729927,
+          "budgets": {
+            "0.001": {
+              "detect": 0.9789989118607182,
+              "fpr": 0.006172839506172839
+            },
+            "0.01": {
+              "detect": 0.9859630032644179,
+              "fpr": 0.012345679012345678
+            },
+            "0.03": {
+              "detect": 0.9945593035908596,
+              "fpr": 0.030864197530864196
+            },
+            "0.05": {
+              "detect": 0.996082698585419,
+              "fpr": 0.05555555555555555
+            }
+          },
+          "normal_recall": 0.9444444444444444
+        },
+        "lexical": {
+          "n": 19295,
+          "accuracy": 0.9915003887017362,
+          "auc_binary": 0.9998156872645854,
+          "budgets": {
+            "0.001": {
+              "detect": 0.9897584404576918,
+              "fpr": 0.0011679968853416391
+            },
+            "0.01": {
+              "detect": 0.9932900127136601,
+              "fpr": 0.010122639672960872
+            },
+            "0.03": {
+              "detect": 0.9986580025427321,
+              "fpr": 0.030173252871325676
+            },
+            "0.05": {
+              "detect": 0.9992936855488064,
+              "fpr": 0.05002919992213354
+            }
+          },
+          "normal_recall": 0.9875413665563558
+        },
+        "n_trees": 4000,
+        "n_nodes": 264472,
+        "train_seconds": 98.38
+      },
+      "recipe": {
+        "n_estimators": 800,
+        "max_depth": 8,
+        "lr": 0.1,
+        "early_stopping_rounds": 0,
+        "best_iteration": -1,
+        "base_trees": 0,
+        "total_trees": 800,
+        "inherit_mode": "off",
+        "class_weight": "balanced (inverse frequency)",
+        "hard_neg": "waf2026",
+        "hard_neg_added": 12000,
+        "hard_neg_note": "新版 traindata（xlsx 事务级 + parquet 正常 + ModSec 在野 + 载荷集 + 2026-11-16 新增：FUR 良性/sqliv5/wafamole/wafrift/waffled）；FUR 良性上限 20,000；cmdi 形态对齐 ×1",
+        "lexical_split": "",
+        "seed": 20261112,
+        "dict_augmentation": null,
+        "extra_benign": 0,
+        "local_benign_added": 0,
+        "local_benign_source": null,
+        "local_eval_n": 0,
+        "local_eval_n_attack": 0,
+        "balance": "weight",
+        "es_monitored": null,
+        "es_metric": null,
+        "valid_frac": 0.0,
+        "n_valid": 19295,
+        "n_train": 303581,
+        "dataset": "traindata 2026-11：combined_final_dataset_augmented.xlsx（事务级） + WAF Data v2 正常 + OWASP ModSecurity 在野攻击 + WAF-Payload-Collection + FUR-API 良性 + SQLiV5 + WAF-A-MoLE + wafrift + waffled",
+        "upload_mode": null,
+        "upload_datasets": null,
+        "upload_calib": null,
+        "parent_id": null,
+        "parent_sha1_16": null
+      },
+      "status": "active",
+      "created_at": 1794805789838,
+      "updated_at": 1794805961166,
+      "activated_at": 1794805961166,
       "retired_at": null
     },
     {
@@ -564,10 +796,58 @@
           "overlap_official_eval": {}
         }
       },
-      "status": "active",
+      "status": "archived",
       "created_at": 1794733396105,
-      "updated_at": 1794733537398,
+      "updated_at": 1794799826659,
       "activated_at": 1794733537398,
+      "retired_at": 1794799826659
+    },
+    {
+      "channel": "zero_day",
+      "variant": "official",
+      "generation": 5,
+      "display_name": "IForest g5",
+      "artifact_name": "iforest_lean_v20261015_001.onnx",
+      "snapshot_dir": "models/zero_day/gen-0005-2ae506b52115",
+      "sha1_16": "2ae506b521152f31",
+      "bytes": 530427,
+      "meta_path": "models/zero_day/gen-0005-2ae506b52115/iforest_meta.json",
+      "curve_path": null,
+      "trainable": true,
+      "parent_generation": null,
+      "inherit_mode": "off",
+      "features_version": "v2",
+      "feature_dim": 80,
+      "labels": {},
+      "metrics": {
+        "trees": 225,
+        "max_samples": 256,
+        "detect": {
+          "0.001": 0.09155348736540231,
+          "0.01": 0.5907688977869163,
+          "0.03": 0.9999188355608463,
+          "0.05": 1.0,
+          "0.1": 1.0
+        },
+        "thresholds": {
+          "0.001": -6.211301153659812,
+          "0.01": -7.112232890129084,
+          "0.03": -11.198994340896618,
+          "0.05": -12.778806304931642,
+          "0.1": -13.56790428161621
+        }
+      },
+      "recipe": {
+        "inherit_mode": "off",
+        "parent_id": null,
+        "parent_sha1_16": null,
+        "base_trees": 0,
+        "total_trees": 225
+      },
+      "status": "active",
+      "created_at": 1794799510721,
+      "updated_at": 1794799826659,
+      "activated_at": 1794799826659,
       "retired_at": null
     }
   ]
