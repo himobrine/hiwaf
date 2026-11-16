@@ -1057,12 +1057,15 @@ def wrap_cmdi_rows(rows: List[Dict], per_row: int = 3,
 
 def build_dataset(verbose: bool = True, include_fur: bool = True,
                   fur_max: int = FUR_MAX, cmdi_wrap: int = 0,
-                  cmdi_wrap_neg: float = 1.0) -> Dict:
+                  cmdi_wrap_neg: float = 1.0,
+                  extra_rows: Optional[List[Dict]] = None) -> Dict:
     """构建训练/验证/测试/评估集 + 良性校准池。返回 dict（含 stats）。
 
     `include_fur=False` 只用于 A/B 对照：新攻击语料照收，但不并入 FUR 良性，
     用来单独量化「FUR 良性入训」对 FUR 正常流量误报的贡献。
     `fur_max` 用来做召回/误报的折中档位（全量 18k 会压制 body 类攻击的召回）。
+    `extra_rows` 是外部增量（例如从控制台事件 + 人工反馈导出的快照）。它**只进 train**，
+    并且照样过「跨语料泄漏剔除」，不会污染 valid/test/校准池。
     """
     stats: Dict = {"excluded": EXCLUDED}
 
@@ -1193,11 +1196,30 @@ def build_dataset(verbose: bool = True, include_fur: bool = True,
     stats["cmdi_wrap"] = wrap_stats
 
 
+    # ---- 外部增量（人工反馈导出的事件快照）----
+    n_pre_extra = len(train)
+    if extra_rows:
+        import collections as _col
+        _c = _col.Counter(int(r.get("label", -1)) for r in extra_rows)
+        stats["extra_rows"] = {
+            "n_in": len(extra_rows),
+            "by_label": {str(k): v for k, v in sorted(_c.items())},
+            "note": "外部增量（事件 + 人工反馈）；只进 train，并过跨语料泄漏剔除",
+        }
+        train = _dedupe(train + list(extra_rows))
+        stats["extra_rows"]["n_after_dedupe"] = len(train) - n_pre_extra
+    else:
+        stats["extra_rows"] = {"n_in": 0}
+
     # 防泄漏：test/valid 出现过的请求文本必须从 train 剔除（跨语料同请求）
     seen = {req_text(r) for r in test} | {req_text(r) for r in valid}
     before = len(train)
     train = [r for r in train if req_text(r) not in seen]
     leaked = before - len(train)
+    if extra_rows:
+        stats["extra_rows"]["n_final"] = len(train) - n_pre_extra
+        stats["extra_rows"]["leak_removed"] = (
+            stats["extra_rows"]["n_after_dedupe"] - stats["extra_rows"]["n_final"])
 
     holdout = _dedupe(pq_hold)
     hold_keys = {req_text(r) for r in train} | {req_text(r) for r in valid} | \

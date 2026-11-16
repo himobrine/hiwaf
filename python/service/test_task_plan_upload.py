@@ -1,12 +1,15 @@
 """训练任务上传数据 argv 组装测试（不跑子进程 / 不读真实数据）。"""
 from __future__ import annotations
 
+import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from fastapi import HTTPException
 
 from . import app as app_mod
+from . import config
 
 
 def _ds(uid=3, role="supervised", benign=600, attack=400, labels=None):
@@ -25,8 +28,20 @@ def _ds(uid=3, role="supervised", benign=600, attack=400, labels=None):
 
 class TaskPlanUploadTest(unittest.TestCase):
     def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        tr = root / "traindata"
+        tr.mkdir(parents=True, exist_ok=True)
+        # 官方语料是 add/official 的启动前提（真实仓库里 traindata/ 不入库）。
+        for n in ("payload_train.csv", "payload_test.csv", "payload_test_lexical.csv"):
+            (tr / n).write_text("payload,length,attack_type,label\n", encoding="utf-8")
+        csic = tr / "Machine-Learning-on-CSIC-2010-master" / "Machine-Learning-on-CSIC-2010-master"
+        csic.mkdir(parents=True, exist_ok=True)
+        (csic / "normalTrafficTraining.txt").write_text("GET / HTTP/1.1\n\n", encoding="utf-8")
+
         self.settings = {"inherit_mode": "warm_start", "auto_register": True}
         self.patchers = [
+            mock.patch.object(config, "ROOT", root),
             mock.patch.object(app_mod.model_registry, "get_settings",
                               side_effect=lambda: dict(self.settings)),
             mock.patch.object(app_mod.uploads, "get_upload",
@@ -38,6 +53,7 @@ class TaskPlanUploadTest(unittest.TestCase):
     def tearDown(self):
         for p in reversed(self.patchers):
             p.stop()
+        self.tmp.cleanup()
 
     def test_official_has_no_upload(self):
         plan = app_mod._task_plan(1, "train_realdata", None, None)

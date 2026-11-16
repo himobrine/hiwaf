@@ -50,6 +50,54 @@ DEFAULT_OUT = os.path.join(ART, "staging", "waf2026")
 LABEL_NAMES = {0: "normal", 1: "sqli", 2: "xss", 3: "cmdi", 4: "traversal"}
 
 
+def _load_extra(paths) -> list:
+    """读取 `--extra-jsonl`：每行 method/path/query/body/label（label 必须在 0-4）。
+
+    这是「控制台事件 + 人工反馈」导出的增量快照（见 `export_events_feedback.py`）。
+    只做格式收敛与去重，不改标签语义：标签必须来自人工反馈，不是模型预测。
+    """
+    out: list = []
+    seen: set = set()
+    bad = 0
+    for p in paths or []:
+        if not os.path.exists(p):
+            raise SystemExit(f"--extra-jsonl 不存在：{p}")
+        with open(p, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    d = json.loads(line)
+                except ValueError:
+                    bad += 1
+                    continue
+                lab = d.get("label")
+                try:
+                    lab = int(lab)
+                except (TypeError, ValueError):
+                    bad += 1
+                    continue
+                if lab not in LABEL_NAMES:
+                    bad += 1
+                    continue
+                row = {
+                    "method": str(d.get("method") or "GET"),
+                    "path": str(d.get("path") or ""),
+                    "query": str(d.get("query") or ""),
+                    "body": str(d.get("body") or ""),
+                    "label": lab,
+                    "source": str(d.get("source") or "extra-human"),
+                }
+                key = (row["method"], row["path"], row["query"], row["body"])
+                if key in seen:
+                    continue
+                seen.add(key)
+                out.append(row)
+        print(f"[extra] {p}: 累计 {len(out):,} 条（坏行 {bad}）")
+    return out
+
+
 def describe(rows, title):
     import collections
     cnt = collections.Counter(r["label"] for r in rows)
@@ -87,6 +135,9 @@ def main() -> None:
     ap.add_argument("--artifact-name", default="model.onnx")
     ap.add_argument("--run-name", default=None)
     ap.add_argument("--seed", type=int, default=rw.SEED)
+    ap.add_argument("--extra-jsonl", action="append", default=[],
+                    help="额外的请求 jsonl（可重复）：method/path/query/body/label，"
+                         "只进训练集。用于把「控制台事件 + 人工反馈」导出的增量并进来")
     args = ap.parse_args()
 
     try:
@@ -97,7 +148,8 @@ def main() -> None:
     t0 = time.time()
     ds = rw.build_dataset(verbose=True, include_fur=not args.no_fur,
                           fur_max=args.fur_max, cmdi_wrap=args.cmdi_wrap,
-                          cmdi_wrap_neg=args.cmdi_wrap_neg)
+                          cmdi_wrap_neg=args.cmdi_wrap_neg,
+                          extra_rows=_load_extra(args.extra_jsonl))
     train, valid, test = ds["train"], ds["valid"], ds["test"]
     holdout = ds["benign_holdout"]
     stats = ds["stats"]

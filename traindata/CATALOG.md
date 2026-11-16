@@ -1,9 +1,9 @@
 # traindata 语料目录（自动生成）
 
-> `python/traindata_catalog.py`（2026-11-16 11:19:02）—— **勿手改**。
+> `python/traindata_catalog.py`（2026-11-16 22:25:26）—— **勿手改**。
 
 - 根目录：`traindata`
-- 文件：526 个 / 815.6 MB
+- 文件：540 个 / 854.3 MB
 - 数字来源：realdata_waf._inventory（与训练同一批 loader）
 
 ## 语料角色
@@ -60,7 +60,7 @@
 | 文件 | 大小 | mtime | sha1 |
 |---|---|---|---|
 | `traindata/AgentCyberRangeWebExploitBench/readme.md` | 0.00 MB | 2026-11-12 19:22 | `d172c55aa04d31d1` |
-| `traindata/CATALOG.md` | 0.07 MB | 2026-11-16 10:47 | `8396b5ed108a0215` |
+| `traindata/CATALOG.md` | 0.07 MB | 2026-11-16 11:19 | `6b09434d81cd0bb3` |
 | `traindata/CVE_list.json` | 9.07 MB | 2026-11-12 19:21 | `8c2aa3ef4c797d8a` |
 | `traindata/FUR-API/test.csv` | 0.93 MB | 2026-11-15 16:25 | `87bcccaa3579ff9b` |
 | `traindata/FUR-API/train.csv` | 16.00 MB | 2026-11-15 16:24 | `d906726c6632e9df` |
@@ -185,7 +185,7 @@
 | `traindata/owasp/29-Jul-2025/modsec_audit.anon.log` | 7.51 MB | 2025-09-22 00:27 | `67f60f11b8e20231` |
 | `traindata/owasp/30-Jul-2025/modsec_audit.anon.log` | 7.88 MB | 2025-09-22 00:27 | `af08de0af4b8bd97` |
 | `traindata/owasp/31-Jul-2025/modsec_audit.anon.log` | 10.69 MB | 2025-09-22 00:27 | `d716c237f9963e49` |
-| `traindata/proxy/collector-metrics.json` | 0.00 MB | 2026-11-15 17:12 | `708a76af8e1125db` |
+| `traindata/proxy/collector-metrics.json` | 0.00 MB | 2026-11-16 22:25 | `4c21eebad0e1688d` |
 | `traindata/proxy/raw-20261112-00000.jsonl` | 0.00 MB | 2026-11-12 20:46 | `da39a3ee5e6b4b0d` |
 | `traindata/proxy/raw-20261112-00001.jsonl` | 0.00 MB | 2026-11-12 20:46 | `da39a3ee5e6b4b0d` |
 | `traindata/proxy/raw-20261112-00002.jsonl` | 0.00 MB | 2026-11-12 20:47 | `da39a3ee5e6b4b0d` |
@@ -197,6 +197,20 @@
 | `traindata/proxy/raw-20261112-00008.jsonl` | 0.00 MB | 2026-11-12 21:02 | `da39a3ee5e6b4b0d` |
 | `traindata/proxy/raw-20261112-00009.jsonl` | 0.00 MB | 2026-11-12 21:10 | `da39a3ee5e6b4b0d` |
 | `traindata/proxy/raw-20261115-00000.jsonl` | 0.00 MB | 2026-11-15 17:11 | `da39a3ee5e6b4b0d` |
+| `traindata/proxy/raw-20261116-00000.jsonl` | 0.00 MB | 2026-11-16 13:36 | `da39a3ee5e6b4b0d` |
+| `traindata/proxy/raw-20261116-00001.jsonl` | 0.07 MB | 2026-11-16 20:05 | `13e77421e4a3ee2c` |
+| `traindata/proxy/raw-20261116-00002.jsonl` | 0.00 MB | 2026-11-16 20:05 | `da39a3ee5e6b4b0d` |
+| `traindata/proxy/raw-20261116-00003.jsonl` | 5.65 MB | 2026-11-16 20:19 | `457644c4201b1a58` |
+| `traindata/proxy/raw-20261116-00004.jsonl` | 10.27 MB | 2026-11-16 20:34 | `ea36ee5669de709d` |
+| `traindata/proxy/raw-20261116-00005.jsonl` | 0.01 MB | 2026-11-16 20:37 | `74aa2cd686f92077` |
+| `traindata/proxy/raw-20261116-00006.jsonl` | 0.00 MB | 2026-11-16 20:40 | `44d5d5a6496c4379` |
+| `traindata/proxy/raw-20261116-00007.jsonl` | 0.02 MB | 2026-11-16 20:46 | `f8b91e564d3e5144` |
+| `traindata/proxy/raw-20261116-00008.jsonl` | 0.00 MB | 2026-11-16 20:48 | `da39a3ee5e6b4b0d` |
+| `traindata/proxy/raw-20261116-00009.jsonl` | 0.01 MB | 2026-11-16 21:08 | `a37813d8b924d0ee` |
+| `traindata/proxy/raw-20261116-00010.jsonl` | 22.66 MB | 2026-11-16 21:36 | `8ed4b1c53d29ff8e` |
+| `traindata/proxy/raw-20261116-00011.jsonl` | 0.02 MB | 2026-11-16 21:49 | `4c34a8208be9ef90` |
+| `traindata/proxy/raw-20261116-00012.jsonl` | 0.00 MB | 2026-11-16 22:10 | `aa123d0f05306aa4` |
+| `traindata/proxy/raw-20261116-00013.jsonl` | 0.00 MB | 2026-11-16 22:12 | `097f4f2c629db834` |
 | `traindata/sqliv5-dataset-main/sqliv5-dataset-main/LICENSE` | 0.00 MB | 2022-09-21 19:56 | `23d8700ffc432fad` |
 | `traindata/sqliv5-dataset-main/sqliv5-dataset-main/README.md` | 0.00 MB | 2022-09-21 19:56 | `8e6d6fdc3201313c` |
 | `traindata/sqliv5-dataset-main/sqliv5-dataset-main/SQLiV3.csv` | 2.21 MB | 2022-09-21 19:56 | `cd3ea79d0cade3ab` |

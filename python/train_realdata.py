@@ -254,6 +254,45 @@ def _filter_upload_overlap(rows, eval_keys: set):
     return kept, dropped
 
 
+def _split_upload_eval(rows, frac: float = 0.2, seed: int = 11):
+    """`only` 模式的评估集：从**上传数据**里按标签分层切出留出。
+
+    官方 `payload_test` / `lexical` 在纯上传模式下可能根本不存在（而且也不该用它们
+    评估一个没用它们训练的数据集）。这里按标签分层留出 `frac`，训练集里剔除。
+    第二个返回值（`lexical_eval`）优先取留出里的**良性**样本 —— 让既有的
+    "lexical 误报"指标有东西可算；没有良性时退化为整份留出，并带上
+    `eval_source=upload_holdout` 标记，避免被误读成官方 lexical 门槛。
+    """
+    by_label: dict = {}
+    for s in rows:
+        by_label.setdefault(int(s.get("label", 0)), []).append(s)
+    rng = np.random.default_rng(seed)
+    tr: list = []
+    te: list = []
+    for lab in sorted(by_label):
+        group = by_label[lab]
+        idx = np.arange(len(group))
+        rng.shuffle(idx)
+        n_eval = max(1, int(round(len(group) * frac))) if len(group) >= 2 else 0
+        pick = set(int(i) for i in idx[:n_eval])
+        for i, s in enumerate(group):
+            (te if i in pick else tr).append(s)
+    lex = [s for s in te if int(s.get("label", -1)) == 0] or list(te)
+    info = {
+        "eval_source": "upload_holdout",
+        "eval_frac": frac,
+        "n_train": len(tr),
+        "n_eval": len(te),
+        "eval_by_label": {str(k): sum(1 for s in te if int(s.get("label", 0)) == k)
+                          for k in sorted(by_label)},
+        # 报告里必须一眼看出这不是官方 payload_test / lexical
+        "test_title": "TEST (上传留出，按标签分层)",
+        "valid_title": ("VALID (上传留出，良性)" if any(int(s.get("label", -1)) == 0 for s in te)
+                        else "VALID (上传留出，无良性)"),
+    }
+    return tr, te, lex, info
+
+
 def load_all(hard_neg: str = "none", seed: int = 11, split_mode: str = "random",
              use_dict: bool = False, dict_benign_ratio: float = 1.0,
              extra_benign: int = 0, valid_frac: float = 0.0):
@@ -821,12 +860,24 @@ def main():
                     help="额外并入 N 条 CSIC 正常流量（取自最前面，与 FPR 留出池不重叠）")
     args = ap.parse_args()
 
-    tr, va, te, lex, info = load_all(args.hard_neg, seed=args.seed,
-                                     split_mode=args.lexical_split,
-                                     use_dict=args.dict,
-                                     dict_benign_ratio=args.dict_benign_ratio,
-                                     extra_benign=args.extra_benign,
-                                     valid_frac=args.valid_frac)
+    upload_only = args.upload_mode == "only"
+    if upload_only:
+        # 纯上传模式：官方语料**不参与**，也就不该作为启动前提（它们常常没放进来）。
+        # 评估集稍后从上传数据里分层切出（`_split_upload_eval`）。
+        tr, va, te, lex = [], None, [], []
+        info = {"hard_neg": "none", "added": 0, "seed": args.seed,
+                "official_data": "skipped(upload-only)",
+                "note": "only 模式不加载官方基线/lexical；评估集取自上传数据留出"}
+        if args.hard_neg != "none":
+            print(f"[data] only 模式忽略 --hard-neg {args.hard_neg}（官方语料不参与）")
+        print("[data] only 模式：跳过官方语料加载（payload_train/test/lexical 不需要）")
+    else:
+        tr, va, te, lex, info = load_all(args.hard_neg, seed=args.seed,
+                                         split_mode=args.lexical_split,
+                                         use_dict=args.dict,
+                                         dict_benign_ratio=args.dict_benign_ratio,
+                                         extra_benign=args.extra_benign,
+                                         valid_frac=args.valid_frac)
     if va is not None:
         print(f"[split] valid={len(va)} 条（按类分层 {info.get('valid_by_label')}，"
               f"簇数 {info.get('n_clusters')}）；训练集已剔除")
@@ -840,7 +891,12 @@ def main():
             raise SystemExit("--upload-mode 需要 --upload-manifest（控制台生成）")
         manifest = _load_upload_manifest(args.upload_manifest)
         manifest["mode"] = args.upload_mode
-        eval_keys = _official_eval_keys(te, lex)
+        if upload_only:
+            # 没有官方评估集可剔除；也不去读 CSIC（可能没有）。
+            eval_keys = set()
+            info["overlap_filter"] = "skipped(upload-only)"
+        else:
+            eval_keys = _official_eval_keys(te, lex)
         kept_by_ds: dict = {}
         upload_rows: list = []
         ov_total = ov_n = 0
@@ -881,18 +937,27 @@ def main():
                 calib_note = f"上传良性留出 upload:{calib_ds.get('id')}（{len(hold)} 条）"
             elif args.calib_mode == "upload":
                 raise SystemExit("--calib-mode upload 但上传数据切不出 ≥200 条良性留出")
+            elif upload_only:
+                raise SystemExit(
+                    "only 模式需要上传良性留出做阈值标定：当前数据集切不出 ≥200 条良性留出，"
+                    "官方 CSIC 也不参与。请提供含 ≥400 条良性样本的数据集，"
+                    "或改用「内置基线 + 数据集（增量）」模式。")
             else:
                 print("[upload] 留出不足 200 条，校准池回退官方 CSIC")
         elif args.calib_mode == "upload":
             raise SystemExit("--calib-mode upload 需要至少一个可用的上传数据集")
 
-        if args.upload_mode == "only":
-            tr = upload_rows
+        if upload_only:
+            # 官方 test/lexical 不参与：评估集从上传数据分层留出（训练集已剔除）。
+            tr, te, lex, sinfo = _split_upload_eval(upload_rows, seed=args.seed)
+            info.update(sinfo)
             va = None
-            if args.valid_frac and args.valid_frac > 0 and len(tr) > 20:
-                tr, va, vinfo = _split_valid(tr, float(args.valid_frac), args.seed)
-                info.update(vinfo)
-                print(f"[upload] only：另切 valid={len(va)} 条")
+            if not te or not tr:
+                raise SystemExit(
+                    "only 模式无法从上传数据切出训练/评估集（数据太少或只有 1 类）："
+                    "请补充数据，或改用「内置基线 + 数据集（增量）」模式。")
+            print(f"[upload] only：train={len(tr)} eval={len(te)}"
+                  f"（按标签 {sinfo['eval_by_label']}）；官方 test/lexical 未使用")
         else:
             tr = tr + upload_rows
         info["upload_mode"] = args.upload_mode

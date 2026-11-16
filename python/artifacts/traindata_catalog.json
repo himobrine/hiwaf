@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-16 11:19:02",
+  "generated_at": "2026-11-16 22:25:26",
   "root": "traindata",
   "loader": "realdata_waf._inventory（与训练同一批 loader）",
   "roles": {
@@ -262,8 +262,8 @@
     {
       "path": "traindata/CATALOG.md",
       "bytes": 77761,
-      "mtime": "2026-11-16 10:47",
-      "sha1": "8396b5ed108a0215ab10b4b03086c51092e5fe12"
+      "mtime": "2026-11-16 11:19",
+      "sha1": "6b09434d81cd0bb3528640f2f9ce349950d76d3f"
     },
     {
       "path": "traindata/CVE_list.json",
@@ -1011,9 +1011,9 @@
     },
     {
       "path": "traindata/proxy/collector-metrics.json",
-      "bytes": 1740,
-      "mtime": "2026-11-15 17:12",
-      "sha1": "708a76af8e1125dbbf727eb4c352ed8626369725"
+      "bytes": 1744,
+      "mtime": "2026-11-16 22:25",
+      "sha1": "4c21eebad0e1688dbf85d4cd5fc59f0b030072d9"
     },
     {
       "path": "traindata/proxy/raw-20261112-00000.jsonl",
@@ -1080,6 +1080,90 @@
       "bytes": 0,
       "mtime": "2026-11-15 17:11",
       "sha1": "da39a3ee5e6b4b0d3255bfef95601890afd80709"
+    },
+    {
+      "path": "traindata/proxy/raw-20261116-00000.jsonl",
+      "bytes": 0,
+      "mtime": "2026-11-16 13:36",
+      "sha1": "da39a3ee5e6b4b0d3255bfef95601890afd80709"
+    },
+    {
+      "path": "traindata/proxy/raw-20261116-00001.jsonl",
+      "bytes": 68385,
+      "mtime": "2026-11-16 20:05",
+      "sha1": "13e77421e4a3ee2c35c6900a6ba90ac566c38a6b"
+    },
+    {
+      "path": "traindata/proxy/raw-20261116-00002.jsonl",
+      "bytes": 0,
+      "mtime": "2026-11-16 20:05",
+      "sha1": "da39a3ee5e6b4b0d3255bfef95601890afd80709"
+    },
+    {
+      "path": "traindata/proxy/raw-20261116-00003.jsonl",
+      "bytes": 5919465,
+      "mtime": "2026-11-16 20:19",
+      "sha1": "457644c4201b1a58faf28a3e6759728875cebdc4"
+    },
+    {
+      "path": "traindata/proxy/raw-20261116-00004.jsonl",
+      "bytes": 10769721,
+      "mtime": "2026-11-16 20:34",
+      "sha1": "ea36ee5669de709d9742118fcccc167a2a8984b6"
+    },
+    {
+      "path": "traindata/proxy/raw-20261116-00005.jsonl",
+      "bytes": 5729,
+      "mtime": "2026-11-16 20:37",
+      "sha1": "74aa2cd686f920775ab5cb2423852443e3a3a1f0"
+    },
+    {
+      "path": "traindata/proxy/raw-20261116-00006.jsonl",
+      "bytes": 2174,
+      "mtime": "2026-11-16 20:40",
+      "sha1": "44d5d5a6496c43794b17d141a4918c4841791026"
+    },
+    {
+      "path": "traindata/proxy/raw-20261116-00007.jsonl",
+      "bytes": 22480,
+      "mtime": "2026-11-16 20:46",
+      "sha1": "f8b91e564d3e51444ce5059f29fd1d785bf19519"
+    },
+    {
+      "path": "traindata/proxy/raw-20261116-00008.jsonl",
+      "bytes": 0,
+      "mtime": "2026-11-16 20:48",
+      "sha1": "da39a3ee5e6b4b0d3255bfef95601890afd80709"
+    },
+    {
+      "path": "traindata/proxy/raw-20261116-00009.jsonl",
+      "bytes": 10990,
+      "mtime": "2026-11-16 21:08",
+      "sha1": "a37813d8b924d0eea9fdc86c089611e2da8109fd"
+    },
+    {
+      "path": "traindata/proxy/raw-20261116-00010.jsonl",
+      "bytes": 23762943,
+      "mtime": "2026-11-16 21:36",
+      "sha1": "8ed4b1c53d29ff8e9ec777184c64e8ef6954d071"
+    },
+    {
+      "path": "traindata/proxy/raw-20261116-00011.jsonl",
+      "bytes": 19883,
+      "mtime": "2026-11-16 21:49",
+      "sha1": "4c34a8208be9ef903c89c84cea946df5d1bb65f7"
+    },
+    {
+      "path": "traindata/proxy/raw-20261116-00012.jsonl",
+      "bytes": 3592,
+      "mtime": "2026-11-16 22:10",
+      "sha1": "aa123d0f05306aa4e0f235ea36abee334d4381f9"
+    },
+    {
+      "path": "traindata/proxy/raw-20261116-00013.jsonl",
+      "bytes": 1631,
+      "mtime": "2026-11-16 22:12",
+      "sha1": "097f4f2c629db8344272545e360ca5abc3d3fc4c"
     },
     {
       "path": "traindata/sqliv5-dataset-main/sqliv5-dataset-main/LICENSE",
@@ -3411,8 +3495,8 @@
     }
   ],
   "totals": {
-    "files": 526,
-    "bytes": 855194357,
+    "files": 540,
+    "bytes": 895781354,
     "corpora": 12
   },
   "issues": [

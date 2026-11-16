@@ -565,7 +565,13 @@ path/trash 同时存在、symlink、stat 不匹配都不会自动删；连续 5 
 
 - `data_mode`：`official`（默认，不带数据集）/ `add`（内置基线 + 数据集）/ `only`（仅数据集）。
 - `only` 强制 `inherit_mode=lineage`；监督通道移除官方 `--hard-neg`，零日通道把
-  `--data csic|local` 换成 `--data upload`。
+  `--data csic|local` 换成 `--data upload`。**监督 `only` 不加载官方语料**
+  （`payload_train/test/lexical` 都不需要）：评估集从上传数据按标签分层留出 20%
+  （`eval_source=upload_holdout`），校准必须来自上传良性留出；官方语料的缺口由
+  `/api/tasks/preflight` 暴露，`add/official` 在入队前就会被 400 拦下（不再跑到一半抛 traceback）。
+- 官方语料（`traindata/payload_train.csv` / `payload_test.csv` / `payload_test_lexical.csv`
+  与 CSIC 目录）**不入库**（`.gitignore` 忽略 `traindata/`）：没放语料时控制台只允许
+  「仅数据集」模式，并在任务页显示缺哪些文件。
 - `iforest_local` 的 `add`：第一个含良性样本的数据集作为**本地基线**（`--benign`，
   训练/校准留出从它切），其余数据集增量合并；基线会通过 `--upload-skip-id` 从 manifest
   里跳过，避免同一条请求同时进训练集和留出（只有基线一个数据集时不拼 manifest）。
