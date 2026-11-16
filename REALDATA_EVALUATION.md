@@ -64,6 +64,10 @@
 > §8.6（早停指标 bug、干净三段切分、body 消融、流级 spike、规则挖掘）
 > 与 §8.7（零日通道开关、红队时间窗标注、datacon 降级、S4/F0 选型）、§8.8（采集数据面 + dry-run 判定接线）、
 > §8.9（控制台 + 控制面 API、`schema`/`version` 职责分离）。**
+>
+> ⚠️ 上表 1–6 是**旧语料（CSIC / HTTP Params）时代**的结论，语料已于 2026-11 整体换代。
+> **当前口径看 §13（g3 换代）、§14（零日 g4）、§15（加训 g5，含 FUR 误报 65%→0.6%）、
+> §16（g6 cmdi 形态对齐，exploit 召回 94.19%→97.09%，现役 v30）**。
 
 ---
 
@@ -1531,6 +1535,8 @@ py -3.10 thresholds.py --pool file:artifacts/staging/waf2026_scratch/calibration
    已知攻击的召回应看监督通道（同批 98.26%，argmax 87.79%）。
 4. FUR-API 对零日通道近似**同分布**（0.51% vs 0.50%），对监督通道则是 OOD
    （同阈值下 FUR 正常流量误报 **65.35%**）——这也是本轮只动零日、不动监督的原因。
+   > 此处的 65.35% 与 984 条 normal 是 2026-11-15 的口径；§15 修掉 FUR body 的 `nan`
+   > 占位符后，同一测量为 **64.77% / 982 条**，结论不变。
 
 ### 14.4 上线与门禁（2026-11-15）
 
@@ -1560,4 +1566,186 @@ py -3.10 -m unittest test_convert_newdata -v
 py -3.10 eval_newdata.py --extra-iforest staged=artifacts/staging/fur_api_add/model/model.onnx
 py -3.10 iforest_lean_onnx.py --data waf --export --upload-manifest artifacts\staging\fur_api_add\datasets.json --upload-mode add --calib-mode official --parent-model artifacts\models\zero_day\gen-0003-8d21a7c2dce8\iforest_model.joblib --trees 225 --out-dir artifacts\staging\fur_api_add\model --onnx-name model.onnx
 ```
+
+## 15. 2026-11-16 加训 g5：新语料并入监督 + 零日（已切换 v28）
+
+完整报告（逐条验收、混淆、复现命令）：
+`python/artifacts/staging/ab_g5/ab_summary.md`。
+
+**已按本轮结论切换现役**（`switch#15/#16`，`policy v26 → v28`）：
+监督 = `g5_sup_fur`（登记 `models/supervised/gen-0004-87f851e0304d`，sha `87f851e0304da39c`），
+零日 = `g5_if`（登记 `models/zero_day/gen-0005-2ae506b52115`，sha `2ae506b521152f31`）；
+门禁（特征逐位一致 / XGB 1.1e-6 / IForest 3.8e-6 / TreeSHAP 1.9e-5 / 融合动作 200-200）
+全过。切换后 `eval_newdata` 在现役策略上复现了 A/B 数字：FUR FPR 0.61%、
+exploit 94.19%、零日 FUR FPR 0.92%。**采集器仍需重启**（控制台 `pending_restart`）。
+
+### 15.1 新语料与用量
+
+`traindata/` 新增六组语料，统一由 `realdata_waf.build_dataset()` 接入（不另设转换脚本）。
+共同约束：**只进 train/valid（group 85/15），不进 test** —— test 保持与 g3/g5 同一批
+9,352 行，5 类指标才可比；新语料的效果由 FUR test / exploit 的独立评估回答。
+
+| 语料 | 原始量 | 用量 | 标签 | 关键处理 |
+|---|---|---|---|---|
+| `FUR-API/train.csv` | 20,060（20,000 normal / 60 anomaly） | 18,119 | 0 | `anomaly` 是**业务异常**，不是攻击子类，丢弃；`request_body` 的字面量 `nan` 还原成空 body |
+| `SQLiV5.json` + `sqli.csv` | 21,013 sqli / 19,517 valid；csv 1,128 sqli（UTF-16） | 抽样 15,000 | 1 | `type=valid` 是**合法 SQL**，排除；<4 字符丢 |
+| `wafamole attacks.sql` | 1,286,863 行 | 抽样 20,000 | 1 | 一行一条载荷，**不按 `;` 切**；`sane.sql` 排除 |
+| `wafrift-bench/corpus` | 932 case | 796 | 1/2/3/4 | 8 类可映射；ldap/nosql/graphql/ssi/cve_pocs 无槽位 |
+| `waffled bypass-database` | 32 个 `b'''` 块 | 28 | 1/2 | bytes 字面量 `ast.literal_eval` 还原；含 body |
+| `commonhuman-payloads` | 26 种编码器 | 0 | — | `{marker}` 占位符会成为捷径 token，只登记 |
+
+大语料用**稳定哈希 Top-K**（`_TopK`）而不是 `textsim.leak_clusters`：后者是稠密 n×n
++ O(n²) 并查集，128 万行的 `attacks.sql` 会爆内存；Top-K 是 O(n)，且与扫描顺序无关
+（重排输入抽到同一批行，已用单测钉住）。
+
+#### 15.1.1 三个口径 bug（本轮实测踩到，均已修）
+
+| 问题 | 后果 | 修法 |
+|---|---|---|
+| FUR `request_body` 缺失值是**字面量 `nan`**（pandas 产物，原始 9,034 行 / 去重后 9,063） | 40% 良性带"三字母 body"的**假特征**，模型学到 `nan` 是正常 | `FUR_BODY_MISSING={"nan","none","null"}` → 空 body |
+| 评估端 `convert_fur_api.py` 没同步这个归一 | 训练/评估特征错位，FUR test FPR 从 0.61% **虚增到 1.63%** | 直接 `from realdata_waf import FUR_BODY_MISSING` |
+| FUR 去重误用载荷归一化（小写+空白折叠） | 仅大小写不同的请求被合并，训练集比 `training_keys.txt` 少 21 条，候选不可逐位复现 | `_TopK(normalize=False)`，按精确 `req_key` 去重 |
+
+这是"训练端与评估端必须共用同一份数据口径"的第三个实例（前两次是 `req_key` 与
+`training_keys.txt`、以及校准池污染检查）。
+
+### 15.2 四个候选
+
+全量重训（不 warm start）、特征 v2 / 标签 0-4 不变、校准池仍是 parquet 12k 独立留出
+（污染交集 0）。
+
+| 候选 | train | normal | 树 |
+|---|---|---|---|
+| `g5_sup_fur` | 292,177 | 220,768 | 4,000 |
+| `g5_sup_fur6k` | 281,921 | 210,512 | 4,000 |
+| `g5_sup_nofur`（对照） | 276,816 | 205,407 | 4,000 |
+| `g5_if`（零日） | — | 220,768 | 225 |
+
+### 15.3 A/B（旧现役 v26 阈值，四模型同阈值；FUR test = 982 normal / 133 anomaly）
+
+| 模型 | FUR normal FPR | exploit 召回 | exploit argmax | @FUR-FPR≤1% 召回 |
+|---|---|---|---|---|
+| 现役 g3 | 64.77% | 98.26% | 87.79% | 16.28% |
+| g5_nofur | 67.31% | 98.26% | 89.53% | 30.23% |
+| **g5_fur** | **0.61%** | 94.19% | 69.19% | **95.35%** |
+| g5_fur6k | 1.32% | 94.77% | 74.42% | 94.77% |
+
+统一 test（9,352 行）：5 类 acc 0.9909（现役 0.9908）、parquet FPR 1.14%（现役 1.05%）、
+parquet anomalous 召回 49.69%（现役 47.77%）、modsec det@1% 99.55%（与现役持平）、
+payload / xlsx 100%。
+零日 `g5_if` 在候选策略阈值 −7.112238：FUR FPR 0.92%（g4 1.63%）、官方留出 1.00%
+（g4 0.73%）、同 1% FUR 预算下 exploit 召回 15.12%（g4 10.47%）。
+
+### 15.4 三个必须记住的结论
+
+1. **现役的 98% exploit 召回是用 65% FUR 误报换来的**。同误报预算（FUR 1%）下
+   现役只剩 16.28%，`g5_fur` 是 95.35% —— 这才是同口径对比。
+2. **误报修复只来自 FUR 良性入训**：`g5_nofur`（只加攻击语料）FUR 误报反而
+   64.77% → 67.31%。新攻击语料让模型更敏感，不解决 OOD 良性。
+3. **exploit 召回 94.19% 差的 0.81pp 全在 cmdi**：89 条里有 10 条是
+   `{"cmd":"whoami"}` / `cmd=whoami` 型合成模板，与 FUR 真实 API 的短 JSON body
+   在 80 维上不可区分。真实 test 上 cmdi 召回仍是 **0.971**；FUR 良性降到 6k 也只是
+   89.89%（+1 条），说明是分布冲突、不是样本量。**两者不可兼得**。
+
+### 15.5 切换与尚未做
+
+- **已切换（2026-11-16）**：`policy v28`；监督 `gen-0004-87f851e0304d`、
+  零日 `gen-0005-2ae506b52115` 为现役，旧代自动 `archived`，回退用
+  `POST /api/models/rollback/{channel}` 或 `model_switch.rollback_target()`。
+  切换备份在 `artifacts/switch_backup/switch_15|16/`。
+- **采集器未重启**：`current_state` 显示监督通道 `pending_restart`（内存里仍是
+  旧 sha `abe16c602d1e4893`），重启后新模型才生效。
+- **预置产物未发布**：新两代的快照还没解除 `.gitignore`、`registry_seed.json`
+  未重导（步骤见 `python/artifacts/PRESET.md` §4）。
+- 新语料没进 test，5 类 acc 只说明"没学坏旧分布"，不代表新语料自身的分类精度。
+- exploit 集合疑似合成，召回只能做相对比较（172 条里 1 条 = 0.58pp，94.19% 与
+  94.77% 的差在噪声内）。
+- 单次 85/15 切分，无多 seed 方差；FUR 上限只试了 18k / 6k 两档。
+- FUR test 有 101/982 与 train 重叠，已用 unseen 子集校正（`g5_fur` 0.68%）。
+
+### 15.6 复现
+
+见 `python/artifacts/staging/ab_g5/ab_summary.md` §7（含 `thresholds.py` 预览命令；
+注意不加 `--zero-day on` 会静默关闭零日通道，不加 `--rules`/`--no-rules` 会直接退出）。
+
+## 16. 2026-11-16 加训 g6：cmdi 形态对齐（已切换 v30）
+
+完整报告：`python/artifacts/staging/ab_g6/ab_summary.md`。
+
+### 16.1 为什么要再做一轮：先证伪"调阈值就够了"
+
+现役 v28（g5）在 12k 池上的预算-召回曲线：
+
+| sup 预算 | 阈值 | FUR FPR | parquet test FPR | exploit 召回 |
+|---|---|---|---|---|
+| 0.634%（v28） | 0.002975 | 0.61% | 0.69% | 94.19% |
+| 0.742%（1% 预算上限） | 0.001889 | 0.71% | 0.81% | **94.19%** |
+| 0.925% | 0.000989 | 0.81% | 1.02% | 95.00% |
+| 1.000% | 0.000748 | 1.12% | 1.14% | 95.35% |
+
+**1% 硬预算下挪阈值换不来召回**（0.742% 点一条没多抓；要 95% 需 0.925% 监督预算，
+加上规则 0.258% 就是 1.18%）。→ 只能改数据。
+
+### 16.2 exploit 集合的真实上限
+
+10 条 cmdi 漏报的分数是 0.0000–0.0018、`P(cmd)`≤0.0012，argmax 全是 normal ——
+不是"贴线"，是模型非常确信正常。其中 **5 条无任何可学信号**：
+`POST /app`（body 空）、`POST /struts2-showcase/`（body 空）、
+`POST /t3` body=`malicious_t3_payload`、`{"payload":"malicious_object"}`、`{A*10000}`。
+
+→ 该评估集的召回上限 = **167/172 = 97.09%**，剩下 5 条只有背评估集才能检出。
+
+### 16.3 做法：cmdi 形态对齐（只改外壳）
+
+把**已有真实 label=3 载荷**原样包进 FUR 形态外壳（JSON / SOAP / form），
+路径用通用池（**禁用评估集路径**），键名/空白/长度随机化。
+两条硬约束（第一版都踩过）：
+
+1. **外壳必须标签中立**：只包攻击会让模型学到"JSON body + cmd 键 = 攻击"，
+   FUR 误报 0.61% → 1.93%。必须用**同一批外壳**包等量以上良性（`--cmdi-wrap-neg`）。
+2. **良性包装优先取 FUR 真实 body**：否则被 22 万条 parquet 长英文淹没，短 JSON 仍被当攻击。
+
+最终配方 `g6_sup_fur1n4`：2,581 条 cmdi ×1（+2,244）+ 9,177 条同外壳良性（≈4×）→
+train 303,581（normal 229,928），5 类 acc **0.9912**。
+
+### 16.4 结果与工作点选择
+
+| 配置 | 池预算 | 阈值 | FUR FPR | pq test FPR | pqAnom 召回 | exploit 召回 | 阻断 FPR |
+|---|---|---|---|---|---|---|---|
+| v28 g5 | 0.634% | 0.002975 | 0.61% | 0.69% | 43.0% | 94.19% | 0.917% |
+| g6 | 0.634% | 0.002826 | 2.04% | 0.75% | **45.3%** | 97.09% | 0.92% |
+| **g6（现役）** | **0.400%** | **0.007701** | **0.92%** | **0.48%** | 40.4% | **97.09%** | **0.658%** |
+| g6 | 0.200% | 0.055495 | 0.30% | 0.18% | 30.0% | 97.09% | 0.46% |
+
+救回 6 条（SOAP 反序列化、`{"cmd":…}`、`phpinfo()`、Ruby marshal、`cmd=whoami`、
+`script: whoami`），剩余 5 条正是 §16.2 的无信号样本。
+
+**关键读数**：g6 对短 JSON body 更谨慎，同预算下 FUR 误报升；因此把监督预算从 0.6336%
+收紧到 **0.40%**（总阻断 0.658%，仍远低于 1% 上限）。这不是模型退化 —— 同预算（0.634%）
+下 g6 的 pqAnom 45.3% > v28 43.0%，是**预算分配**问题。
+
+统一 test / 分来源（各自 1% 点）：acc 0.9912（v28 0.9909）、pq FPR 1.10%（1.14%）、
+pqAnom 48.82%（49.69%，−0.87pp）、modsec 99.44%（99.55%，−0.11pp）、payload/xlsx 100%。
+
+### 16.5 切换与门禁
+
+`switch#17`：监督 → `g6_sup_fur1n4`（登记 `XGBoost g5`，id=12，gen=5，
+sha `ddd54ebc29469208`，快照 `models/supervised/gen-0005-ddd54ebc2946/`），零日未变。
+切换时自动出 v29（默认预算），随后用 `thresholds.py` 重标定到 **v30**
+（监督目标 0.400%，阈值 0.007701，池上实测 0.400%）。
+
+门禁（`waf-ai-proto`）：特征逐位一致、XGB 1.19e-7 / 3.58e-7、IForest 3.81e-6、
+阈值来源一致性 0.0e0、融合动作 200/200、argmax 200/200、TreeSHAP 1.53e-5。
+
+### 16.6 尚未做
+
+- **采集器未重启**：`current_state` 仍是 `pending_restart`。
+- 预置产物未发布（`g5_sup_fur`/`g6_sup_fur1n4` 两代快照未解除 `.gitignore`、
+  `registry_seed.json` 未重导）。
+- exploit 集仍是 172 条合成味很重的样本；真实在野 cmdi 需要另建评估集
+  （建议用 modsec `932/933` 规则命中 + body 抽）。
+- 形态对齐的良性/攻击比例只试了 1×/4×/等量三档，未做网格。
+- 训练集因磁盘压力删除了 `g5_sup_fur6k` / `g5_sup_nofur` 两个 A/B 对照的 staging
+  目录（数字仍在 §15；按 §15.6 命令可重建）。
+
 

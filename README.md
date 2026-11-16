@@ -108,40 +108,43 @@ flowchart LR
 
 ## 当前状态
 
-> 以下为 2026-11-15 的现役产物（监督 g3 + 零日 g4，零日已并入 FUR-API 良性增量）。**唯一事实来源是
+> 以下为 2026-11-16 的现役产物（监督「加训 g6_sup_fur1n4（cmdi 形态对齐）」+ 零日
+> 「g5_if」，由 `traindata/` 2026-11 全量语料**全量重训**）。**唯一事实来源是
 > `python/artifacts/decision_policy.json`**，本表只是快照。
 
 | 项 | 值 |
 |---|---|
-| 策略版本 | **v24** |
-| 监督通道 | XGBoost **g3**（4000 棵树 / 210,706 节点 / 深度 8），sha `abe16c602d1e4893` |
-| 监督阈值 | `0.002949` @ 有效目标 FPR 0.6336%（已扣规则 0.3664%） |
-| 零日通道 | IForest **g4**（225 棵树，CSIC-IF 125 → g3 200 → warm start +25），sha `cfead12f36a4dd7c` |
-| 零日阈值 | `-6.824606` @ 目标 FPR **0.5%**（与监督档位独立，同 12k 池标定） |
-| 零日开关 | `zero_day_enabled = true`（**仅告警、不阻断**；官方 12k 留出 FPR 0.50%、FUR-API 正常流量 FPR 0.30%） |
+| 策略版本 | **v30** |
+| 监督通道 | XGBoost **g6_sup_fur1n4**（登记 `XGBoost g5`，800 轮 × 5 类 = 4000 棵树），sha `ddd54ebc29469208` |
+| 监督阈值 | `0.007701` @ 监督目标 FPR **0.400%**（池上实测 0.400%） |
+| 零日通道 | IForest **g5_if**（登记 `IForest g5`，225 棵树，全量重训），sha `2ae506b521152f31` |
+| 零日阈值 | `-7.112238` @ 目标 FPR **1%**（与监督档位独立，同 12k 池标定） |
+| 零日开关 | `zero_day_enabled = true`（**仅告警、不阻断**；官方 12k 留出 FPR 1.00%、FUR-API 正常流量 FPR 0.92%） |
 | 现役规则集 | **91 条 / 41 条 block**，sha `5425465fd0085457` |
-| 校准池 | 12,000 条去污染良性留出（与训练集交集 0） |
-| 采集器 | 切换后需重启才加载 g4（控制台显示 `pending_restart`） |
+| 校准池 | 12,000 条去污染良性留出（与训练集交集 0，训练指纹 303,581 条） |
+| 融合阻断 FPR | **0.658%**（监督 0.400% + 规则 0.258%） |
+| exploit 召回 | **97.09%**（该评估集上限：剩余 5 条无信号占位符） |
+| FUR-API 正常流量误报 | **0.92%**（982 条；v28 为 0.61%，两者都在 6–9 条的噪声内） |
+| 采集器 | 切换后需重启才加载新模型（控制台显示 `pending_restart`） |
 
-门禁（`rust/` 一致性 harness，全部通过）：
+门禁（`rust/` 一致性 harness，2026-11-16 `switch#17` 实跑，全部通过）：
 
 | 校验项 | 结果 |
 |---|---|
 | Rust 特征 vs Python v2 | **逐位一致**，200×80 全 0 差异 |
-| XGBoost 推理 vs onnxruntime | max\|diff\| ≈ 1.76e-6，argmax 200/200 |
-| IForest 推理 | max\|diff\| ≈ 6.7e-6 |
-| TreeSHAP vs `pred_contribs` | max\|diff\| ≈ 1.43e-5 |
-| 阈值交叉核对 | 0.000e0（policy vs testvec；`iforest_meta` 无 0.005 档位，meta↔policy 交叉校验跳过） |
+| XGBoost 推理 vs sklearn / onnxruntime | max\|diff\| ≈ 1.19e-7 / 3.58e-7，argmax 200/200 |
+| IForest 推理 | max\|diff\| ≈ 3.8e-6 |
+| TreeSHAP vs `pred_contribs` | max\|diff\| ≈ 1.53e-5 |
+| 阈值交叉核对 | 0.000e0（policy vs testvec，监督与零日两通道） |
 | 融合动作一致性 | 200/200 |
 
-单请求延迟（release，i5-12500H；**g3 4000 棵深树实测，2026-11-12**）：
-判定路径 **allow p50 ≈ 0.22 ms / p99 ≈ 0.77 ms**（不算 TreeSHAP），
-alert/block **p50 ≈ 3.9 ms / p99 ≈ 5.2 ms**（单类 TreeSHAP）。
-g3 的树更深（平均 52.7 节点/树，g2 为 5.9），TreeSHAP 成本相应上升；采集器只在
-**已命中**的请求上算 SHAP，allow 路径不受影响。
+单请求延迟（release，i5-12500H；**g6 4000 棵树实测，2026-11-16**）：
+判定路径 **allow p50 ≈ 0.22 ms / p99 ≈ 0.48 ms**（不算 TreeSHAP），
+alert/block **p50 ≈ 4.3 ms / p99 ≈ 4.9 ms**（单类 TreeSHAP）。
 
 零日通道（2026-11 语料 + FUR-API）：g3 = CSIC-IF 125 棵 warm start 到 200 棵；g4 再 +25 棵，
-并入 FUR-API `train.csv` 的 18,144 条去重良性（`--upload-mode add`），**目标 FPR 0.5%（alert-only）**。
+并入 FUR-API `train.csv` 的 18,144 条去重良性（`--upload-mode add`），**目标 FPR 0.5%（alert-only）**；
+g5 改为**全量重训 225 棵**（220,768 条良性，含 FUR 18,119），目标 FPR 1%（alert-only）。
 当前官方 12k 留出 FPR **0.50%**、FUR-API test 正常流量 FPR **0.30%**（A/B 见
 [`REALDATA_EVALUATION.md`](REALDATA_EVALUATION.md)）。零日只产生 alert、不阻断；
 档位可用 `thresholds.py --zero-day-fpr` 或控制台「零日目标 FPR」单独调整。
@@ -221,11 +224,15 @@ cd proxy
 
 `traindata/`（数据集）、`console.db`、日志、上传件等运行态与大文件都在 `.gitignore` 里。
 
-**仓库自带预置模型产物（v24）**：两个现役 ONNX、零日 warm start 训练件，以及
-`python/artifacts/models/` 下四代快照（含血缘清单 `registry_seed.json`）。
+**仓库自带预置模型产物（v28 策略）**：两个现役 ONNX、零日 warm start 训练件，以及
+`python/artifacts/models/` 下的代次快照（含血缘清单 `registry_seed.json`）。
 克隆后直接启动控制台即可看到模型在跑、代次树完整，**不需要先训练**。
 预置代次清单的校验规则见 [`python/artifacts/PRESET.md`](python/artifacts/PRESET.md)；
 要复现、增量训练或换成自己的数据，再按 [`SETUP.md`](SETUP.md) 走一遍。
+
+> 2026-11-16 切到 v28/v30 的三代（监督 gen-0004 `87f851e0…`、gen-0005 `ddd54ebc…`，
+> 零日 gen-0005 `2ae506b5…`）目前**只在本地**：`.gitignore` 还没放行它们，
+> `registry_seed.json` 也未重导，发布步骤见 `PRESET.md` §4。
 
 > 只有「随仓库发布的预置代次」被 `.gitignore` 白名单放行；你本地新训练出来的代次
 > 默认仍不入库（见 `.gitignore` 里 `python/artifacts/models/*` 那一段）。
