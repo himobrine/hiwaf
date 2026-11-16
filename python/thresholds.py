@@ -716,8 +716,13 @@ def main():
         artifact_path=IF_ONNX,
     )
 
+    _af = supervised["actual_fpr"].get(args.fpr)
+    if _af is None:
+        # 非标准档位（例如把监督预算收紧到 0.4%）：actual_fpr 只留标准三档，
+        # 这里退回"实际生效目标上的实测 FPR"，与 policy 里的字段同源。
+        _af = supervised.get("actual_fpr_at_effective", 0.0)
     print(f"[thr] 监督通道 @{args.fpr}: {supervised['threshold']:.6f} "
-          f"(池上实际 FPR={supervised['actual_fpr'][args.fpr]*100:.3f}%)")
+          f"(池上实际 FPR={_af*100:.3f}%)")
     if sup_target is not None and isinstance(supervised.get("effective_target_fpr"), float):
         print(f"[thr]   ↑ 规则通道扣减后按 {supervised['effective_target_fpr']*100:.4g}% 取分位，"
               f"池上实际阻断 FPR={supervised['actual_fpr_at_effective']*100:.3f}% "

@@ -127,6 +127,8 @@ def main() -> None:
     ap.add_argument("--xgb", default=LIVE_XGB)
     ap.add_argument("--extra-iforest", action="append", default=None,
                     metavar="NAME=PATH", help="额外零日 ONNX（可重复），用于加训 A/B")
+    ap.add_argument("--extra-xgb", action="append", default=None,
+                    metavar="NAME=PATH", help="额外监督 XGBoost ONNX（可重复），用于加训 A/B")
     ap.add_argument("--out", default=os.path.join(ART, "newdata_eval.json"))
     ap.add_argument("--skip-supervised", action="store_true")
     args = ap.parse_args()
@@ -228,6 +230,15 @@ def main() -> None:
             "threshold_for_1pct_fpr_on_official": (
                 round(_thr_at_fpr(s_fh, 0.01), 4) if len(s_fh) else None),
         }
+        # 同一 FPR 预算下的公平对比：拿 FUR normal 的 1% 分位当阈值，
+        # 看 exploit 召回能到多少（现役阈值来自别的池子，直接比重召回没意义）。
+        thr_1 = _thr_at_fpr(s_fn, 0.01)
+        if thr_1 is not None:
+            report["zero_day"][name]["exploit_recall_at_1pct_fur_fpr"] = round(
+                _rate(s_ex, thr_1), 4)
+            report["zero_day"][name]["fur_anomaly_detect_at_1pct_fur_fpr"] = round(
+                _rate(s_fa, thr_1), 4)
+
         print(f"  FUR normal FPR        = {fpr:6.2%}  (阈值 {thr_if:.4f})")
         print(f"  FUR anomaly 检出      = {det_anom:6.2%}")
         print(f"  exploit HTTP 召回     = {rec:6.2%}")
@@ -239,40 +250,80 @@ def main() -> None:
                   f"官方={_thr_at_fpr(s_fh,0.01):.3f}  (差 "
                   f"{_thr_at_fpr(s_fn,0.01)-_thr_at_fpr(s_fh,0.01):+.3f})")
 
-    if not args.skip_supervised and os.path.exists(args.xgb):
-        print(f"\n=== supervised / live ===")
-        sess = _session(args.xgb)
-        p_fn = _xgb_probs(sess, X_fn)
-        p_fa = _xgb_probs(sess, X_fa)
-        p_ex = _xgb_probs(sess, X_ex)
-        s_fn, s_fa, s_ex = 1.0 - p_fn[:, 0], 1.0 - p_fa[:, 0], 1.0 - p_ex[:, 0]
+    xgb_models = {}
+    if os.path.exists(args.xgb):
+        xgb_models["live"] = args.xgb
+    for spec in args.extra_xgb or []:
+        name, _, path = spec.partition("=")
+        p = path if os.path.isabs(path) else os.path.join(HERE, path)
+        if not os.path.exists(p):
+            raise SystemExit(f"--extra-xgb 不存在：{p}")
+        xgb_models[name] = p
+    if not args.skip_supervised:
+        if not xgb_models:
+            raise SystemExit(f"没有可评估的监督 ONNX：{args.xgb}")
+        for name, path in xgb_models.items():
+            print(f"\n=== supervised / {name} ===")
+            sess = _session(path)
+            p_fn = _xgb_probs(sess, X_fn)
+            p_fa = _xgb_probs(sess, X_fa)
+            p_ex = _xgb_probs(sess, X_ex)
+            s_fn, s_fa, s_ex = 1.0 - p_fn[:, 0], 1.0 - p_fa[:, 0], 1.0 - p_ex[:, 0]
 
-        pred_ok = 0
-        per_cls = {}
-        for lab in sorted(set(exp_lab.tolist())):
-            m = exp_lab == lab
-            pred_ok += int((p_ex[m].argmax(axis=1) == lab).sum())
-            per_cls[LABEL_NAMES.get(lab, str(lab))] = {
-                "n": int(m.sum()),
-                "recall_at_policy_threshold": round(_rate(s_ex[m], thr_xgb), 4),
-                "argmax_acc": round(float((p_ex[m].argmax(axis=1) == lab).mean()), 4),
+            pred_ok = 0
+            per_cls = {}
+            for lab in sorted(set(exp_lab.tolist())):
+                m = exp_lab == lab
+                pred_ok += int((p_ex[m].argmax(axis=1) == lab).sum())
+                per_cls[LABEL_NAMES.get(lab, str(lab))] = {
+                    "n": int(m.sum()),
+                    "recall_at_policy_threshold": round(_rate(s_ex[m], thr_xgb), 4),
+                    "argmax_acc": round(float((p_ex[m].argmax(axis=1) == lab).mean()), 4),
+                }
+            rep = {
+                "artifact": os.path.relpath(os.path.abspath(path), HERE),
+                "threshold": round(thr_xgb, 6),
+                "fur_normal_fpr": round(_rate(s_fn, thr_xgb), 4),
+                "fur_anomaly_detect_rate": round(_rate(s_fa, thr_xgb), 4),
+                "exploit_recall": round(_rate(s_ex, thr_xgb), 4),
+                "exploit_argmax_acc": round(pred_ok / max(1, len(exp_rows)), 4),
+                "exploit_by_class": per_cls,
+                "fur_normal_score_quantiles": _q(s_fn),
+                "threshold_for_1pct_fpr_on_fur": (
+                    round(_thr_at_fpr(s_fn, 0.01), 4) if len(s_fn) else None),
             }
-        report["supervised"]["live"] = {
-            "artifact": os.path.relpath(os.path.abspath(args.xgb), HERE),
-            "threshold": round(thr_xgb, 6),
-            "fur_normal_fpr": round(_rate(s_fn, thr_xgb), 4),
-            "fur_anomaly_detect_rate": round(_rate(s_fa, thr_xgb), 4),
-            "exploit_recall": round(_rate(s_ex, thr_xgb), 4),
-            "exploit_argmax_acc": round(pred_ok / max(1, len(exp_rows)), 4),
-            "exploit_by_class": per_cls,
-            "fur_normal_score_quantiles": _q(s_fn),
-        }
-        print(f"  FUR normal FPR    = {_rate(s_fn, thr_xgb):6.2%}")
-        print(f"  exploit 召回      = {_rate(s_ex, thr_xgb):6.2%}  "
-              f"argmax acc={pred_ok/max(1,len(exp_rows)):.2%}")
-        for k, v in per_cls.items():
-            print(f"    - {k:<10} n={v['n']:<4} recall={v['recall_at_policy_threshold']:.2%} "
-                  f"argmax={v['argmax_acc']:.2%}")
+            # 混淆矩阵：argmax 掉点时要能回答“被错判成哪一类”，不能只看总分
+            conf: Dict[str, Dict[str, int]] = {}
+            for lab in sorted(set(exp_lab.tolist())):
+                preds = p_ex[exp_lab == lab].argmax(axis=1)
+                conf[LABEL_NAMES.get(lab, str(lab))] = {
+                    LABEL_NAMES.get(k, str(k)): int((preds == k).sum())
+                    for k in range(5)}
+            rep["exploit_argmax_confusion"] = conf
+
+            # 同一 FPR 预算（FUR normal 1%）下的召回/分类：跨模型直接比才公平
+            thr_1 = _thr_at_fpr(s_fn, 0.01)
+            if thr_1 is not None:
+                rep["exploit_recall_at_1pct_fur_fpr"] = round(_rate(s_ex, thr_1), 4)
+                rep["fur_anomaly_detect_at_1pct_fur_fpr"] = round(
+                    _rate(s_fa, thr_1), 4)
+                rep["exploit_argmax_acc_at_1pct_fur_fpr"] = round(
+                    float((p_ex[s_ex >= thr_1].argmax(axis=1)
+                           == exp_lab[s_ex >= thr_1]).mean())
+                    if int((s_ex >= thr_1).sum()) else 0.0, 4)
+            report["supervised"][name] = rep
+            print(f"  FUR normal FPR    = {_rate(s_fn, thr_xgb):6.2%}")
+            print(f"  exploit 召回      = {_rate(s_ex, thr_xgb):6.2%}  "
+                  f"argmax acc={pred_ok/max(1,len(exp_rows)):.2%}")
+            for k, v in per_cls.items():
+                print(f"    - {k:<10} n={v['n']:<4} "
+                      f"recall={v['recall_at_policy_threshold']:.2%} "
+                      f"argmax={v['argmax_acc']:.2%}")
+            if thr_1 is not None:
+                print(f"  @FUR-FPR≤1%（阈值 {thr_1:.4f}）: exploit 召回 "
+                      f"{rep['exploit_recall_at_1pct_fur_fpr']:.2%}  "
+                      f"argmax={rep['exploit_argmax_acc_at_1pct_fur_fpr']:.2%}")
+
 
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
     with open(args.out, "w", encoding="utf-8") as f:

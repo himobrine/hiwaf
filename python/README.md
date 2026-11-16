@@ -6,9 +6,12 @@
 > **数据集已于 2026-11 整体换代**：旧语料（CSIC 2010 / HTTP Params 2015 /
 > CIC-IDS2017 / datacon2025 / 本地采集）已从 `../traindata` 删除，现用
 > xlsx 审计表 + `WAF Data v2`（parquet）+ OWASP ModSecurity 日志 +
-> WAF-Payload-Collection + `WAF_DETECTION_DATASET.jsonl`。
+> WAF-Payload-Collection + `WAF_DETECTION_DATASET.jsonl`；
+> 2026-11-16 又接入 FUR-API 良性 / SQLiV5 / WAF-A-MoLE / wafrift / waffled
+> （`commonhuman-payloads` 只登记不训练）。
 > 接入层是 `realdata_waf.py`，换代训练入口是 `train_wafdata.py`。
-> 真实评估结论、发现的问题与修复过程见根目录 `REALDATA_EVALUATION.md`。
+> 真实评估结论、发现的问题与修复过程见根目录 `REALDATA_EVALUATION.md`
+> （最新一轮加训 A/B 见 §15 与 `artifacts/staging/ab_g5/ab_summary.md`）。
 > 合成数据仍保留（`dataset.py`）用于链路自检。
 
 ## 环境
@@ -43,14 +46,15 @@ v2 的关键修复（v1 用子串计数 + 未归一化，导致正常英文长�
 | `features_v1.py` | v1 特征（78 维），仅用于 A/B |
 | `dataset.py` | 合成请求数据（链路自检用） |
 | `realdata.py` | **旧语料加载器（2026-11 已失效）**：CSIC 2010 / HTTP Params / datacon 的路径与文件已删除；仅保留历史实现供旧脚本 import。**新代码请用 `realdata_waf.py`** |
-| `realdata_waf.py` | **新 `traindata/`（2026-11）唯一接入层**：xlsx 事务级聚合（27,686 事务 → 18,474 唯一请求）、parquet 正常流量稳定桶抽样、ModSecurity 审计日志解析（30 天 / 150,930 请求）、WAF-Payload-Collection、`WAF_DETECTION_DATASET.jsonl`；按 URL 模板分组切分 + 跨语料去重防泄漏；`--probe` / `--build` / `--export-holdout` |
-| `train_wafdata.py` | **2026-11 语料训练入口**：`realdata_waf.build_dataset()` + 复用 `train_realdata.run()`（训练/导出/曲线/阈值记录）。默认从现役 `xgb_model.json` **warm start**（+400 轮）；`--no-parent` 全量重训对照；产物落 `artifacts/staging/<name>/`（ONNX / xgb_model.json / xgb_trees.json / meta / dataset_stats / **training_keys.txt**（与 `thresholds.req_key` 同口径）/ calibration_pool.jsonl）；`--keys-only` 只重写数据派生物 |
+| `realdata_waf.py` | **新 `traindata/`（2026-11）唯一接入层**：xlsx 事务级聚合（27,686 事务 → 18,470 唯一请求）、parquet 正常流量稳定桶抽样、ModSecurity 审计日志解析（30 天 / 150,930 请求）、WAF-Payload-Collection、`WAF_DETECTION_DATASET.jsonl`；**2026-11-16 新增 5 个 loader**：FUR-API（`normal` 良性 18,119；`anomaly` 是业务异常、丢弃；`request_body` 的 `nan` 占位符还原成空 body）、SQLiV5（`type=valid` 合法 SQL 排除）+ `sqli.csv`（UTF-16）、WAF-A-MoLE `attacks.sql`（128 万行流式抽样）、wafrift（13 类，8 类映射 0-4）、waffled（`b'''` bytes 报文，含 body）；大语料用**稳定哈希 Top-K**（`_TopK`，O(n)、与扫描顺序无关）而非稠密聚类；新语料**只进 train/valid（85/15），不进 test**；按 URL 模板分组切分 + 跨语料去重防泄漏；**cmdi 形态对齐**（`wrap_cmdi_rows` / `wrap_payload_rows`，`build_dataset(cmdi_wrap=N, cmdi_wrap_neg=M)`）：把真实 label=3 载荷包进 JSON/SOAP/form 外壳，路径只用通用池（**禁用评估集路径**），并用同外壳包等量以上 FUR 良性让外壳标签中立；`--probe` / `--build` / `--export-holdout` |
+| `train_wafdata.py` | **2026-11 语料训练入口**：`realdata_waf.build_dataset()` + 复用 `train_realdata.run()`（训练/导出/曲线/阈值记录）。默认从现役 `xgb_model.json` **warm start**（+400 轮）；`--no-parent` 全量重训对照；**`--no-fur`**（新攻击语料照收、FUR 良性不入训，用于 A/B 归因）与 **`--fur-max N`**（FUR 良性上限，默认 20,000；6,000 是折中档）；**`--cmdi-wrap N` / `--cmdi-wrap-neg M`**（cmdi 形态对齐：每条真实 cmdi 造 N 个外壳、同外壳良性 = N×M 倍，默认关/1.0）；产物落 `artifacts/staging/<name>/`（ONNX / xgb_model.json / xgb_trees.json / meta / dataset_stats / **training_keys.txt**（与 `thresholds.req_key` 同口径）/ calibration_pool.jsonl）；`--keys-only` 只重写数据派生物 |
 | `eval_wafdata.py` | **新语料统一评估**：现役 vs 新模型，在 5 类分组留出 test、parquet test 正常/异常、`testvec.json` 旧语料对照集上比 acc / 每类 P/R/F1 / 1%·3%·0.1% 阈值下的实测 FPR 与召回 / 分来源召回 |
 | `convert_fur_api.py` | **FUR-API CSV → 统一请求 jsonl**（2026-11 新增）：显式 `normal→0 / anomaly→1`（`upload_parse` 的标签别名表**没有 `anomaly`**，直接用会静默丢弃全部异常行）；只保留 method/path/query/body，去重并写 `stats.json`。`type=anomaly` 是**业务异常**，只用于评估、不当攻击子类 |
 | `convert_exploit.py` | **exploit_dataset → 统一请求 jsonl**（2026-11 新增）：源文件是**缺逗号的 pretty-printed JSON 数组**，`json.loads` 必失败，故按 2 空格缩进切块修复；再从 `poc` 拆 HTTP 报文，只收 Web + 4 类可映射攻击并去重。**CVE 编号连号/标题不符，疑似合成数据，只做评估** |
-| `eval_newdata.py` | **FUR-API / exploit 只读评估**：现役 vs 加训候选在同一阈值下比零日 FPR / 检出率 / exploit 分类召回与分位点；不训练、不改 `decision_policy.json` |
+| `eval_newdata.py` | **FUR-API / exploit 只读评估**：现役 vs 加训候选在同一策略阈值下比零日 FPR / 检出率 / exploit 分类召回与分位点；`--policy` 换策略口径、`--extra-xgb` / `--extra-iforest` 并列任意多个候选、输出 `exploit_argmax_confusion`（argmax 掉点要能回答"错判成哪一类"）与 **`@FUR-FPR≤1%`**（同误报预算下的召回，跨模型比召回的唯一公平口径）；不训练、不改 `decision_policy.json` |
 | `test_convert_newdata.py` | 上面两个转换器的回归测试（缺逗号切块、`poc` 拆分、标签映射、坏块统计；12 项） |
-| `traindata_catalog.py` | **`traindata/` 数据目录（只读盘点，2026-11 重写）**：数字直接来自 `realdata_waf._inventory()`（与训练同一批 loader），登记角色/行数/标签分布/排除原因/sha1，产出 `traindata/CATALOG.md` + `artifacts/traindata_catalog.json`；`--self-test` 断言钉死硬数字，数据一漂立刻发现 |
+| `test_newdata_loaders.py` | 2026-11-16 五个新 loader 的回归测试（27 项）：`anomaly` 不当攻击子类、`sqli.csv` 的 UTF-16 与短载荷、`attacks.sql` 一行一条载荷（堆叠查询不切）、`valid` SQL 排除、waffled `b'''` bytes 还原、`_TopK` 抽样与顺序无关且 FUR 用精确 `req_key` 去重；**cmdi 形态对齐**（载荷字节保留、绝不使用评估集路径、确定性去重、`per_row=0` 关闭） |
+| `traindata_catalog.py` | **`traindata/` 数据目录（只读盘点，2026-11 重写）**：数字直接来自 `realdata_waf._inventory()`（与训练同一批 loader），登记角色/行数/标签分布/排除原因/sha1，产出 `traindata/CATALOG.md` + `artifacts/traindata_catalog.json`；`--self-test` 断言钉死硬数字（33 项），数据一漂立刻发现 |
 | `train_realdata.py` | **正式训练**：HTTP Params 训练/测试 + lexical 门槛集；`--hard-neg {none,lexical,csic}` 并入困难良性负样本；`--lexical-split {random,grouped}` + `--seed` 控制切分；`--dict` 并入攻击字典；**`--es N` + `--es-set {valid,lexical,local}` + `--valid-frac F`** early stopping（**固定监控 `mlogloss`**，运行期自检 `best_iteration == argmin(mlogloss)`；`--valid-frac` 从 `payload_train` 按同源簇+分层切出干净验证集，记录 `es_monitored`/`es_metric`/`valid_frac`）；**`--balance {weight,over,under,none}`** 类别不平衡（逆频加权 / 过采样 / 欠采样）；**`--local [--local-benign --local-attack --local-hard-neg]`** 接入真实本地流量；**`--parent-model <xgb_model.json> [--parent-meta ...]`** warm start（父代缺训练件则降级全量重训并写明原因）；**`--upload-manifest/--upload-mode add|only/--calib-mode/--calib-dataset-id`** 接入控制台上传数据（见「自上传训练数据」）；`--ab` 做 v1/v2 对比；`--export` 导出产物 |
 | `upload_parse.py` | **用户上传数据解析**（控制台「训练数据」页调用）：CSV / JSON / JSONL / HAR / pcap / pcapng → 统一 `{method,path,query,body,label}`；pcap 只支持**明文 HTTP/1.x**（scapy TCP 重组，TLS/HTTP2 跳过并计数，整份文件一个标签）；输出 `requests.jsonl` + `stats.json` |
 | `collect_http_log.py` | **工作项 F 采集端**：把**真实**日志变成可训练 jsonl。支持 apache/nginx combined、IIS W3C、通用 JSONL、**apache error log**（`--format apache-error`，从 `referer:`/`script '...' not found` 里挖在野攻击 URL 与扫描探测路径）。**攻击标签只来自出处**（`--canary-prefix` / `--attacker-ip` / **`--redteam-window START,END`** / `--review` / `--provenance`），内容正则标注须显式 `--label-pattern` 且只许造测试集；含脱敏（敏感 query 参数、IP）与唯一化。`--redteam-window` 是标注**本机红队流量**的唯一干净方式（`127.0.0.1` 与浏览器同源，IP 规则区分不了），时间戳解析失败即报错退出 |
@@ -95,6 +99,14 @@ py -3.10 traindata_catalog.py --self-test
 py -3.10 train_wafdata.py --export --out-dir artifacts/staging/waf2026
 py -3.10 train_wafdata.py --export --no-parent --rounds 800 --out-dir artifacts/staging/waf2026_scratch  :: 全量重训对照
 py -3.10 eval_wafdata.py --models live,new,scratch        :: 现役 vs 候选
+
+:: 2026-11-16 加训 A/B（FUR 良性入训；详见 artifacts/staging/ab_g5/ab_summary.md）
+py -3.10 -m unittest test_newdata_loaders -v
+py -3.10 train_wafdata.py --no-parent --rounds 800 --export --out-dir artifacts/staging/g5_sup_fur --run-name g5_sup_fur
+py -3.10 train_wafdata.py --no-parent --no-fur --rounds 800 --export --out-dir artifacts/staging/g5_sup_nofur --run-name g5_sup_nofur
+py -3.10 train_wafdata.py --no-parent --fur-max 6000 --rounds 800 --export --out-dir artifacts/staging/g5_sup_fur6k --run-name g5_sup_fur6k
+py -3.10 iforest_lean_onnx.py --data waf --trees 225 --export --out-dir artifacts/staging/g5_if --run-name g5_if
+py -3.10 eval_newdata.py --extra-xgb g5_fur=artifacts/staging/g5_sup_fur/model.onnx --extra-iforest g5_if=artifacts/staging/g5_if/iforest_lean_waf_001.onnx
 
 :: 零日通道（2026-11：parquet 正常流量，与校准留出互斥）
 py -3.10 iforest_lean_onnx.py --data waf --trees 200 --parent-model artifacts/iforest_model.joblib --export --out-dir artifacts/staging/iforest_waf2026 --onnx-name model.onnx

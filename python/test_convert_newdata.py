@@ -103,6 +103,21 @@ class FurApiConvertTest(unittest.TestCase):
         rows, _ = cf.convert(path, max_body=10)
         self.assertEqual(len(rows[0]["body"]), 10)
 
+    def test_body_placeholder_nan_nulled(self):
+        # 与训练端同口径：缺失 body 的 `nan` 不能当载荷（否则评估端多出一个
+        # 训练时不存在的特征值，实测把 FUR FPR 从 0.61% 虚增到 1.63%）
+        path = self._csv([
+            _fur_row(method="GET", request_url="/products", request_body="  nan",
+                     type="normal"),
+            _fur_row(method="GET", request_url="/cart", request_body="null",
+                     type="normal"),
+            _fur_row(method="POST", request_url="/a", request_body="{\"a\": 1}",
+                     type="normal"),
+        ])
+        rows, stats = cf.convert(path)
+        self.assertEqual(sorted(r["body"] for r in rows), ["", "", '{"a": 1}'])
+        self.assertEqual(stats["skip_reasons"].get("body_missing"), 2)
+
 
 EXPLOIT_TEXT = """[
   {

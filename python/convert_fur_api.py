@@ -12,6 +12,8 @@
 
 注意：`.csv` 里 `request_headers` / `response_*` / `agent` 全部不入库 ——
 `features.py` 的 80 维只吃 method/path/query/body，多存反而制造训练/线上口径漂移。
+`request_body` 的缺失值是字面量 `nan` / `None` / `null`（pandas 产物），必须还原成空
+body，并与训练端 `realdata_waf.load_fur_api` 共用同一份定义（`FUR_BODY_MISSING`）。
 
 用法
 ----
@@ -34,6 +36,9 @@ if HERE not in sys.path:
     sys.path.insert(0, HERE)
 
 from upload_parse import split_url  # noqa: E402
+# 与训练端共用同一份「缺失 body 占位符」定义：两端口径一旦分叉，
+# 评估就会量到一个训练时根本不存在的分布。
+from realdata_waf import FUR_BODY_MISSING  # noqa: E402
 
 LABEL_OF_TYPE = {"normal": 0, "anomaly": 1}
 MAX_BODY = 1 << 20
@@ -94,7 +99,13 @@ def convert(path: str, max_rows: int = 200000,
         if not path_only.startswith(("/", "*")):
             path_only = "/" + path_only
 
-        body = str(rec.get("request_body") or "")
+        body = str(rec.get("request_body") or "").strip()
+        # 与训练端 `realdata_waf.load_fur_api` 必须同口径：缺失 body 被原始 CSV
+        # 写成字面量 `nan`（pandas 产物），不是载荷。评估端若保留，训练/评估
+        # 特征就错位（实测会把 FUR test FPR 从 0.61% 虚增到 1.63%）。
+        if body.lower() in FUR_BODY_MISSING:
+            skip["body_missing"] += 1
+            body = ""
         if len(body) > max_body:
             body = body[:max_body]
 

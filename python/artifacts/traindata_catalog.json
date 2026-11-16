@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-12 20:58:58",
+  "generated_at": "2026-11-16 11:19:02",
   "root": "traindata",
   "loader": "realdata_waf._inventory（与训练同一批 loader）",
   "roles": {
@@ -8,7 +8,13 @@
     "parquet_test": "独立评估集（normal 量误报 / anomalous 量检出）",
     "modsec": "真实在野攻击（目标 channel：召回评估 + 训练；零良性）",
     "payloads": "载荷集合（TP 进训练；false-positives 作困难良性负例）",
-    "waf_detection": "外部 WAF 检测结果（无子类，只做二分类评估）"
+    "waf_detection": "外部 WAF 检测结果（无子类，只做二分类评估）",
+    "fur_api": "真实 API 良性流量（监督/零日训练 + FUR test FPR 评估）",
+    "sqliv5": "SQLi 载荷（含 WAF-A-MoLE 对抗样本，抽样进 train/valid）",
+    "wafamole": "WAF-A-MoLE 变异 SQLi 载荷（流式抽样进 train/valid）",
+    "wafrift": "WAF 绕过语料（13 类，8 类映射 0-4）",
+    "waffled": "真实 WAF 绕过请求（JSON/multipart/XML body）",
+    "commonhuman": "载荷库 + 编码器（**本轮不训练**，只登记）"
   },
   "corpora": {
     "xlsx": {
@@ -134,37 +140,154 @@
         "Distil Networks": 5
       },
       "role": "外部 WAF 检测结果（无子类，只做二分类评估）"
+    },
+    "fur_api": {
+      "rows": 20060,
+      "body_missing": 9063,
+      "duplicates": 1881,
+      "non_normal_dropped": 60,
+      "with_body": 10846,
+      "missing_path": 0,
+      "max_rows": 0,
+      "sampled_down": 0,
+      "by_type": {
+        "normal": 20000,
+        "anomaly": 60
+      },
+      "cap": 20000,
+      "label_counts": {
+        "0": 18119
+      },
+      "role": "真实 API 良性流量（监督/零日训练 + FPR 评估）",
+      "usable": "normal 全部可用；anomaly 是业务异常，不映射到攻击子类"
+    },
+    "sqliv5": {
+      "json_rows": 40530,
+      "non_sqli_dropped": 19517,
+      "csv_rows": 4200,
+      "csv_short_dropped": 96,
+      "csv_sqli": 1032,
+      "csv_benign_dropped": 3072,
+      "json_missing": 0,
+      "by_type": {
+        "sqli": 21013,
+        "valid": 19517
+      },
+      "sampled": 15000,
+      "cap": 15000,
+      "duplicates_in_sample": 765,
+      "rows_scanned": 22045,
+      "role": "SQLi 载荷（含 WAF-A-MoLE 对抗样本）",
+      "usable": "type=sqli 可用；type=valid（合法 SQL）已排除"
+    },
+    "wafamole": {
+      "lines": 1286863,
+      "truncated": 1,
+      "sampled": 20000,
+      "cap": 20000,
+      "duplicates_in_sample": 47661,
+      "role": "WAF-A-MoLE 变异 SQLi 载荷",
+      "usable": "attacks.sql 抽样可用；sane.sql 已排除（合法 SQL）"
+    },
+    "wafrift": {
+      "cases": 932,
+      "duplicates": 14,
+      "unmapped_skipped": 122,
+      "raw_body": 24,
+      "bad_files": 0,
+      "files": 51,
+      "by_class": {
+        "cmdi": 75,
+        "cve_pocs": 34,
+        "log4shell": 41,
+        "ssti": 64,
+        "xxe": 24,
+        "ssrf": 73,
+        "path": 70,
+        "graphql": 19,
+        "ldap": 24,
+        "nosql": 33,
+        "sql": 277,
+        "ssi": 12,
+        "xss": 186
+      },
+      "label_counts": {
+        "3": 269,
+        "4": 70,
+        "1": 274,
+        "2": 183
+      },
+      "role": "WAF 绕过语料（13 类，8 类可映射 0-4）",
+      "usable": "sql/xss/cmdi/ssti/xxe/ssrf/log4shell/path 可用；其余无槽位"
+    },
+    "waffled": {
+      "blocks": 32,
+      "with_body": 32,
+      "duplicates": 4,
+      "bad_files": 0,
+      "bad_blocks": 0,
+      "bad_request_line": 0,
+      "unclassified": 0,
+      "label_counts": {
+        "1": 9,
+        "2": 19
+      },
+      "role": "真实 WAF 绕过请求（JSON/multipart/XML body）",
+      "usable": "body 可用；头字段绕过 80 维特征不可见"
+    },
+    "commonhuman": {
+      "role": "载荷库 + 编码器（26 种 evasion）",
+      "usable": "本轮不训练：载荷带 `{marker}` 占位符，不替换会成为捷径 token",
+      "files": 50
     }
   },
   "excluded": {
     "CVE_list.json": "JSON 截断（9.5MB 处 unterminated string），且非 HTTP 请求，无法转 80 维特征",
     "AgentCyberRangeWebExploitBench/": "只有 readme.md，内容为“等待通过”，无数据",
-    "http-attack-requests.json": "395 字节的清单说明（real/topup 计数），不是数据"
+    "http-attack-requests.json": "395 字节的清单说明（real/topup 计数），不是数据",
+    "wafamole_dataset/sane.sql": "合法 SQL（DDL/DML）。把它塞进参数当良性会教出“SELECT 是正常”的捷径，而它在参数位置上与 SQLi 不可区分；只登记，不入训练",
+    "sqliv5-dataset-main/": "只取 SQLiV5.json 的 type=sqli 与 sqli.csv 的 Label=1；type=valid（合法 SQL）与 SQLiV3/V4/V3_clean（V5 已超集）全部排除，sqliv2.csv（旧版重复）与 Label=0（英文诗句，非请求）同样不进训练",
+    "commonhuman-payloads-main/": "载荷库 + 编码器，载荷带 `{marker}` 占位符，不替换会成为捷径 token；全笛卡尔积会淹没其它类，本轮只登记不训练",
+    "FUR-API/test.csv": "评估专用（984 normal / 137 anomaly），绝不进训练",
+    "exploit_dataset.jsonl": "评估专用（172 条 HTTP PoC），不进训练",
+    "wafrift-main/wafrift-bench/targets/": "靶场编排/检测脚本，不是载荷数据"
   },
   "files": [
     {
       "path": "traindata/AgentCyberRangeWebExploitBench/readme.md",
       "bytes": 12,
       "mtime": "2026-11-12 19:22",
-      "sha1": null
+      "sha1": "d172c55aa04d31d171cce3f36fde58b858708c40"
     },
     {
       "path": "traindata/CATALOG.md",
-      "bytes": 10443,
-      "mtime": "2026-11-12 20:24",
-      "sha1": null
+      "bytes": 77761,
+      "mtime": "2026-11-16 10:47",
+      "sha1": "8396b5ed108a0215ab10b4b03086c51092e5fe12"
     },
     {
       "path": "traindata/CVE_list.json",
       "bytes": 9506981,
       "mtime": "2026-11-12 19:21",
-      "sha1": null
+      "sha1": "8c2aa3ef4c797d8a355ea6a63965867221b13229"
+    },
+    {
+      "path": "traindata/FUR-API/test.csv",
+      "bytes": 974023,
+      "mtime": "2026-11-15 16:25",
+      "sha1": "87bcccaa3579ff9b87b5c39b3ceb4f609179fe3d"
+    },
+    {
+      "path": "traindata/FUR-API/train.csv",
+      "bytes": 16775010,
+      "mtime": "2026-11-15 16:24",
+      "sha1": "d906726c6632e9dfe173c111ef17d21e74073a36"
     },
     {
       "path": "traindata/WAF Data v2/test.parquet",
       "bytes": 11181374,
       "mtime": "2026-11-12 19:13",
-      "sha1": null
+      "sha1": "ac5147904b6b6e3216e40620b145819ec299096e"
     },
     {
       "path": "traindata/WAF Data v2/train.parquet",
@@ -176,439 +299,3121 @@
       "path": "traindata/WAF-Payload-Collection-main/WAF-Payload-Collection-main/LICENSE",
       "bytes": 35149,
       "mtime": "2022-10-11 15:58",
-      "sha1": null
+      "sha1": "31a3d460bb3c7d98845187c716a30db81c44b615"
     },
     {
       "path": "traindata/WAF-Payload-Collection-main/WAF-Payload-Collection-main/README.md",
       "bytes": 5134,
       "mtime": "2022-10-11 15:58",
-      "sha1": null
+      "sha1": "d0e01383958875363b4f7dc095275ce2d21e3d51"
     },
     {
       "path": "traindata/WAF-Payload-Collection-main/WAF-Payload-Collection-main/nuclei/config.yaml",
       "bytes": 401,
       "mtime": "2022-10-11 15:58",
-      "sha1": null
+      "sha1": "631c8c3d695fe2339e4c9d7033b7eed5e56297ad"
     },
     {
       "path": "traindata/WAF-Payload-Collection-main/WAF-Payload-Collection-main/nuclei/payloads/cmdexe/false-positives.txt",
       "bytes": 2908,
       "mtime": "2022-10-11 15:58",
-      "sha1": null
+      "sha1": "681a1d4c4458991b01075f51c702cf29e386a1a9"
     },
     {
       "path": "traindata/WAF-Payload-Collection-main/WAF-Payload-Collection-main/nuclei/payloads/cmdexe/true-positives.txt",
       "bytes": 73225,
       "mtime": "2022-10-11 15:58",
-      "sha1": null
+      "sha1": "5b9250cae70c7c082fdf12f4164f73e1ceb2b56c"
     },
     {
       "path": "traindata/WAF-Payload-Collection-main/WAF-Payload-Collection-main/nuclei/payloads/log4shell/false-positives.txt",
       "bytes": 225,
       "mtime": "2022-10-11 15:58",
-      "sha1": null
+      "sha1": "8eb4a8ec6b240ccab459eb6ce6e8ce75f4ba734c"
     },
     {
       "path": "traindata/WAF-Payload-Collection-main/WAF-Payload-Collection-main/nuclei/payloads/log4shell/true-positives.txt",
       "bytes": 7883,
       "mtime": "2022-10-11 15:58",
-      "sha1": null
+      "sha1": "1dd05c17c81be20495594012be596b142b1f36f2"
     },
     {
       "path": "traindata/WAF-Payload-Collection-main/WAF-Payload-Collection-main/nuclei/payloads/shellshock/false-positives.txt",
       "bytes": 58,
       "mtime": "2022-10-11 15:58",
-      "sha1": null
+      "sha1": "f710f1f7be9870b94b103b82f83f703a9d8cd4d5"
     },
     {
       "path": "traindata/WAF-Payload-Collection-main/WAF-Payload-Collection-main/nuclei/payloads/shellshock/true-positives.txt",
       "bytes": 1443,
       "mtime": "2022-10-11 15:58",
-      "sha1": null
+      "sha1": "a585e9093522c7e9197f0cbf5fb2025014f13798"
     },
     {
       "path": "traindata/WAF-Payload-Collection-main/WAF-Payload-Collection-main/nuclei/payloads/sqli/false-positives.txt",
       "bytes": 423,
       "mtime": "2022-10-11 15:58",
-      "sha1": null
+      "sha1": "fd4d23b1f33a02f2430645f524d450354c1082d2"
     },
     {
       "path": "traindata/WAF-Payload-Collection-main/WAF-Payload-Collection-main/nuclei/payloads/sqli/true-positives.txt",
       "bytes": 30107,
       "mtime": "2022-10-11 15:58",
-      "sha1": null
+      "sha1": "48ce2e6983fb0b4ad131766fc78570830bc979df"
     },
     {
       "path": "traindata/WAF-Payload-Collection-main/WAF-Payload-Collection-main/nuclei/payloads/traversal/false-positives.txt",
       "bytes": 212,
       "mtime": "2022-10-11 15:58",
-      "sha1": null
+      "sha1": "9bd84de00702c4b9530ff35ef7ed3d67e3401883"
     },
     {
       "path": "traindata/WAF-Payload-Collection-main/WAF-Payload-Collection-main/nuclei/payloads/traversal/true-positives.txt",
       "bytes": 1039559,
       "mtime": "2022-10-11 15:58",
-      "sha1": null
+      "sha1": "b0a88d2f3d4f9a507ec438fb733bafefbd7ab9a8"
     },
     {
       "path": "traindata/WAF-Payload-Collection-main/WAF-Payload-Collection-main/nuclei/payloads/xss/false-positives.txt",
       "bytes": 654,
       "mtime": "2022-10-11 15:58",
-      "sha1": null
+      "sha1": "6b5027b3902183ba0e8acc50b2d33db82c1e8bce"
     },
     {
       "path": "traindata/WAF-Payload-Collection-main/WAF-Payload-Collection-main/nuclei/payloads/xss/true-positives.txt",
       "bytes": 1393001,
       "mtime": "2022-10-11 15:58",
-      "sha1": null
+      "sha1": "e2f04723f2438773dee36f5e674d130cb54fe0cf"
     },
     {
       "path": "traindata/WAF-Payload-Collection-main/WAF-Payload-Collection-main/nuclei/payloads/xxe/false-positives.txt",
       "bytes": 1572,
       "mtime": "2022-10-11 15:58",
-      "sha1": null
+      "sha1": "9fe3d87da99a2c119ba2a9aeed2c209a089ac6c6"
     },
     {
       "path": "traindata/WAF-Payload-Collection-main/WAF-Payload-Collection-main/nuclei/payloads/xxe/true-positives.txt",
       "bytes": 7404,
       "mtime": "2022-10-11 15:58",
-      "sha1": null
+      "sha1": "8564a8cb49e6ab2dff348ef9890f890234090dd4"
     },
     {
       "path": "traindata/WAF-Payload-Collection-main/WAF-Payload-Collection-main/nuclei/templates/cmdexe/false-positive.yaml",
       "bytes": 1018,
       "mtime": "2022-10-11 15:58",
-      "sha1": null
+      "sha1": "483b0b7d2c2b5df9f4163aa2a0116400676f0f61"
     },
     {
       "path": "traindata/WAF-Payload-Collection-main/WAF-Payload-Collection-main/nuclei/templates/cmdexe/true-positive.yaml",
       "bytes": 1017,
       "mtime": "2022-10-11 15:58",
-      "sha1": null
+      "sha1": "6ad31c02ebfc670df91c3e2d41d9df5625086e9d"
     },
     {
       "path": "traindata/WAF-Payload-Collection-main/WAF-Payload-Collection-main/nuclei/templates/log4shell/false-positive.yaml",
       "bytes": 777,
       "mtime": "2022-10-11 15:58",
-      "sha1": null
+      "sha1": "fda857b616aeaa12a0870908198472cc951f0d2b"
     },
     {
       "path": "traindata/WAF-Payload-Collection-main/WAF-Payload-Collection-main/nuclei/templates/log4shell/true-positive.yaml",
       "bytes": 782,
       "mtime": "2022-10-11 15:58",
-      "sha1": null
+      "sha1": "82cea5eb8500ff6cd8458651a8db9a9122f5d476"
     },
     {
       "path": "traindata/WAF-Payload-Collection-main/WAF-Payload-Collection-main/nuclei/templates/shellshock/false-positive.yaml",
       "bytes": 1156,
       "mtime": "2022-10-11 15:58",
-      "sha1": null
+      "sha1": "55897cbc1a8807bde677786e519c684d97f8b9e3"
     },
     {
       "path": "traindata/WAF-Payload-Collection-main/WAF-Payload-Collection-main/nuclei/templates/shellshock/true-positive.yaml",
       "bytes": 1161,
       "mtime": "2022-10-11 15:58",
-      "sha1": null
+      "sha1": "52a39c185762f117d9c00a1c04f63d64de5f820c"
     },
     {
       "path": "traindata/WAF-Payload-Collection-main/WAF-Payload-Collection-main/nuclei/templates/sqli/false-positive.yaml",
       "bytes": 1006,
       "mtime": "2022-10-11 15:58",
-      "sha1": null
+      "sha1": "bfb601d5cb9869304a9118115b2ef8b3e21e4d0b"
     },
     {
       "path": "traindata/WAF-Payload-Collection-main/WAF-Payload-Collection-main/nuclei/templates/sqli/true-positive.yaml",
       "bytes": 790,
       "mtime": "2022-10-11 15:58",
-      "sha1": null
+      "sha1": "f0e05581192f40d903a730246d3619b5d8830e6e"
     },
     {
       "path": "traindata/WAF-Payload-Collection-main/WAF-Payload-Collection-main/nuclei/templates/traversal/false-positive.yaml",
       "bytes": 1035,
       "mtime": "2022-10-11 15:58",
-      "sha1": null
+      "sha1": "68717346404198133a4170b5ae2283d3eba56eed"
     },
     {
       "path": "traindata/WAF-Payload-Collection-main/WAF-Payload-Collection-main/nuclei/templates/traversal/true-positive.yaml",
       "bytes": 1031,
       "mtime": "2022-10-11 15:58",
-      "sha1": null
+      "sha1": "2b3114e81957ed92001fb3561b870091a62f2a76"
     },
     {
       "path": "traindata/WAF-Payload-Collection-main/WAF-Payload-Collection-main/nuclei/templates/xss/false-positive.yaml",
       "bytes": 1007,
       "mtime": "2022-10-11 15:58",
-      "sha1": null
+      "sha1": "5d2afd19d95a66dce181c207aa6bc3d5a848b402"
     },
     {
       "path": "traindata/WAF-Payload-Collection-main/WAF-Payload-Collection-main/nuclei/templates/xss/true-positive.yaml",
       "bytes": 999,
       "mtime": "2022-10-11 15:58",
-      "sha1": null
+      "sha1": "d22b113e46aaf2afe42df92e267b6ff4bb87a1ed"
     },
     {
       "path": "traindata/WAF-Payload-Collection-main/WAF-Payload-Collection-main/nuclei/templates/xxe/false-positive.yaml",
       "bytes": 935,
       "mtime": "2022-10-11 15:58",
-      "sha1": null
+      "sha1": "25d6c51b2aeb71d1a00525595dcaf8382744c005"
     },
     {
       "path": "traindata/WAF-Payload-Collection-main/WAF-Payload-Collection-main/nuclei/templates/xxe/true-positive.yaml",
       "bytes": 908,
       "mtime": "2022-10-11 15:58",
-      "sha1": null
+      "sha1": "1581988e29dce746f8d5eb0aacbec22293311cfc"
     },
     {
       "path": "traindata/WAF_DETECTION_DATASET.jsonl",
       "bytes": 213365,
       "mtime": "2026-11-12 19:10",
-      "sha1": null
+      "sha1": "04e59eb92e05365f194d75f7ff05c0bd419ee7e2"
     },
     {
       "path": "traindata/combined_final_dataset_augmented.xlsx",
       "bytes": 27822255,
       "mtime": "2026-11-12 19:07",
-      "sha1": null
+      "sha1": "8dc29279a1f0bf43551e5792031f7f959e45d2c3"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/.gitignore",
+      "bytes": 304,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "7c30278e2360d18ab345e660f9287562d5e5ca1f"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/LICENSE",
+      "bytes": 34523,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "a2f9ffbf32eeb6284afa81bc4fb4c27b80d044e9"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/README.md",
+      "bytes": 14226,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "bcebf1a2683d682c675477865a545f495b8c2bac"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/pyproject.toml",
+      "bytes": 1690,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "7bf2c5dcc40450ab12b7d3487b0e8fa14f841b77"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/src/commonhuman_payloads/__init__.py",
+      "bytes": 656,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "a7a6a0bc075da508939607433000ef11d77602d5"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/src/commonhuman_payloads/encoders/__init__.py",
+      "bytes": 1943,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "296c6170b34ed36db4ef890959781f33afce5283"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/src/commonhuman_payloads/encoders/transforms.py",
+      "bytes": 15377,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "e09a22726d49703c869445a44a59ff7ef6d484de"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/src/commonhuman_payloads/js_vulns.py",
+      "bytes": 11194,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "0c46e4626aaae1673d91ff573cc5c67d26269fbe"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/src/commonhuman_payloads/markers.py",
+      "bytes": 503,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "80aff6a2bc2b8d14435c15b8af76588d7323fa59"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/src/commonhuman_payloads/sqli/__init__.py",
+      "bytes": 1607,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "ecab272fc29242c72c7ab6ceda7a5e3b50d93a3f"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/src/commonhuman_payloads/sqli/advanced.py",
+      "bytes": 15150,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "b50dc658a988eb230d60864afe66b6960f1bbf81"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/src/commonhuman_payloads/sqli/boolean.py",
+      "bytes": 2889,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "3ebc9875b1e8bdb56157910206b5976533b1edab"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/src/commonhuman_payloads/sqli/error.py",
+      "bytes": 5964,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "9dbdd8f6293b32a67f07d812e9320f171ee00b1f"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/src/commonhuman_payloads/sqli/oob.py",
+      "bytes": 3155,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "4a7d8da8c880f718edaba5ebbe64b3bfde404ed4"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/src/commonhuman_payloads/sqli/time_based.py",
+      "bytes": 3678,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "1b7dfb0fc24a4fec350dbb2d8646d1201a82dd0a"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/src/commonhuman_payloads/sqli/union.py",
+      "bytes": 6918,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "e596c23d523fd93a359c2344c3c31dd12ebff869"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/src/commonhuman_payloads/waf/__init__.py",
+      "bytes": 493,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "7ee15b6de8a6270ce8e73c08f97160746539b13f"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/src/commonhuman_payloads/waf/detect.py",
+      "bytes": 6208,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "e170bfaa955dfcce0329b95cdb6e76f82514e9a7"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/src/commonhuman_payloads/waf/payloads.py",
+      "bytes": 9022,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "d93be48e65e63407f46896d15e07f515859663f9"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/src/commonhuman_payloads/waf/signatures.py",
+      "bytes": 6591,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "6f2bedd6a9d9bbfbf7e6f5a7c72c2b1b694242b0"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/src/commonhuman_payloads/xss/__init__.py",
+      "bytes": 4134,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "e56dbb11a9796080e1a60353b78671bcaae7a027"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/src/commonhuman_payloads/xss/advanced.py",
+      "bytes": 18816,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "c4054c01c3b9354080dc797f611587e60b73406c"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/src/commonhuman_payloads/xss/html.py",
+      "bytes": 8968,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "c2479fa36cf79bcd4342a76534ac0e8b567fc8a8"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/src/commonhuman_payloads/xss/script.py",
+      "bytes": 5961,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "8eb9d4f46ad70afa174aa70df03fcb5f519134f6"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/tests/__init__.py",
+      "bytes": 82,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "7b3dde422f3c62838b02d0c7d178f87a6e00d637"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/tests/conftest.py",
+      "bytes": 2642,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "a73d309a9262094b70120036a9bb58020988f6bb"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/tests/fixtures/__init__.py",
+      "bytes": 82,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "7b3dde422f3c62838b02d0c7d178f87a6e00d637"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/tests/integration/__init__.py",
+      "bytes": 82,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "7b3dde422f3c62838b02d0c7d178f87a6e00d637"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/tests/integration/test_tool_compat.py",
+      "bytes": 8651,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "b948d947aea569cf51fd93f19d61fc2de844ec9a"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/tests/regression/__init__.py",
+      "bytes": 82,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "7b3dde422f3c62838b02d0c7d178f87a6e00d637"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/tests/regression/test_sqli_payload_regression.py",
+      "bytes": 10183,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "33fab27a92ae5d3460115b7e31c50f3670832d38"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/tests/regression/test_xss_payload_regression.py",
+      "bytes": 4091,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "d332ea3e9b23e810a7b822213f7aecb473d0dff1"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/tests/unit/__init__.py",
+      "bytes": 82,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "7b3dde422f3c62838b02d0c7d178f87a6e00d637"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/tests/unit/encoders/__init__.py",
+      "bytes": 82,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "7b3dde422f3c62838b02d0c7d178f87a6e00d637"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/tests/unit/encoders/test_transforms.py",
+      "bytes": 20334,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "34b04f5565a7216d02d8e18ec430cdf1d92c36a8"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/tests/unit/sqli/__init__.py",
+      "bytes": 82,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "7b3dde422f3c62838b02d0c7d178f87a6e00d637"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/tests/unit/sqli/test_advanced.py",
+      "bytes": 6741,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "066d9e1212e22a4f716315cf24f752d6620b8a52"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/tests/unit/sqli/test_boolean.py",
+      "bytes": 2151,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "1e5a8f870bfa097b94db5fba3bb093685ad68f46"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/tests/unit/sqli/test_error.py",
+      "bytes": 3270,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "90ccbf721f9862c058c2a86e2f877b58b6cbf27f"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/tests/unit/sqli/test_oob.py",
+      "bytes": 2127,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "22be7718f936f3f62ace8c664a6880f900b4b88c"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/tests/unit/sqli/test_time.py",
+      "bytes": 2596,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "9c9a4219316723a216373927b16ebb631662c854"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/tests/unit/sqli/test_union.py",
+      "bytes": 4827,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "f3c2cdc68ad7d1c357205c8e9660258508b6c01c"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/tests/unit/test_js_vulns.py",
+      "bytes": 8459,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "1ae5890c047fabf208f4b66b0bfc12ada7eb2f68"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/tests/unit/test_markers.py",
+      "bytes": 2021,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "b94117c1c746f39e3f488532e01723a5f7b9fd62"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/tests/unit/test_version.py",
+      "bytes": 366,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "c5859fc508b6ff49abe9c9d4f6ec88d79ebaab98"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/tests/unit/waf/__init__.py",
+      "bytes": 82,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "7b3dde422f3c62838b02d0c7d178f87a6e00d637"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/tests/unit/waf/test_detect.py",
+      "bytes": 9341,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "493bcfcc6e9cf898dc15c35746bc433a1f394cb1"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/tests/unit/waf/test_payloads.py",
+      "bytes": 4786,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "c4d31ee52e8e7d027371ed9d3664dd6bb6d8d136"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/tests/unit/waf/test_signatures.py",
+      "bytes": 3180,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "92cf7c2e0e24db26e4c655c3c4c42452da9d8135"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/tests/unit/xss/__init__.py",
+      "bytes": 82,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "7b3dde422f3c62838b02d0c7d178f87a6e00d637"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/tests/unit/xss/test_advanced.py",
+      "bytes": 3463,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "ce73c4c0221d2b19a8079ec4b52cdc2df128e82c"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/tests/unit/xss/test_api.py",
+      "bytes": 3050,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "d68b886b0de6bb3addb41d06623a817223bd5811"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/tests/unit/xss/test_html.py",
+      "bytes": 2323,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "886711981a8e9a3e6cdfbeb5f1feac060a92954a"
+    },
+    {
+      "path": "traindata/commonhuman-payloads-main/commonhuman-payloads-main/tests/unit/xss/test_script.py",
+      "bytes": 1581,
+      "mtime": "2026-06-02 01:44",
+      "sha1": "9be390e1c39c222cedacd29471d74c1a938d9e4a"
+    },
+    {
+      "path": "traindata/exploit_dataset.jsonl",
+      "bytes": 450518,
+      "mtime": "2026-11-15 16:23",
+      "sha1": "5db3eb6c3860b7b69dd61338d60edfb447a941dd"
     },
     {
       "path": "traindata/http-attack-requests.json",
       "bytes": 395,
       "mtime": "2026-11-12 19:09",
-      "sha1": null
+      "sha1": "db58da79f6d03a4784a3ca4c326812f16be314d8"
     },
     {
       "path": "traindata/owasp/01-Aug-2025/modsec_audit.anon.log",
       "bytes": 15700182,
       "mtime": "2025-09-22 00:26",
-      "sha1": null
+      "sha1": "bc17e9a39514e6965541622501c60e8d2662ed35"
     },
     {
       "path": "traindata/owasp/02-Aug-2025/modsec_audit.anon.log",
       "bytes": 14011797,
       "mtime": "2025-09-22 00:26",
-      "sha1": null
+      "sha1": "bc5991b9d71ca17e9f030bed6ad6e42b35f54788"
     },
     {
       "path": "traindata/owasp/03-Aug-2025/modsec_audit.anon.log",
       "bytes": 13688518,
       "mtime": "2025-09-22 00:26",
-      "sha1": null
+      "sha1": "e5df956577a9b5b2cb889ab5ba47aeb33fdf1f0b"
     },
     {
       "path": "traindata/owasp/04-Aug-2025/modsec_audit.anon.log",
       "bytes": 19051086,
       "mtime": "2025-09-22 00:26",
-      "sha1": null
+      "sha1": "339c5a0d3b10306f9ca52263c78d80ac61ffbc95"
     },
     {
       "path": "traindata/owasp/05-Aug-2025/modsec_audit.anon.log",
       "bytes": 12284012,
       "mtime": "2025-09-22 00:26",
-      "sha1": null
+      "sha1": "7a0f660efed02278c42a13c30d25eabf42b1367b"
     },
     {
       "path": "traindata/owasp/06-Aug-2025/modsec_audit.anon.log",
       "bytes": 9655572,
       "mtime": "2025-09-22 00:26",
-      "sha1": null
+      "sha1": "d3a8ea6af904b67ca52ae7764b78e59cf655127c"
     },
     {
       "path": "traindata/owasp/07-Aug-2025/modsec_audit.anon.log",
       "bytes": 5207452,
       "mtime": "2025-09-22 00:26",
-      "sha1": null
+      "sha1": "071593541cc367902cee35e4abc0220af3221176"
     },
     {
       "path": "traindata/owasp/08-Aug-2025/modsec_audit.anon.log",
       "bytes": 6966788,
       "mtime": "2025-09-22 00:26",
-      "sha1": null
+      "sha1": "1328a8685b1e8df4fe7eeb4454a315a9f54539ce"
     },
     {
       "path": "traindata/owasp/09-Aug-2025/modsec_audit.anon.log",
       "bytes": 9334725,
       "mtime": "2025-09-22 00:26",
-      "sha1": null
+      "sha1": "65b90f66ff21a5ecc46c15b887f4067957fb6b07"
     },
     {
       "path": "traindata/owasp/10-Aug-2025/modsec_audit.anon.log",
       "bytes": 18915840,
       "mtime": "2025-09-22 00:27",
-      "sha1": null
+      "sha1": "667c73bacea7db42a91829a9239c733d07d4aedb"
     },
     {
       "path": "traindata/owasp/11-Aug-2025/modsec_audit.anon.log",
       "bytes": 8923257,
       "mtime": "2025-09-22 00:27",
-      "sha1": null
+      "sha1": "5bb2edc8a0b00be69375a6b079ef259fecca2a40"
     },
     {
       "path": "traindata/owasp/12-Aug-2025/modsec_audit.anon.log",
       "bytes": 6696690,
       "mtime": "2025-09-22 00:27",
-      "sha1": null
+      "sha1": "43e89792e034265ee22c6de22b53cf5108472539"
     },
     {
       "path": "traindata/owasp/13-Aug-2025/modsec_audit.anon.log",
       "bytes": 14787975,
       "mtime": "2025-09-22 00:27",
-      "sha1": null
+      "sha1": "d7465dc23778bcf1603622c1e4cb8850a103de59"
     },
     {
       "path": "traindata/owasp/14-Aug-2025/modsec_audit.anon.log",
       "bytes": 25280186,
       "mtime": "2025-09-22 00:27",
-      "sha1": null
+      "sha1": "092b75abc2b6ea691bd714a075eff49e1ee110f7"
     },
     {
       "path": "traindata/owasp/15-Aug-2025/modsec_audit.anon.log",
       "bytes": 29819162,
       "mtime": "2025-09-22 00:27",
-      "sha1": null
+      "sha1": "507640598d7e072f90a0eb75dc2244d71ee88ed6"
     },
     {
       "path": "traindata/owasp/16-Aug-2025/modsec_audit.anon.log",
       "bytes": 28610507,
       "mtime": "2025-09-22 00:27",
-      "sha1": null
+      "sha1": "907aa945e097cdc99662f92cc93b40e4aa5efee2"
     },
     {
       "path": "traindata/owasp/17-Aug-2025/modsec_audit.anon.log",
       "bytes": 16854779,
       "mtime": "2025-09-22 00:27",
-      "sha1": null
+      "sha1": "6a96182e61d8184f90ce2cc410b160c4e34d4da1"
     },
     {
       "path": "traindata/owasp/18-Aug-2025/modsec_audit.anon.log",
       "bytes": 9562224,
       "mtime": "2025-09-22 00:27",
-      "sha1": null
+      "sha1": "37d2742791a4d942aa018cdad0c32c0b0c9ae1c5"
     },
     {
       "path": "traindata/owasp/19-Aug-2025/modsec_audit.anon.log",
       "bytes": 10998728,
       "mtime": "2025-09-22 00:27",
-      "sha1": null
+      "sha1": "99c1c4b3d48e7bed2255ee2986f443bc80504cf5"
     },
     {
       "path": "traindata/owasp/20-Aug-2025/modsec_audit.anon.log",
       "bytes": 7756179,
       "mtime": "2025-09-22 00:27",
-      "sha1": null
+      "sha1": "ec8da497e1f8ae1bb513e2dedeaa14b5f068b13d"
     },
     {
       "path": "traindata/owasp/21-Aug-2025/modsec_audit.anon.log",
       "bytes": 7856891,
       "mtime": "2025-09-22 00:27",
-      "sha1": null
+      "sha1": "531b23c6326bfacee3760042ee3043aa4c93b654"
     },
     {
       "path": "traindata/owasp/22-Aug-2025/modsec_audit.anon.log",
       "bytes": 7650484,
       "mtime": "2025-09-22 00:27",
-      "sha1": null
+      "sha1": "992cb10b0e38f59a798fb92e030df0d6331042aa"
     },
     {
       "path": "traindata/owasp/23-Aug-2025/modsec_audit.anon.log",
       "bytes": 10238170,
       "mtime": "2025-09-22 00:27",
-      "sha1": null
+      "sha1": "421fa5b8b6bba105509ce87cdc341f1ff4cbf4bb"
     },
     {
       "path": "traindata/owasp/24-Aug-2025/modsec_audit.anon.log",
       "bytes": 9168597,
       "mtime": "2025-09-22 00:27",
-      "sha1": null
+      "sha1": "399789dd2121a0f189fff3dc70cd1aa41dbfbbb6"
     },
     {
       "path": "traindata/owasp/25-Aug-2025/modsec_audit.anon.log",
       "bytes": 9567254,
       "mtime": "2025-09-22 00:27",
-      "sha1": null
+      "sha1": "0283a3463b54019277596fa4b99f6c62bec8d0a6"
     },
     {
       "path": "traindata/owasp/27-Jul-2025/modsec_audit.anon.log",
       "bytes": 7879784,
       "mtime": "2025-09-22 00:27",
-      "sha1": null
+      "sha1": "bce0bdf99e21db2df7ac85486406c1c6eca1668a"
     },
     {
       "path": "traindata/owasp/28-Jul-2025/modsec_audit.anon.log",
       "bytes": 34162911,
       "mtime": "2025-09-22 00:27",
-      "sha1": null
+      "sha1": "983b17ae08cbd92fef44348299391b4cb74524da"
     },
     {
       "path": "traindata/owasp/29-Jul-2025/modsec_audit.anon.log",
       "bytes": 7871082,
       "mtime": "2025-09-22 00:27",
-      "sha1": null
+      "sha1": "67f60f11b8e202310a5166d47ea3282b9ec29bcc"
     },
     {
       "path": "traindata/owasp/30-Jul-2025/modsec_audit.anon.log",
       "bytes": 8257881,
       "mtime": "2025-09-22 00:27",
-      "sha1": null
+      "sha1": "af08de0af4b8bd977ec392bab224bdf03dd6cdc1"
     },
     {
       "path": "traindata/owasp/31-Jul-2025/modsec_audit.anon.log",
       "bytes": 11204898,
       "mtime": "2025-09-22 00:27",
-      "sha1": null
+      "sha1": "d716c237f9963e4995897eb600a9c41d5bb3afee"
     },
     {
       "path": "traindata/proxy/collector-metrics.json",
-      "bytes": 1741,
-      "mtime": "2026-11-12 20:58",
-      "sha1": null
+      "bytes": 1740,
+      "mtime": "2026-11-15 17:12",
+      "sha1": "708a76af8e1125dbbf727eb4c352ed8626369725"
     },
     {
       "path": "traindata/proxy/raw-20261112-00000.jsonl",
       "bytes": 0,
       "mtime": "2026-11-12 20:46",
-      "sha1": null
+      "sha1": "da39a3ee5e6b4b0d3255bfef95601890afd80709"
     },
     {
       "path": "traindata/proxy/raw-20261112-00001.jsonl",
       "bytes": 0,
       "mtime": "2026-11-12 20:46",
-      "sha1": null
+      "sha1": "da39a3ee5e6b4b0d3255bfef95601890afd80709"
     },
     {
       "path": "traindata/proxy/raw-20261112-00002.jsonl",
       "bytes": 0,
       "mtime": "2026-11-12 20:47",
-      "sha1": null
+      "sha1": "da39a3ee5e6b4b0d3255bfef95601890afd80709"
     },
     {
       "path": "traindata/proxy/raw-20261112-00003.jsonl",
       "bytes": 0,
       "mtime": "2026-11-12 20:49",
-      "sha1": null
+      "sha1": "da39a3ee5e6b4b0d3255bfef95601890afd80709"
     },
     {
       "path": "traindata/proxy/raw-20261112-00004.jsonl",
       "bytes": 0,
       "mtime": "2026-11-12 20:52",
-      "sha1": null
+      "sha1": "da39a3ee5e6b4b0d3255bfef95601890afd80709"
     },
     {
       "path": "traindata/proxy/raw-20261112-00005.jsonl",
       "bytes": 0,
       "mtime": "2026-11-12 20:53",
-      "sha1": null
+      "sha1": "da39a3ee5e6b4b0d3255bfef95601890afd80709"
     },
     {
       "path": "traindata/proxy/raw-20261112-00006.jsonl",
       "bytes": 0,
       "mtime": "2026-11-12 20:54",
+      "sha1": "da39a3ee5e6b4b0d3255bfef95601890afd80709"
+    },
+    {
+      "path": "traindata/proxy/raw-20261112-00007.jsonl",
+      "bytes": 0,
+      "mtime": "2026-11-12 20:59",
+      "sha1": "da39a3ee5e6b4b0d3255bfef95601890afd80709"
+    },
+    {
+      "path": "traindata/proxy/raw-20261112-00008.jsonl",
+      "bytes": 0,
+      "mtime": "2026-11-12 21:02",
+      "sha1": "da39a3ee5e6b4b0d3255bfef95601890afd80709"
+    },
+    {
+      "path": "traindata/proxy/raw-20261112-00009.jsonl",
+      "bytes": 0,
+      "mtime": "2026-11-12 21:10",
+      "sha1": "da39a3ee5e6b4b0d3255bfef95601890afd80709"
+    },
+    {
+      "path": "traindata/proxy/raw-20261115-00000.jsonl",
+      "bytes": 0,
+      "mtime": "2026-11-15 17:11",
+      "sha1": "da39a3ee5e6b4b0d3255bfef95601890afd80709"
+    },
+    {
+      "path": "traindata/sqliv5-dataset-main/sqliv5-dataset-main/LICENSE",
+      "bytes": 1065,
+      "mtime": "2022-09-21 19:56",
+      "sha1": "23d8700ffc432fad30a47288bc0c5c7b1a1a389c"
+    },
+    {
+      "path": "traindata/sqliv5-dataset-main/sqliv5-dataset-main/README.md",
+      "bytes": 844,
+      "mtime": "2022-09-21 19:56",
+      "sha1": "8e6d6fdc3201313c150b4e044eacabb15860d2a9"
+    },
+    {
+      "path": "traindata/sqliv5-dataset-main/sqliv5-dataset-main/SQLiV3.csv",
+      "bytes": 2317662,
+      "mtime": "2022-09-21 19:56",
+      "sha1": "cd3ea79d0cade3ab76517fbca3f1b7a759dcf942"
+    },
+    {
+      "path": "traindata/sqliv5-dataset-main/sqliv5-dataset-main/SQLiV3.json",
+      "bytes": 3978565,
+      "mtime": "2022-09-21 19:56",
+      "sha1": "23628eca5ce9049f5d8c26570598b2ce310f729d"
+    },
+    {
+      "path": "traindata/sqliv5-dataset-main/sqliv5-dataset-main/SQLiV3_clean.json",
+      "bytes": 3176099,
+      "mtime": "2022-09-21 19:56",
+      "sha1": "a95ef3533b9b7c446d5a29d19ac0abf8f32fa932"
+    },
+    {
+      "path": "traindata/sqliv5-dataset-main/sqliv5-dataset-main/SQLiV4.json",
+      "bytes": 5049973,
+      "mtime": "2022-09-21 19:56",
+      "sha1": "852b57fdd7acd29827ce2817325665436d023ced"
+    },
+    {
+      "path": "traindata/sqliv5-dataset-main/sqliv5-dataset-main/SQLiV5.json",
+      "bytes": 7176910,
+      "mtime": "2022-09-21 19:56",
+      "sha1": "816b633c23425629cac65f2d6e6177d92601a36d"
+    },
+    {
+      "path": "traindata/sqliv5-dataset-main/sqliv5-dataset-main/sqli.csv",
+      "bytes": 723152,
+      "mtime": "2022-09-21 19:56",
+      "sha1": "c51d4b48f354e4fa307c86e74badfcebd3b962e7"
+    },
+    {
+      "path": "traindata/sqliv5-dataset-main/sqliv5-dataset-main/sqliv2.csv",
+      "bytes": 3609808,
+      "mtime": "2022-09-21 19:56",
+      "sha1": "1697d8726716cf1ef12fafeea9979c178ccf31d6"
+    },
+    {
+      "path": "traindata/wafamole_dataset/attacks.sql",
+      "bytes": 171481200,
+      "mtime": "2026-11-16 09:43",
       "sha1": null
+    },
+    {
+      "path": "traindata/wafamole_dataset/sane.sql",
+      "bytes": 75234679,
+      "mtime": "2026-11-16 09:43",
+      "sha1": null
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/LICENSE",
+      "bytes": 1087,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "c59a479cabbaa056fba9cf9e11665cf458d94e40"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/README.md",
+      "bytes": 6420,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "a8d3206ff47606ef4b6cbae1fe9932b0d7ce3b74"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/bypass-database/README.md",
+      "bytes": 897,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "47ad63bd484ab6e13029ad676d009866d22db30f"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/bypass-database/detectables/attack-injection-json-detectable.raw",
+      "bytes": 215,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "b5c95096de123f9809ef8a621dbd958a895e21aa"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/bypass-database/detectables/attack-injection-multipart-detectable.raw",
+      "bytes": 491,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "eff5b15ada259e61205c3d40d860af9b60b5813d"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/bypass-database/detectables/attack-xss-json-detectable.raw",
+      "bytes": 242,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "3eaa46899ac706e61836a232c925934bbfa15541"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/bypass-database/detectables/attack-xss-multipart-detectable.raw",
+      "bytes": 518,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "4dd5a8719f3b36c02b4659cc5c40d13bc05618fa"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/bypass-database/json_requests.raw",
+      "bytes": 2534,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "6e283623750061486fd687a88bd212f96be5fd7a"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/bypass-database/multipart_requests.raw",
+      "bytes": 7738,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "d6aee108888a3bc7d4f04b8633259f447e66cb9d"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/bypass-database/xml_requests.raw",
+      "bytes": 3501,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "e79436b8fd34cbc67a512124fb587ce821f583aa"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/Dockerfile",
+      "bytes": 2486,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "79f02f6d4163d220fbf98f8004e026c196fba165"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/README.md",
+      "bytes": 2146,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "b896b96f30b86a0c637626a5fb1f1cce03c9d6a8"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/processes.json",
+      "bytes": 1617,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "cab4d80730cb7fef4169b184bc83e500bf931945"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/setup_servers.sh",
+      "bytes": 1446,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "dccd0f4c4b5088df9be2c441943a52d63cc63ac0"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/golang/gin-all/go.mod",
+      "bytes": 1300,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "a5a3ef47f4d8decb819f2502ee633f36334d9ca5"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/golang/gin-all/go.sum",
+      "bytes": 7076,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "f57570ad1f9c042a61952ef5c6a1a2eec68a579d"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/golang/gin-all/main.go",
+      "bytes": 3814,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "2bc3469077fe96a6c2f4983e262b4308910bea15"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/java/demo/.gitignore",
+      "bytes": 444,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "c32218a75ca0a7ae98923d9aeaf0819279088e68"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/java/demo/build.gradle",
+      "bytes": 606,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "e89c01ac4267a3bfe08c9e0631e91fe891d436a9"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/java/demo/gradle/wrapper/gradle-wrapper.jar",
+      "bytes": 43462,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "dcbc7c8821eb4e4214f47b47e88d006f01d204e0"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/java/demo/gradle/wrapper/gradle-wrapper.properties",
+      "bytes": 250,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "d01c802a6e3d58839c6879cd542dfe17f8e60dd3"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/java/demo/gradlew",
+      "bytes": 8692,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "42468a0c00fe36e3e4fb82b2fad8f5402160688c"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/java/demo/gradlew.bat",
+      "bytes": 2868,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "f9fd0fb4f067b868f7a11e1c0a8115e1cfcf3002"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/java/demo/settings.gradle",
+      "bytes": 26,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "940614076426289049f978973559a2fb0d6bb8d3"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/java/demo/src/main/java/com/example/demo/Book.java",
+      "bytes": 822,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "7174ba67d8b63c5a596dd20fa1cb887de5e17227"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/java/demo/src/main/java/com/example/demo/DemoApplication.java",
+      "bytes": 306,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "f726dfd9249a8c919b091fccd61d05143fd88374"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/java/demo/src/main/java/com/example/demo/MyController.java",
+      "bytes": 3370,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "b9e024ee872692e3339d2ada7f56ae53937320f8"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/java/demo/src/main/java/com/example/demo/MyField.java",
+      "bytes": 384,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "46097d16d0244fe3a0629ce3b53f99b97fb2b62e"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/java/demo/src/main/java/com/example/demo/MyResponse.java",
+      "bytes": 117,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "ff13d71c683ac6d92f53936c03570b974e86cb9f"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/java/demo/src/main/resources/application.properties",
+      "bytes": 102,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "1aeb9a3af06c28919fcea554ea5c3505ba832dc1"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/java/demo/src/test/java/com/example/demo/DemoApplicationTests.java",
+      "bytes": 206,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "a421949b5094da121acf0ca169a833b65f51ce03"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/.editorconfig",
+      "bytes": 258,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "6db0651adeff73498043af4ae28b9818b62dccbf"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/.env.example",
+      "bytes": 1097,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "ffe9e6f912dc18a09c477a3813687551abb1109d"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/.gitattributes",
+      "bytes": 186,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "f4e626ff3ed2fea285ed6d7b6085811e2bcac6bf"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/.gitignore",
+      "bytes": 243,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "5ab9e241c7b7c164901008cfd3ce9d0d8e166c4c"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/README.md",
+      "bytes": 4106,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "d59441194020a632a8fd1d4872ac418cfaffa961"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/app/Console/Kernel.php",
+      "bytes": 573,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "7762951222b8c365bbfcd10db5f2c08e39ff8142"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/app/Exceptions/Handler.php",
+      "bytes": 639,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "fe00c651cc3178876f5a61e05d595da4b8210c0c"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/app/Http/Controllers/BookController.php",
+      "bytes": 3253,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "cb1f270fcc1c4854e738ea42bc33fa2d164aa5e4"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/app/Http/Controllers/Controller.php",
+      "bytes": 299,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "1bff29ea03648d6fedf22b3619d8964630d46a69"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/app/Http/Kernel.php",
+      "bytes": 2778,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "f9b34fdbcbfcc43b6f7bee0af39809fa5c91a7dd"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/app/Http/Middleware/Authenticate.php",
+      "bytes": 409,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "aa7a909ab8e4a8d509f2cecfe890fd7f19df8938"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/app/Http/Middleware/EncryptCookies.php",
+      "bytes": 307,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "fcbbfaae9d7ac781cd043ee7ce2ee66800d075ee"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/app/Http/Middleware/PreventRequestsDuringMaintenance.php",
+      "bytes": 366,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "3f1cc28f08b8a3a8bbd1495e187fc197110cdab1"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/app/Http/Middleware/RedirectIfAuthenticated.php",
+      "bytes": 760,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "22865d62613f580ef172e96566cf7b7221117c3d"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/app/Http/Middleware/TrimStrings.php",
+      "bytes": 381,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "fdae9e792d68b2827446435ff17d6848726a1e81"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/app/Http/Middleware/TrustHosts.php",
+      "bytes": 379,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "67a8483c3620b6cd2c6354e8282fb08a98feb608"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/app/Http/Middleware/TrustProxies.php",
+      "bytes": 649,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "4c915478c380e43a2889f66130fe95f9b90ca5f0"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/app/Http/Middleware/ValidateSignature.php",
+      "bytes": 460,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "ef66937ccd20e6a189479dcc98e564cc72d4c92c"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/app/Http/Middleware/VerifyCsrfToken.php",
+      "bytes": 320,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "f40416cadebf79cecb5ffaa1d7bed8d360f8addd"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/app/Models/User.php",
+      "bytes": 948,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "5eac4ff041f949f04b0492af499f384a7e4a9ca6"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/app/Providers/AppServiceProvider.php",
+      "bytes": 361,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "01bf9e5cf5bb666446625056b618445ae4749675"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/app/Providers/AuthServiceProvider.php",
+      "bytes": 518,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "494bb0a4861384d9ba08f6b49d67830d54e54284"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/app/Providers/BroadcastServiceProvider.php",
+      "bytes": 359,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "65964eb912591e8f2a962d7f2930702f3223f9be"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/app/Providers/EventServiceProvider.php",
+      "bytes": 884,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "b4c10462ddd299c88e23da3b4f30b88b45a4f964"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/app/Providers/RouteServiceProvider.php",
+      "bytes": 1101,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "911cae39925a7232a369b3ee67b77a71306d7433"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/artisan",
+      "bytes": 1686,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "4e3b044dc634aeeb5133ded57e5e535fc52f2fbc"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/bootstrap/app.php",
+      "bytes": 1620,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "f121735456595d7a89e5005d2662714f74282765"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/bootstrap/cache/.gitignore",
+      "bytes": 14,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "886e6d00ac28a586434ae1b6320c0bb185e3ddfc"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/composer.json",
+      "bytes": 1882,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "d3f7eb29ad4d1340cadf73de597b38f33ba31f33"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/composer.lock",
+      "bytes": 298689,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "063c1b4047a9e691b15623805d4f27e40d973a0c"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/config/app.php",
+      "bytes": 6454,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "8fe2b61aa052eea83fb0d44630b64713dda8cc31"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/config/auth.php",
+      "bytes": 3897,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "50da0505d3001faabe07f56c45b5e101b5fa3d21"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/config/broadcasting.php",
+      "bytes": 2147,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "d33eca2e4834d2f33f244ff1f2f9ccc3bd047a70"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/config/cache.php",
+      "bytes": 3337,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "c0f22a12ac4e11653cb9b05635caef1bc9b92659"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/config/cors.php",
+      "bytes": 846,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "5a1ab3b06b572de73c69301310e7926683c3180c"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/config/database.php",
+      "bytes": 5289,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "62a018cea0bd12412e433829876294b9280920f4"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/config/filesystems.php",
+      "bytes": 2370,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "24e11749cddc9f0d7ca87ff2f448ff84c08371bc"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/config/hashing.php",
+      "bytes": 1624,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "7bad7084a0f18c053146cbe2c385cb0c9ead69ae"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/config/logging.php",
+      "bytes": 4173,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "de07f4c2ddad4ea1db5c1bbc7001591b2033e202"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/config/mail.php",
+      "bytes": 4042,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "78e50a79e7b3e5979ef2d896b54d84d176a03e0a"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/config/queue.php",
+      "bytes": 3447,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "fc62a5b3727e1f2cbc634958c549c5a8a3b51fe8"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/config/sanctum.php",
+      "bytes": 2963,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "2816cf8558e87701ffceada655a8f34c4c85a075"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/config/services.php",
+      "bytes": 979,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "4b80f7e3f84269fa8f5e5be10a947df5e50c30fc"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/config/session.php",
+      "bytes": 7494,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "879f17996e48e23a7bb5758927da4c6fe07feac1"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/config/view.php",
+      "bytes": 1053,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "2f9e73c59f7a34d048a7246cd1414d285638789d"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/database/.gitignore",
+      "bytes": 10,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "ab1a687b9ddc51796ef22b036b108ed998131371"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/database/factories/UserFactory.php",
+      "bytes": 1075,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "7ac74334b97dded2308b4265ca46014b317a82f9"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/database/migrations/2014_10_12_000000_create_users_table.php",
+      "bytes": 751,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "5af12f4aa2161f2d5d5603915bfb2936723f3016"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/database/migrations/2014_10_12_100000_create_password_reset_tokens_table.php",
+      "bytes": 641,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "443179b24813b8e44643319b6713f97d709a2af9"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/database/migrations/2019_08_19_000000_create_failed_jobs_table.php",
+      "bytes": 768,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "58208a62e6f2a9c2adc63d683b472338e4a87d14"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/database/migrations/2019_12_14_000001_create_personal_access_tokens_table.php",
+      "bytes": 856,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "d6cb90f8cb1846728b81e1d9bc0926741ca27531"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/database/seeders/DatabaseSeeder.php",
+      "bytes": 471,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "aa597929aa7bce2b022263f4ccf1c503c99ae707"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/package.json",
+      "bytes": 248,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "8d6f0a0692725edddd96bdad0129888692a93cd6"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/phpunit.xml",
+      "bytes": 1134,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "3ceb2a5b4591f82000af3daf4e0c24d98f4b488b"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/public/.htaccess",
+      "bytes": 603,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "e841ab885e881ef626f96002546c3e7a7caacd68"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/public/favicon.ico",
+      "bytes": 0,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "da39a3ee5e6b4b0d3255bfef95601890afd80709"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/public/index.php",
+      "bytes": 1710,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "bc491ec44dc6148c1fcf3bc563461fbb6f33689e"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/public/robots.txt",
+      "bytes": 24,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "c47ccf1a49c24cc5842430aa75c72ef491292412"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/resources/css/app.css",
+      "bytes": 0,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "da39a3ee5e6b4b0d3255bfef95601890afd80709"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/resources/js/app.js",
+      "bytes": 22,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "d2e5cf4f96d815b68a4f2a012b54a0d25daa4952"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/resources/js/bootstrap.js",
+      "bytes": 1248,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "fbbadcaaa6c454ba92d3e48c7fdafcc30786aa7e"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/resources/views/welcome.blade.php",
+      "bytes": 28631,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "1fcd27b7fa52bfa17b3fdee1d65377b4d955474b"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/routes/api.php",
+      "bytes": 792,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "1a9931d6ae83d5fd2ea6dfb9dd5e317dac34709e"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/routes/channels.php",
+      "bytes": 558,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "596353ce723d0b49a5a733c55ec4766a17b4d2dc"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/routes/console.php",
+      "bytes": 592,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "1332379b839ce87f33b72901953d388ffaa7f940"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/routes/web.php",
+      "bytes": 491,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "d2c782e66f78089d21d18fb2bec725730737e5bf"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/storage/app/.gitignore",
+      "bytes": 23,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "a2dccd13a297931da0d363a3e82e9b7bf56761cc"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/storage/app/public/.gitignore",
+      "bytes": 14,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "886e6d00ac28a586434ae1b6320c0bb185e3ddfc"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/storage/framework/.gitignore",
+      "bytes": 119,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "4a90cc2072982dd2e4c1c81d47b8a6d9d42916c2"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/storage/framework/cache/.gitignore",
+      "bytes": 21,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "0110c591f14021b801f4721ca63bcdfeb8ec7d8e"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/storage/framework/cache/data/.gitignore",
+      "bytes": 14,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "886e6d00ac28a586434ae1b6320c0bb185e3ddfc"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/storage/framework/sessions/.gitignore",
+      "bytes": 14,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "886e6d00ac28a586434ae1b6320c0bb185e3ddfc"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/storage/framework/testing/.gitignore",
+      "bytes": 14,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "886e6d00ac28a586434ae1b6320c0bb185e3ddfc"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/storage/framework/views/.gitignore",
+      "bytes": 14,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "886e6d00ac28a586434ae1b6320c0bb185e3ddfc"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/storage/logs/.gitignore",
+      "bytes": 14,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "886e6d00ac28a586434ae1b6320c0bb185e3ddfc"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/tests/CreatesApplication.php",
+      "bytes": 375,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "1c178c8519b41c9b4d0c6296848b354376ff38a1"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/tests/Feature/ExampleTest.php",
+      "bytes": 359,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "20fb4281ed2dc142624c4b61bf49e5ab347b73ff"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/tests/TestCase.php",
+      "bytes": 163,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "895ec7a34b6905c178902ce310866a0702fdbec7"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/tests/Unit/ExampleTest.php",
+      "bytes": 243,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "91a952d5ada8d3d11d059d9ad547e83f37785842"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/laravel/multipart/vite.config.js",
+      "bytes": 263,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "6115c5173a27e17ac751088dfafcc60f93158601"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/local_run_script.sh",
+      "bytes": 1615,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "eccab9a0aa91b2270d3970eb78418da8f7d54b5c"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/nodejs/express_all/index.js",
+      "bytes": 3316,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "2d982dc071648ffae02909d9ac1cb6188c909a74"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/nodejs/express_all/package.json",
+      "bytes": 362,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "7dc7ecfa9fbbbb39581567e3dcdb422ab36fba63"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/nodejs/express_all/yarn.lock",
+      "bytes": 22491,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "594a86af4b4cc7eb7d54d3490f62f1e258131136"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/nodejs/nodejs_http_json/index.js",
+      "bytes": 2843,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "1e71abf034b503e53ed5dc0d11e858c596f05d1e"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/nodejs/nodejs_http_json/package-lock.json",
+      "bytes": 44051,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "774dcd95143048340eadc59e3d7e776f8d3e2d76"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/nodejs/nodejs_http_json/package.json",
+      "bytes": 240,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "609bca6aeb5df13455c6bbe2ffaf8bffa52cf92d"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/nodejs/nodejs_http_multipart_busboy/index.js",
+      "bytes": 3054,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "0eedaff4ba0e39eda72b1c98d2c3162733c5dd09"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/nodejs/nodejs_http_multipart_busboy/package-lock.json",
+      "bytes": 2140,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "29b946e000b040c72b1adc54e6f01eddaa9e6b39"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/nodejs/nodejs_http_multipart_busboy/package.json",
+      "bytes": 303,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "0103684799a133e560f879642ead2d5b0e3cc94d"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/python/fast_api_all/main.py",
+      "bytes": 3150,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "36255c762edc29dd4ae699d3afc15aec25e18951"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/python/flask_all/app.py",
+      "bytes": 2296,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "266222a3a42cda36f3034b2da8b8b62f96f26b70"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/echo-servers/webservers/run_script.sh",
+      "bytes": 2836,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "809825d3233c605cd818f05ee8ac4a47368126bd"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/fuzzer-grammar/README.md",
+      "bytes": 666,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "94b848cb259a15585f7690ffc198e91358d8c15e"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/fuzzer-grammar/json/json_complicated",
+      "bytes": 6026,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "39879a2a3345a19b6346f38e896cdf535f03a46e"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/fuzzer-grammar/json/json_simple",
+      "bytes": 5996,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "5483afd0d803a7560acee49a2a692c09ddaf6020"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/fuzzer-grammar/multipart/multipart_param",
+      "bytes": 8719,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "142f81b14a39c042144481eb1b58c9a728a12af0"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/fuzzer-grammar/multipart/multipart_simple",
+      "bytes": 8502,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "fa890a4244beb8aa293dcbd8e47857d369c7a0ce"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/fuzzer-grammar/multipart/readme.md",
+      "bytes": 69,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "e09f2fcea12cdfebab41db8a63b3bda291256fd0"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/fuzzer-grammar/useful-scripts/hostnames.py",
+      "bytes": 2419,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "de9132a0d9c063ae1d589710b9565f88f7432e91"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/fuzzer-grammar/useful-scripts/seed_generator.py",
+      "bytes": 77,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "f1ed9ec56bd27b4b1f61959b450be20f0e1ff2d9"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/fuzzer-grammar/useful-scripts/server_headers_multipart.py",
+      "bytes": 1121,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "2b88a7db54a20569fc848e6749cae87557412ff8"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/fuzzer-grammar/xml/readme.md",
+      "bytes": 281,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "eeddcca75c9435e47f2d73bb599978729c7a9568"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/fuzzer-grammar/xml/xml_simple",
+      "bytes": 7739,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "421ce0b7b2f44895718ac673c1a7a2f0d153170a"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/http-body-normalizer/README.md",
+      "bytes": 145,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "676209741ac21a6421742053d4b9e3f8047576f4"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/http-body-normalizer/RFCs.md",
+      "bytes": 4678,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "f509281b9c45532be93c64686ba17607e22d1031"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/http-body-normalizer/media_type.py",
+      "bytes": 13054,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "2d5e78a83d5383140635014a68b89313ba05bd75"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/http-body-normalizer/mime_type.py",
+      "bytes": 46649,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "4a07c2f4268ed15ed98b4e12c70346e13e7bd906"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/http-body-normalizer/requirements.txt",
+      "bytes": 15,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "9fae677f3faf5ed630558dcb2bdd9ca9ce0c63f4"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/http-body-normalizer/server.py",
+      "bytes": 2664,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "e760209fa96fb81aa0d5b0b7f873fa609b52e53e"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/http-body-normalizer/valid_form_data.py",
+      "bytes": 7625,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "7afca9738b7a1e10f17b7a33afdb23f0a79eaf21"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/http-request-relay/README.md",
+      "bytes": 401,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "2c097eaedc0e3c2d15c706dce6ffabb99b93e65d"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/http-request-relay/http_relay.py",
+      "bytes": 4961,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "ea9d0a498bec328f383231e627b79cd5f5479666"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/http-request-relay/sample_requests/valid_json.raw",
+      "bytes": 187,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "6b7d5495a09cc3076c3f4d8aab306054b6ca3ce4"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/http-request-relay/sample_requests/valid_multipart.raw",
+      "bytes": 476,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "7c12ce1f0ed570ed086b8e169b38528bd676e20f"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/http-request-relay/sample_requests/valid_xml.raw",
+      "bytes": 264,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "b4731be897b4e4d7c4b08f6d864b6138e6b2a047"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/output-parser/README.md",
+      "bytes": 2824,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "db0285cab504adc4b45624f0841252832e260d4d"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/output-parser/data/sample-treqs-output",
+      "bytes": 3005797,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "e9b16fe9aff8e66a77119784740c6c165e5d9dbf"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/output-parser/extract_mutation_string.sh",
+      "bytes": 76,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "e97e51dd93312ca2a5d094b8b88e964cc44590a7"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/output-parser/extract_raw_req.py",
+      "bytes": 945,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "40aa6fa57d13f56c32e83f0d9640c055d41e0f6a"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/output-parser/main.py",
+      "bytes": 1687,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "f604391d84f1f4929a37e35d5d6205fd98e987d5"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/output-parser/parser.sh",
+      "bytes": 878,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "986a76ca09f1807ae9652c5af8589e5d129b2907"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/publicwww/publicwww-study.txt",
+      "bytes": 5566,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "2ab94d8bf32384e7987f3aa59b1c927e02b5a8fd"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/t-reqs-modified/LICENSE",
+      "bytes": 1081,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "61358ace4d7658cdb738128479fd4a403b323de4"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/t-reqs-modified/README.md",
+      "bytes": 5359,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "440ed7e92f2b987dac49c6db510b00660943b414"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/t-reqs-modified/code/__pycache__/helper_functions.cpython-36.pyc",
+      "bytes": 2738,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "07a537434982ffc586b0b84b7e050c143c0ce17e"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/t-reqs-modified/code/__pycache__/helper_functions.cpython-37.pyc",
+      "bytes": 2742,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "e21e8a17e7616a8997612b43c929300319d28469"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/t-reqs-modified/code/__pycache__/input_tree.cpython-36.pyc",
+      "bytes": 2850,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "b7b5f3af01849f6192faa3e62b3ff4d40a4e882c"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/t-reqs-modified/code/__pycache__/input_tree.cpython-37.pyc",
+      "bytes": 2944,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "874be67270992c2c3c3dcd31c366da36fb858250"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/t-reqs-modified/code/__pycache__/input_tree_mutator.cpython-36.pyc",
+      "bytes": 5761,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "f4042a068bd86582fc67d59b1e00cf0adf3dfb57"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/t-reqs-modified/code/__pycache__/input_tree_mutator.cpython-37.pyc",
+      "bytes": 5765,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "f016b5c8423f0d8e4389f573b8132ce3e621a85a"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/t-reqs-modified/code/__pycache__/input_tree_node.cpython-36.pyc",
+      "bytes": 687,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "94d3a14f77dda9f4d552a4ec5d373b2c73ef515f"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/t-reqs-modified/code/__pycache__/input_tree_node.cpython-37.pyc",
+      "bytes": 691,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "ba193d7dc36ccbe7ab8c3befe0a1412f608ebc97"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/t-reqs-modified/code/feedback-server.py",
+      "bytes": 2386,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "6a7b44fe27d111b1dcf3f05164128b5680643f30"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/t-reqs-modified/code/helper_functions.py",
+      "bytes": 2687,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "4d34083f3ad8aa3fca76266f8b96b154d2e7edd7"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/t-reqs-modified/code/input_tree.py",
+      "bytes": 3153,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "4d76cc54c65d71037bec16a2d2555a5b67be1ffd"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/t-reqs-modified/code/input_tree_mutator.py",
+      "bytes": 7835,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "ab66a9b317f20b980c0eb2650ec5c39562bd6896"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/t-reqs-modified/code/input_tree_node.py",
+      "bytes": 496,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "651656760ae48fcafa7bb9a079ead36d83007fe2"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/t-reqs-modified/code/main.py",
+      "bytes": 7813,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "3591b47231ccff2f988b84cde7ead87d7e0cd828"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/t-reqs-modified/figs/mutation-types.png",
+      "bytes": 12756,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "cb45dd9f8595fb0496d2fee8c4ce37b4005523a5"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/t-reqs-modified/logo-treqs.png",
+      "bytes": 20052,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "43d37d6fab425bb66b6d7ab8fadd31facdda0297"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/t-reqs-modified/misc/example-request-body-grammar",
+      "bytes": 1310,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "04ea94ab9c3e2c4a1be0fadf683bbd485236aae6"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/t-reqs-modified/misc/example-request-headers-grammar",
+      "bytes": 17879,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "8d7fe8c9346056bbc2598509787e2eaf92532e8c"
+    },
+    {
+      "path": "traindata/waffled-main/waffled-main/t-reqs-modified/misc/example-request-line-grammar",
+      "bytes": 712,
+      "mtime": "2026-06-19 04:17",
+      "sha1": "e17c8cd6eb0daa8b533064a3956cf3122c310717"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/CORPUS.SHA256",
+      "bytes": 73,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "e7171ec0b3ff45c00747c834e58e932af3635545"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/README.md",
+      "bytes": 5617,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "85c1cfabd3f3e18c8acbd1c98138082b3fcd8c38"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/UPDATE-BASELINE.md",
+      "bytes": 979,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "ad4beef2909278a43bfa68de85001ef42846ae5d"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/WIRING.md",
+      "bytes": 9955,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "90992db9d999b60c2d2e66cb8d1d52da5e6476af"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/canonical-baseline.json",
+      "bytes": 187,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "6b1a16c293858b6b267b7cad88f384d80342324a"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/corpus/cmdi/encoding_evasion.toml",
+      "bytes": 3571,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "febc7924e206ccb2b6ee1b44b1d9fa979c2ba3a7"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/corpus/cmdi/shell_unix.toml",
+      "bytes": 3030,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "4fd24f3f99c924a31c9636dfb73ed53f54332bc9"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/corpus/cmdi/shell_windows.toml",
+      "bytes": 1732,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "7daabcc5f48f4ba7a57165c381a24b420e7318ae"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/corpus/cve_pocs/2024_2025.toml",
+      "bytes": 4171,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "c1e79688a6c691cba341b6501591ac22bae6af16"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/corpus/cve_pocs/real_world_2026.toml",
+      "bytes": 8513,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "6359653c0e2aa30e614383a63fbc7d9c4e233b76"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/corpus/cve_pocs/web_rce.toml",
+      "bytes": 7340,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "571d62f45632a28c57e01461996926f071b6cae8"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/corpus/graphql/injection_2026.toml",
+      "bytes": 7517,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "0b0dc9672c7dd91da78a04eae0ef254af857cc85"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/corpus/ldap/encoding_evasion.toml",
+      "bytes": 3072,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "60121771e651fe7a5d8cc689e85862da2797991c"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/corpus/ldap/filter_injection.toml",
+      "bytes": 867,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "26e5164c51a54a17bc498f60b3d38204f5eefed6"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/corpus/log4shell/jndi.toml",
+      "bytes": 2624,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "8807b842a6a3a9b4ca0d838e242ab334c2148c65"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/corpus/log4shell/nested_lookups.toml",
+      "bytes": 3637,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "0b149b69589cecfc9c30d36ee282a70ada882f11"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/corpus/nosql/advanced_operators.toml",
+      "bytes": 2737,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "6362f8d43b06b0684d2df81c597f61c431d53fa3"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/corpus/nosql/elastic_couch_redis.toml",
+      "bytes": 1090,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "ae99fbe611973a47fdd497eb411c4b9fe226a457"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/corpus/nosql/mongodb.toml",
+      "bytes": 1301,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "7b542177feba735e940da4843e5bb64073507259"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/corpus/path/encoded.toml",
+      "bytes": 1570,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "c2a9e0123f9bea3332114ff6b789286163cc3e5a"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/corpus/path/linux.toml",
+      "bytes": 1982,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "ab69cbd896044a8b4068302f32fd1166f00493aa"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/corpus/path/routing_disagreement.toml",
+      "bytes": 1883,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "e3c53ee5bb57f2884924c4a66bd9eba4b55e1646"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/corpus/path/windows.toml",
+      "bytes": 1022,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "8c1e22b2017ac599c4cbbc6988f2a9ead47d7fe5"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/corpus/sql/adjacent_string_concat_2026.toml",
+      "bytes": 4489,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "025a3022753950bb8121c19fcfcd678434145fdb"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/corpus/sql/blind.toml",
+      "bytes": 3013,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "98dc8ed0eb695e5c4fab75ba4aeee3ff7166f823"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/corpus/sql/char_chr_decompose_2026.toml",
+      "bytes": 4297,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "2913ac4d9cf048113ad6e59eef1e555f79794e85"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/corpus/sql/comments_evasion.toml",
+      "bytes": 2333,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "f6adfd9109ca3d6b20a40cbbd25c75525345b3e5"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/corpus/sql/concat_split_2026.toml",
+      "bytes": 4633,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "c1c619c232a0dd11ba620e0e2eb41839dc32ab08"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/corpus/sql/dialect_quirks.toml",
+      "bytes": 4457,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "798369a189e5b2350e297d6105b5971c4f6dd937"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/corpus/sql/error_based.toml",
+      "bytes": 3028,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "88a72579d0ac6ee1f128dfd3f1c9bdd4ecd4ff03"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/corpus/sql/frontier_tamper_2026.toml",
+      "bytes": 6683,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "8cb8be69707f692fc561fb0673f97ce423c22093"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/corpus/sql/json_unicode_alnum_2026.toml",
+      "bytes": 5844,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "59381181eeab9e20f6b56399c091003caa1ec94d"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/corpus/sql/math_bold_nfkc_2026.toml",
+      "bytes": 4503,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "8bf61e47f3f3cd65dc665c5760db81a2f4f42047"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/corpus/sql/stacked.toml",
+      "bytes": 2011,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "75e501faddeeb22587557e2baa43f5d30c868102"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/corpus/sql/tautology.toml",
+      "bytes": 3208,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "ce2537e27b2b271370dfdb962753373eab00dfb6"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/corpus/sql/union.toml",
+      "bytes": 3213,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "14112cc61988a7929304165ca6bc7e5ccf534170"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/corpus/ssi/apache_mod_include.toml",
+      "bytes": 3972,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "9d401763b99a38034f1735dbd4e21311433e929f"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/corpus/ssrf/cloud_metadata.toml",
+      "bytes": 3376,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "fc3a9a8422dff73e689568285e4fcddaaf133399"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/corpus/ssrf/encoded_localhost.toml",
+      "bytes": 1495,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "cec31478f080549ab7aca5c355b386ef895b81fc"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/corpus/ssrf/parser_confusion_authority.toml",
+      "bytes": 1969,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "3d4893611119bd9419fa7a59018f516134d4ebb1"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/corpus/ssrf/protocol_smuggling.toml",
+      "bytes": 1276,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "025f776ee0ea01e51b43365e2e7ecd63867dfaa2"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/corpus/ssti/jinja2.toml",
+      "bytes": 1815,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "4b8243e35bf896de44ea6b46e3f1306ff0d57b86"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/corpus/ssti/ruby_dotnet_php.toml",
+      "bytes": 4387,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "8ca542722d7b26c12b94a4fabc83a1dc88a6b159"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/corpus/ssti/twig_freemarker_velocity.toml",
+      "bytes": 2439,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "8bfd9cb1aa7f9833543f6c73a711824b838aa49e"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/corpus/xss/event_handler.toml",
+      "bytes": 3397,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "6e560ace464394f5a19dade667891c49d344aeda"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/corpus/xss/frontier_tamper_2026.toml",
+      "bytes": 3203,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "25120192fc4fac9563a290c71e24dcbec5316c83"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/corpus/xss/html_attribute.toml",
+      "bytes": 1617,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "9d86317a94a1dfc804c1ca1a9272e6d67d5c5b23"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/corpus/xss/html_entity_variants_2026.toml",
+      "bytes": 4901,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "a8a5afed168b5cd8114366f5be2885d819fcc5a2"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/corpus/xss/javascript_uri.toml",
+      "bytes": 2155,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "77ae0d268ed3b8dea7cb7337c6a680016dbdfc1d"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/corpus/xss/json_unicode_alnum_2026.toml",
+      "bytes": 5683,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "0a8f5ced99ab6033ebec9601504439796ac68a68"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/corpus/xss/modern_event_handlers.toml",
+      "bytes": 4917,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "73495e948bb389695aefa0b7cd011c1b8d936c39"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/corpus/xss/polyglot.toml",
+      "bytes": 1870,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "188f41cb147ef3ca7f75a0a220555729de44036f"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/corpus/xss/script_tag.toml",
+      "bytes": 2330,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "9050a5c46908a568958ee8b49c4ff59e4cf77799"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/corpus/xss/svg.toml",
+      "bytes": 2305,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "227ab1aa1db28b4d7dc5915871c340e44371cdef"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/corpus/xxe/encoding_evasion.toml",
+      "bytes": 4813,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "eb1bce1c35b400b69edcacb74fd1a0a057ef03c9"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/corpus/xxe/xml.toml",
+      "bytes": 2192,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "334309db22fa76d8291a1cfef863344b96147f61"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/methodology.md",
+      "bytes": 6053,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "3c80c1ad1406ddccd7a20826bea687aab178145b"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/2026-05-19/modsec-pl4-after-compression.json",
+      "bytes": 3385,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "0d422e9fb036d24764fd767e38a75b56e9c1e0bf"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/2026-05-20/scan-pl4-after-multi-vector-extraction.json",
+      "bytes": 69745,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "e8f918cc9991328f27b002aa0b3862601867b53b"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/2026-05-20/scan-pl4-after-security-audit.json",
+      "bytes": 72382,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "132db971203d6d7241333dcef2294997fe58368b"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/2026-05-20/scan-pl4-post-stress-audit.json",
+      "bytes": 72382,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "4ebab07053f420f9ba3b567c63208c2ab06171a2"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/2026-05-20/scan-pl4-rescue20.json",
+      "bytes": 87286,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "0b6b826c8bbdcc60bb66a7612b2b3d6a6b37efb8"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/2026-05-20/scan-pl4-with-rescue.json",
+      "bytes": 80088,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "cc1b26a595c0c23c07a287d2811608932cb209a2"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/2026-05-20/scan-pl4-with-xml-vector.json",
+      "bytes": 73091,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "79e10aa20bcb8eb893fadff3e7a113043ff4ab66"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/coraza-bench-021.json",
+      "bytes": 4011,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "bd51ec5a93ad6b1d04c87e3be7fa6652a1a25884"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/final-coraza.json",
+      "bytes": 3841,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "d24529f8cbccb3d71b989ad7776795efd2208f3d"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/final-modsec-pl1.json",
+      "bytes": 4223,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "e058ff9f3ac5667847e874e4da22c0739889dcef"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/final-modsec-pl4.json",
+      "bytes": 3934,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "1648d109db3a107c66d576d8be6613004b30cc3a"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/honest-bunkerweb-equiv-cegis-0.2.16.json",
+      "bytes": 552959,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "c03a36d81ddf4053cad872e2a5840d807eb6f141"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/honest-coraza-equiv-cegis-0.2.16.json",
+      "bytes": 555899,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "a38ecb8fd7c22f3d8aa16a3919b55a2fec85fcac"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/honest-naxsi-equiv-cegis-0.2.16.json",
+      "bytes": 515090,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "3bbf847b6412c09e49f4a84c4958b7aeab0db72c"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/honest-pl1-equiv-cegis-0.2.16.json",
+      "bytes": 592012,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "49c083fd77aff0f9d52bffe5167550725b510f08"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/honest-pl3-equiv-cegis-0.2.16.json",
+      "bytes": 557270,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "1dcb20ec4705c55ea65db4408bbe31c888343174"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/ldap-pl1-equiv-cegis.json",
+      "bytes": 13940,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "7d8be10002af4ca917145041cc6a8860179a557f"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/ldap-pl3-equiv-cegis.json",
+      "bytes": 13941,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "454137f4d64099ba26041b254f7e91347f635b87"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/modsec-pl1-allstrats.json",
+      "bytes": 2829586,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "eafddcb49c882cdaf8b62b9a19b2c901e62678c4"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/modsec-pl1-first.json",
+      "bytes": 34925,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "0750e1d0f34fc9879141aa7a72d817e7269b37ba"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/modsec-pl1-multi-with-ast.json",
+      "bytes": 2985823,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "fdeedc27b2627df87d6830143436e434d84ba425"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/modsec-pl1-multi.json",
+      "bytes": 2899198,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "558a858b3c2ba307be705e27de223a21a544a00c"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/modsec-pl1-v2.json",
+      "bytes": 76099,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "a1964b51af106d191d44079be36559bc02ab7c7e"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/modsec-pl2-multi.json",
+      "bytes": 2696948,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "c55f2557a64a198ada0810eb866571f975183b65"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/modsec-pl2.json",
+      "bytes": 48678,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "36f5ed8c5a4f56e3d30891736df6d3db2c004205"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/modsec-pl3-multi.json",
+      "bytes": 2687639,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "3df17f70732bf21d990a7d1c08d82b28a0e4a4ca"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/modsec-pl3.json",
+      "bytes": 44614,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "cd967f3e1efe0175d37f2e64c70ad67d7c6ecfe6"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/modsec-pl4-multi.json",
+      "bytes": 2630027,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "f1bd249e484c95b1cb9621280aba3268e51caf89"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/modsec-pl4.json",
+      "bytes": 39383,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "c14011964f7428f3995448014cd9ecdb45081349"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/naxsi-bench-021.json",
+      "bytes": 4378,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "c6f6b231c98ef702f401a125a1f22aeacab9f278"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-bunkerweb.json",
+      "bytes": 157503,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "2e0e13c419ad968d208ac74884c53cf472a0ab8c"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-by-class/modsec-pl4_cmdi.json",
+      "bytes": 80059,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "68f30b7f2cecba5194e6ee0714c382daf3cb7d96"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-by-class/modsec-pl4_ldap.json",
+      "bytes": 15658,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "27f2d703d41ad09c8fdcd30c33a9cc368abbf4a8"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-by-class/modsec-pl4_log4shell.json",
+      "bytes": 36090,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "7afbe83a6460efa4937e5a56f07f5cc09f619a37"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-by-class/modsec-pl4_nosql.json",
+      "bytes": 31034,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "accc0cd5a77a0217d272b0d4fb19d118728afb21"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-by-class/modsec-pl4_path.json",
+      "bytes": 71059,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "2455f43e0c12af42a5f02f8038e61898ee4a3db4"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-by-class/modsec-pl4_sql.json",
+      "bytes": 225753,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "39c94cfdb8b8fb6d645829be8db470e8a220d7dc"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-by-class/modsec-pl4_ssrf.json",
+      "bytes": 62449,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "e6ec755e1f3f894178d75c267cf3f93137068333"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-by-class/modsec-pl4_ssti.json",
+      "bytes": 60628,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "787d527cf08d9b0656d54fcb90ed45d64b153564"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-by-class/modsec-pl4_xss.json",
+      "bytes": 167381,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "c2ff09138601d50b1fbce9255917fc448e5ee7ad"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-by-class/modsec-pl4_xxe.json",
+      "bytes": 15565,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "998d736a652c5b63920f267395fb338ee96b6371"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-by-class/naxsi_cmdi.json",
+      "bytes": 45917,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "3c7ed75a16877f50d74de54caa9220f69ffbee3b"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-by-class/naxsi_ldap.json",
+      "bytes": 8882,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "0c9a7e31199e7c4231e7db4947779f1e8686d5ec"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-by-class/naxsi_log4shell.json",
+      "bytes": 26707,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "08f55ef14d1c452d2040d8f596a671dafdb3b1d4"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-by-class/naxsi_nosql.json",
+      "bytes": 17865,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "ee5356bdce91a15504a786ebbe98c45fdeab6f3c"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-by-class/naxsi_path.json",
+      "bytes": 40416,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "9b1ab043b2dde143550d232c9c4861c1e6773502"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-by-class/naxsi_sql.json",
+      "bytes": 147365,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "5dcce94681a69d42e5de659dfe327ba3e31a1f8a"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-by-class/naxsi_ssrf.json",
+      "bytes": 34741,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "21efeb57d9a4d7947ed65701434e86d41e0bb6eb"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-by-class/naxsi_ssti.json",
+      "bytes": 36925,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "9ecd15d4e6028b64cc31081c3c8f25238105aa45"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-by-class/naxsi_xss.json",
+      "bytes": 93276,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "8f7d088653397330c248ad8bfd67cbdf8349d084"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-by-class/naxsi_xxe.json",
+      "bytes": 8901,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "b1bd6a2cd4bf8d06b526ee80baa46143e7bcb81f"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-coraza.json",
+      "bytes": 111075,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "5af7e197f0cdea0b754cffce1eef1e209a1d8366"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final-ALL/bunkerweb_cmdi.json",
+      "bytes": 87189,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "13d59ecdcf58a8a56c8df8a24cb966f84f10c269"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final-ALL/bunkerweb_ldap.json",
+      "bytes": 18782,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "010443f6983b59024b24578bdf842a6f9f8b50f5"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final-ALL/bunkerweb_path.json",
+      "bytes": 77933,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "032dd9294d54f8a5241ea3425e4649edeea97ebc"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final-ALL/bunkerweb_sql.json",
+      "bytes": 223119,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "c655273da519286e72c6a0a18c234128ef1f1ac1"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final-ALL/bunkerweb_ssrf.json",
+      "bytes": 75571,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "d62f08609df609c0e7569f3a8deb6bfc557b651d"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final-ALL/bunkerweb_xss.json",
+      "bytes": 169130,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "1a71ea8044b948a1ffd6255c7b3cba68693de33d"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final-ALL/coraza_cmdi.json",
+      "bytes": 77100,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "8079357f1cef0b62ec3063a0d9c2a914e27aa3fe"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final-ALL/coraza_ldap.json",
+      "bytes": 18549,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "f45dc3020168dd5b10f7b64fb81f0da9535a6f19"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final-ALL/coraza_path.json",
+      "bytes": 52406,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "e6d87660f13a00fd099b2edf453fe7f37abbb11e"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final-ALL/coraza_sql.json",
+      "bytes": 145800,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "f689652e7cd8339c3c7633a6e5af16ef42598e0f"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final-ALL/coraza_ssrf.json",
+      "bytes": 70992,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "a127ee2991d37f8f2a8dd33fd413e682934bdd03"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final-ALL/coraza_xss.json",
+      "bytes": 111754,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "d0c5138976595c8fa9cc7227c1eaae14e5baf983"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final-ALL/modsec-pl1_cmdi.json",
+      "bytes": 88131,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "8472320c98695687bc520ae5c04121329f4109ba"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final-ALL/modsec-pl1_ldap.json",
+      "bytes": 19064,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "4823066d338ec6cce78d1e79427166a54df374a2"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final-ALL/modsec-pl1_path.json",
+      "bytes": 75624,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "b4188312c7c6f4593784cb31172bc3bd8585ce24"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final-ALL/modsec-pl1_sql.json",
+      "bytes": 225460,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "d28ff41238a6c84644c67a4d2b173490029c65f9"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final-ALL/modsec-pl1_ssrf.json",
+      "bytes": 71373,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "5160d41b0335f54643c4346f31d7840ee6bbeb51"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final-ALL/modsec-pl1_xss.json",
+      "bytes": 169811,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "af9cebe0e6dbd7d30d292a250c85052482436e2e"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final-ALL/modsec-pl2_cmdi.json",
+      "bytes": 81094,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "8ad628bee8d8096b10db6990e6619b9af9a5164f"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final-ALL/modsec-pl2_ldap.json",
+      "bytes": 17198,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "fa1641f58f2dc27551dac51eecd4312af0978655"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final-ALL/modsec-pl2_path.json",
+      "bytes": 73887,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "b32d98ea75d67316a97bf6df5f58a1ab28d7a8a2"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final-ALL/modsec-pl2_sql.json",
+      "bytes": 225785,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "a236b5e7c185b8f29b76cb80eb240a7c613d6b26"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final-ALL/modsec-pl2_ssrf.json",
+      "bytes": 64559,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "bca278454dc313394b37792b727c188f058d0591"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final-ALL/modsec-pl2_xss.json",
+      "bytes": 169382,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "ae41e6f35b519a88121f41bb8b01fc932f778471"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final-ALL/modsec-pl3_cmdi.json",
+      "bytes": 78848,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "4f7d0f22b4fcab261c4d192014e7c9b3fbcfe5ef"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final-ALL/modsec-pl3_ldap.json",
+      "bytes": 17945,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "6c416059d316aafb0d1ae019cf55acb2f0ae839d"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final-ALL/modsec-pl3_path.json",
+      "bytes": 70653,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "41e532098f8796fab52f4b7c6e6818610d8ec202"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final-ALL/modsec-pl3_sql.json",
+      "bytes": 228564,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "7ee61c4f4450d83856ed0e658e8db46f260c12f9"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final-ALL/modsec-pl3_ssrf.json",
+      "bytes": 65699,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "1533f3bb7619a7d9973081ea4fe52fd1ca1cf8e1"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final-ALL/modsec-pl3_xss.json",
+      "bytes": 166840,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "9775964d2a5e8de7e3e5bc6e0d2673102a127647"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final-ALL/modsec-pl4_cmdi.json",
+      "bytes": 78056,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "4d850c3fd089134fca7d6286cf9ee0028e5fdca9"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final-ALL/modsec-pl4_ldap.json",
+      "bytes": 14585,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "e09aa335b52f0c334d1d2e6e52ea605555da0dec"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final-ALL/modsec-pl4_path.json",
+      "bytes": 72137,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "ecc57e5762c74e7126cb8f2455b17dc8c17773b2"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final-ALL/modsec-pl4_sql.json",
+      "bytes": 226242,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "81370b02dd7c59b66d6acf037793994417f43647"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final-ALL/modsec-pl4_ssrf.json",
+      "bytes": 60560,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "bd2b70aa3188065e1aa96128533689dd3e86b60f"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final-ALL/modsec-pl4_xss.json",
+      "bytes": 169378,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "399749df8ec39437dfce55e444d67bb0c8214909"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final-ALL/naxsi_cmdi.json",
+      "bytes": 52018,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "fd8320c44766c21091207f45f32e9ecd1ce9efe8"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final-ALL/naxsi_ldap.json",
+      "bytes": 10777,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "d7c72145f539d6b63c1625193e7d77ebe4678627"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final-ALL/naxsi_path.json",
+      "bytes": 48374,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "b60048eeba24b0ed2c47cb78b18da9f817701480"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final-ALL/naxsi_sql.json",
+      "bytes": 146669,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "c538152b62b959b1b6228db1bf718646b1db79d6"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final-ALL/naxsi_ssrf.json",
+      "bytes": 39527,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "d666d036edb64241714614608c8e8eff7b380232"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final-ALL/naxsi_xss.json",
+      "bytes": 115971,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "bff5ba499c523c79e5572e6f2ebdb0cd5cc76e62"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final/bunkerweb_path.json",
+      "bytes": 75180,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "8f52645d79a19e3078b49e5f1c37f9f1608481f8"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final/bunkerweb_sql.json",
+      "bytes": 225311,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "e3b71d00d650f79723e72ade19e5d09e289eda2a"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final/bunkerweb_ssrf.json",
+      "bytes": 75896,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "0d459ffb8fad2f608ab8d1a0bc17c24dbbed693c"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final/coraza_path.json",
+      "bytes": 54181,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "351c1877d2d6f31814864855cf083c2813d15a60"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final/coraza_sql.json",
+      "bytes": 145737,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "d232f3b20c6502a26b7b51fd43af2796c63e8524"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final/coraza_ssrf.json",
+      "bytes": 71364,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "ee77650f175b8096a67ae0ca6786eb785fdea858"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final/modsec-pl1_path.json",
+      "bytes": 76318,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "6df46e390c92e248d25b0f0663229b7844e7cd04"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final/modsec-pl1_sql.json",
+      "bytes": 226157,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "32352b38b1317f76657960674e974c3c6f99c1ce"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final/modsec-pl1_ssrf.json",
+      "bytes": 72600,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "2f8740914a3ab183455f454c674034977827a6f8"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final/modsec-pl2_path.json",
+      "bytes": 73379,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "a6052cc3a73ddc7885e4e12073839527af2550f8"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final/modsec-pl2_sql.json",
+      "bytes": 223754,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "aa1dd52f1c5baa51eb5eaeaee959e61c85641747"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final/modsec-pl2_ssrf.json",
+      "bytes": 65925,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "5b5a6e4fd98137420d94c26f181c6e1373a99fed"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final/modsec-pl3_path.json",
+      "bytes": 72912,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "c865dfb74ee9d3b1ea4a5df9b700fba4b232b700"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final/modsec-pl3_sql.json",
+      "bytes": 224266,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "72e82319e403b91e2fd3e755d7907a3d79d434d0"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final/modsec-pl3_ssrf.json",
+      "bytes": 64867,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "43f2a0860821ff655376cedee7fe3f5c5e454b61"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final/modsec-pl4_path.json",
+      "bytes": 73375,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "3afff6a6646680afd5da3dd2c2cddce6952ffdee"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final/modsec-pl4_sql.json",
+      "bytes": 224184,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "84441a4b08a300ac45b7a8f291b896691e512aea"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final/modsec-pl4_ssrf.json",
+      "bytes": 60439,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "1057cfa40be6a5a793fda43762ad016ead7f2f82"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final/naxsi_path.json",
+      "bytes": 48403,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "19c7b4aeaab83fb01254654fa38d2a3c2727c896"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final/naxsi_sql.json",
+      "bytes": 146904,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "ab6c1dd90a4013ec0d3da01b87548c84ff714673"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-final/naxsi_ssrf.json",
+      "bytes": 39516,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "056581ffc520229f01c420ff14d9f0895e4dd7c5"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-modsec-pl1.json",
+      "bytes": 157720,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "3cde823b4c495a7708aebcf6fe6046450d0f0e49"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-modsec-pl2.json",
+      "bytes": 157012,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "5d4e7f18e690c6248c4b3d22dec60b96bc483fb6"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-modsec-pl3.json",
+      "bytes": 155589,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "5ad86ba09a79a2089214dd12fb12170dadf63594"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-modsec-pl4.json",
+      "bytes": 156265,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "f30390361614cfe57ddd44c158f9b555cec227a2"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-naxsi.json",
+      "bytes": 97554,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "36f8d2e29cf1049d65ac3ec510238134c4fe217d"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-quotefree-bunkerweb.json",
+      "bytes": 224644,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "d0fbd3ef4886a8fde2ad933deab9811245867c0b"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-quotefree-coraza.json",
+      "bytes": 147192,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "4544c7ffbacd6f140c427210cdc645b83eabe0c5"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-quotefree-modsec-pl1.json",
+      "bytes": 227138,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "e4dae62451a91d851eedf5a78856aa7cdceaa740"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-quotefree-modsec-pl2.json",
+      "bytes": 223803,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "500b5eddcc25966374e0c276cea93966dce0b037"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-quotefree-modsec-pl3.json",
+      "bytes": 225488,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "aa3cf362698bd5c0e5dbcb688044608ad7e8d3a6"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-quotefree-modsec-pl4.json",
+      "bytes": 223619,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "7613000fe083421db9f577880ee0d564b986d3de"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/results/v022-quotefree-naxsi.json",
+      "bytes": 147038,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "18305e2d36eafa488a7a5016755e96644cb8a152"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/scripts/dogfood-public.sh",
+      "bytes": 2628,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "505ff0f7afec5b9e65b3e7be668fdd74ae73508d"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/scripts/down.sh",
+      "bytes": 876,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "5c309cba8b2f5bbba61e89696079f2552621624f"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/scripts/mock_waf.py",
+      "bytes": 4160,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "867c90e0b4009580c3d6310200bb83e9fa64f6ca"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/scripts/render-scoreboard.py",
+      "bytes": 8727,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "b155b7c2b23287e96ab9e57fd79d1fffd6c0567a"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/scripts/test_render_scoreboard.py",
+      "bytes": 10393,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "51c12b7f739ccf660904f929fcb767c280d28547"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/scripts/up.sh",
+      "bytes": 1590,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "cf972129af2eac0d6b85f95b4d76270e9f93d10e"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/targets/README.md",
+      "bytes": 1768,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "87fc75a0df187c255decd24a5dfa0c00ea3d851e"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/targets/bunkerweb/docker-compose.yml",
+      "bytes": 2119,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "c57bc9d94c1afaa1bb8ba25d6bff1ea8e347ce6d"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/targets/coraza/Caddyfile",
+      "bytes": 321,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "dec488deda0dd465efa18427f5e5dbc9e30737ad"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/targets/coraza/docker-compose.yml",
+      "bytes": 592,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "fb1ab1701c7ae94591be8579d778690e4ba2b6ec"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/targets/modsec-pl1/docker-compose.yml",
+      "bytes": 563,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "8c790945d6ddd3ac72167befd6049aab4fb2f578"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/targets/modsec-pl2/docker-compose.yml",
+      "bytes": 563,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "ca00f741dbc0fef7ff45f5704b840b4d115d2249"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/targets/modsec-pl3/docker-compose.yml",
+      "bytes": 563,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "804568e2520a31a3a316f7fb71932f892553a386"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/targets/modsec-pl4/docker-compose.yml",
+      "bytes": 563,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "ab36e4b39b7f37020a82687133f7bdd03df1c818"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/targets/naxsi/Dockerfile",
+      "bytes": 2237,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "72499a2ccd7c5d0ad8537602350e6a805c6567d7"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/targets/naxsi/docker-compose.yml",
+      "bytes": 494,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "9d933d0a048e3feb487b989bf8710756f00ba8ed"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/targets/naxsi/naxsi.conf",
+      "bytes": 517,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "7c90ed915510e719f43d9b0a5bf817c4cc2b2704"
+    },
+    {
+      "path": "traindata/wafrift-main/wafrift-bench/targets/naxsi/nginx.conf",
+      "bytes": 1406,
+      "mtime": "2026-11-15 10:09",
+      "sha1": "558898cb310fbd7e4bb559bc68d4ac586f63e702"
     }
   ],
   "totals": {
-    "files": 77,
-    "bytes": 529493923,
-    "corpora": 6
+    "files": 526,
+    "bytes": 855194357,
+    "corpora": 12
   },
   "issues": [
     {
@@ -630,12 +3435,30 @@
       "level": "info",
       "code": "wfdet_bad_lines",
       "msg": "WAF_DETECTION_DATASET.jsonl 有 6 行 JSON 损坏，已跳过"
+    },
+    {
+      "level": "info",
+      "code": "sqliv5_capped",
+      "msg": "sqliv5 抽样 15,000（上限 15,000，稳定哈希）"
+    },
+    {
+      "level": "info",
+      "code": "wafamole_capped",
+      "msg": "wafamole 抽样 20,000（上限 20,000，稳定哈希）"
+    },
+    {
+      "level": "info",
+      "code": "sqliv5_valid_excluded",
+      "msg": "sqliv5 的 19,517 条 type=valid（合法 SQL）已排除：放参数里与 SQLi 不可区分"
     }
   ],
   "recommendations": [
     "5 类训练只收 label ∈ 0-4；无子类攻击（parquet anomalous / bruteforce / 920 协议规则）只进二分类评估。",
     "校准池必须与训练集**互斥**：用 parquet normal 的独立留出桶，并让 `thresholds.py --train-keys` 校验训练指纹。",
     "xlsx 的良性只有千余条且只来自 3 个 host —— 误报率的代表性以 parquet 正常流量为准。",
-    "ModSecurity 日志全是命中规则的事务，零良性：它只能量召回，不能量误报。"
+    "ModSecurity 日志全是命中规则的事务，零良性：它只能量召回，不能量误报。",
+    "2026-11-16 新增语料（FUR / sqliv5 / wafamole / wafrift / waffled）只进 train/valid（group 85/15），**不进 test**：test 与现役 g3/g5 同一批行，5 类指标才可比；新语料效果看 FUR test + exploit 的独立评估。",
+    "`wafamole_dataset/sane.sql` 与 sqliv5 的 `type=valid` 都是**合法 SQL**，放参数里与 SQLi 不可区分 —— 当良性会教出“SELECT 是正常”的捷径，只登记不入训。",
+    "SQLi 语料有上限（sqliv5 15k / wafamole 20k）且用稳定哈希抽样：否则 128 万行攻击会淹没 ModSec 与 xlsx，其它类召回会掉。"
   ]
 }

@@ -72,6 +72,15 @@ def main() -> None:
     ap.add_argument("--keys-only", action="store_true",
                     help="构建数据集并只重写 dataset_stats/training_keys/calibration_pool（不训练）")
     ap.add_argument("--no-parent", action="store_true", help="不从现役续训（全量重训对照）")
+    ap.add_argument("--no-fur", action="store_true",
+                    help="A/B 对照：新攻击语料照收，但 FUR 良性不入训")
+    ap.add_argument("--fur-max", type=int, default=rw.FUR_MAX,
+                    help=f"FUR 良性入训上限（默认 {rw.FUR_MAX}；召回掉线时降到 6000 做折中）")
+    ap.add_argument("--cmdi-wrap", type=int, default=0,
+                    help="cmdi 形态对齐：把每条真实 cmdi 载荷包进 N 个 JSON/SOAP/form 外壳 "
+                         "（0=关闭；3/6 是实测档位）")
+    ap.add_argument("--cmdi-wrap-neg", type=float, default=1.0,
+                    help="同外壳良性数量 = 攻击包装数 × 该系数（默认 1.0；外壳必须标签中立）")
     ap.add_argument("--parent-model", default=LIVE_MODEL)
     ap.add_argument("--parent-meta", default=LIVE_META)
     ap.add_argument("--out-dir", default=DEFAULT_OUT)
@@ -86,7 +95,9 @@ def main() -> None:
         pass
 
     t0 = time.time()
-    ds = rw.build_dataset(verbose=True)
+    ds = rw.build_dataset(verbose=True, include_fur=not args.no_fur,
+                          fur_max=args.fur_max, cmdi_wrap=args.cmdi_wrap,
+                          cmdi_wrap_neg=args.cmdi_wrap_neg)
     train, valid, test = ds["train"], ds["valid"], ds["test"]
     holdout = ds["benign_holdout"]
     stats = ds["stats"]
@@ -132,20 +143,26 @@ def main() -> None:
         "hard_neg": "waf2026",
         "added": len(holdout),
         "seed": args.seed,
-        "note": "新版 traindata（xlsx 事务级 + parquet 正常 + ModSec 在野 + 载荷集）",
+        "note": ("新版 traindata（xlsx 事务级 + parquet 正常 + ModSec 在野 + 载荷集"
+                 " + 2026-11-16 新增：FUR 良性/sqliv5/wafamole/wafrift/waffled）"
+                 + ("；A/B 对照：FUR 良性未入训" if args.no_fur else "")
+                 + ("" if args.no_fur else f"；FUR 良性上限 {args.fur_max:,}")
+                 + (f"；cmdi 形态对齐 ×{args.cmdi_wrap}" if args.cmdi_wrap else "")),
         "valid_frac": 0.0,
         "n_valid": len(valid),
         "test_title": "新语料 TEST（URL 模板分组留出）",
-        "valid_title": "新语料 VALID（URL 模板分组留出）",
+        "valid_title": "新语料 VALID（URL 模板分组留出 + 新语料 15% 桶）",
         "split_note": ("train/valid/test 按 URL 模板稳定哈希分组切分；"
-                       "test 同时含 xlsx 事务级、ModSec 在野、载荷集三个来源"),
+                       "2026-11-16 新增语料只进 train/valid（85/15），不进 test，"
+                       "保证 test 与现役 g3 同一批行、5 类指标可比"),
         # 切换门禁需要：模型自己的校准池 + 训练指纹（与 thresholds.req_key 同口径）
         "training_keys_file": "training_keys.txt",
         "calib_meta": {"file": "calibration_pool.jsonl", "n": len(holdout),
                        "source": ("parquet WAF Data v2 正常流量留出桶"
                                   "（与训练桶按请求 sha1 互斥，已做良性去污染）")},
         "dataset": ("traindata 2026-11：combined_final_dataset_augmented.xlsx（事务级）"
-                    " + WAF Data v2 正常 + OWASP ModSecurity 在野攻击 + WAF-Payload-Collection"),
+                    " + WAF Data v2 正常 + OWASP ModSecurity 在野攻击 + WAF-Payload-Collection"
+                    " + FUR-API 良性 + SQLiV5 + WAF-A-MoLE + wafrift + waffled"),
     }
 
     res = run(
