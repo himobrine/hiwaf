@@ -11,6 +11,7 @@ import {
   Row,
   Select,
   Space,
+  Switch,
   Table,
   Tag,
   Tooltip,
@@ -70,6 +71,7 @@ function selectionSummary(r: any): string {
 
 export default function Datasets({ user }: { user: User }) {
   const isAdmin = user.role === 'admin'
+  const canEdit = user.role !== 'viewer'
   const [items, setItems] = useState<any[]>([])
   const [err, setErr] = useState('')
   const [loading, setLoading] = useState(false)
@@ -78,19 +80,25 @@ export default function Datasets({ user }: { user: User }) {
   const [submitting, setSubmitting] = useState(false)
   const [form] = Form.useForm()
   const timer = useRef<any>(null)
+  // 编辑（名称 / 来源说明）：角色与标签在生成时固化，不在这里改。
+  const [edit, setEdit] = useState<any>(null)
+  const [editForm] = Form.useForm()
+  const [savingEdit, setSavingEdit] = useState(false)
+  const [showPruned, setShowPruned] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
     setErr('')
     try {
-      const r = await api<any>('/api/uploads?limit=200')
+      const q = `/api/uploads?limit=200${showPruned ? '&include_pruned=1' : ''}`
+      const r = await api<any>(q)
       setItems(r.items || [])
     } catch (e: any) {
       setErr(e?.message || '加载失败')
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [showPruned])
 
   useEffect(() => {
     load()
@@ -158,10 +166,41 @@ export default function Datasets({ user }: { user: User }) {
   const remove = async (row: any) => {
     try {
       await api(`/api/uploads/${row.id}`, { method: 'DELETE' })
-      message.success('已删除（软删除）')
+      message.success('已删除（软删除；可在「显示已删除」里确认）')
       load()
     } catch (e: any) {
       message.error(e?.message || '删除失败')
+    }
+  }
+
+  const openEdit = (row: any) => {
+    editForm.setFieldsValue({
+      name: row.name,
+      source_note: row.source_note || '',
+    })
+    setEdit(row)
+  }
+
+  const saveEdit = async () => {
+    let v: any
+    try {
+      v = await editForm.validateFields()
+    } catch {
+      return
+    }
+    setSavingEdit(true)
+    try {
+      await api(`/api/uploads/${edit.id}`, {
+        method: 'PATCH',
+        body: { name: v.name, source_note: v.source_note || '' },
+      })
+      message.success('已保存')
+      setEdit(null)
+      load()
+    } catch (e: any) {
+      message.error(e?.message || '保存失败')
+    } finally {
+      setSavingEdit(false)
     }
   }
 
@@ -174,6 +213,10 @@ export default function Datasets({ user }: { user: User }) {
         <Button icon={<ReloadOutlined />} onClick={load} loading={loading}>
           刷新
         </Button>
+        <Space size={4}>
+          <Switch size="small" checked={showPruned} onChange={setShowPruned} />
+          <span className="muted">显示已删除</span>
+        </Space>
       </div>
 
       <Alert
@@ -254,7 +297,16 @@ export default function Datasets({ user }: { user: User }) {
               pagination={{ pageSize: 10, showSizeChanger: false }}
               columns={[
                 { title: 'ID', dataIndex: 'id', width: 60 },
-                { title: '名称', dataIndex: 'name', ellipsis: true },
+                {
+                  title: '名称',
+                  dataIndex: 'name',
+                  ellipsis: true,
+                  render: (v: string, r: any) => (
+                    <Tooltip title={r.source_note || ''} placement="topLeft">
+                      <span>{v}</span>
+                    </Tooltip>
+                  ),
+                },
                 {
                   title: '来源',
                   dataIndex: 'origin',
@@ -308,15 +360,38 @@ export default function Datasets({ user }: { user: User }) {
                 { title: '时间', dataIndex: 'created_at', width: 160, render: (v: number) => fmtTs(v) },
                 {
                   title: '操作',
-                  width: 140,
+                  width: 190,
                   render: (_: any, r: any) => (
                     <Space size={4}>
                       <Button size="small" onClick={() => openPreview(r)} disabled={r.status !== 'ready'}>
                         预览
                       </Button>
+                      <Button
+                        size="small"
+                        onClick={() => openEdit(r)}
+                        disabled={!canEdit || r.status === 'pruned'}
+                      >
+                        编辑
+                      </Button>
                       {isAdmin ? (
-                        <Popconfirm title="删除该数据集？" onConfirm={() => remove(r)}>
-                          <Button size="small" danger icon={<DeleteOutlined />} disabled={r.status === 'pruned'} />
+                        <Popconfirm
+                          title="删除该数据集？"
+                          description={
+                            <span>
+                              「{r.name}」的目录与文件会一并删除，记录标成 pruned（软删除）。
+                              正在转换或正被任务使用的不能删。
+                            </span>
+                          }
+                          okText="删除"
+                          okType="danger"
+                          onConfirm={() => remove(r)}
+                        >
+                          <Button
+                            size="small"
+                            danger
+                            icon={<DeleteOutlined />}
+                            disabled={r.status === 'pruned' || r.status === 'converting'}
+                          />
                         </Popconfirm>
                       ) : null}
                     </Space>
@@ -376,6 +451,44 @@ export default function Datasets({ user }: { user: User }) {
           <Paragraph className="muted" style={{ marginTop: 8 }}>
             <Text code>{JSON.stringify(preview.dataset.stats)}</Text>
           </Paragraph>
+        ) : null}
+      </Modal>
+
+      <Modal
+        open={!!edit}
+        title={edit ? `编辑数据集 #${edit.id}` : ''}
+        onCancel={() => setEdit(null)}
+        onOk={saveEdit}
+        okText="保存"
+        confirmLoading={savingEdit}
+        destroyOnClose
+      >
+        <Form form={editForm} layout="vertical" preserve={false}>
+          <Form.Item
+            name="name"
+            label="名称"
+            rules={[
+              { required: true, message: '名称不能为空' },
+              { max: 120, message: '名称不能超过 120 字符' },
+            ]}
+          >
+            <Input placeholder="例如：sqlmap 扫描（确认为攻击）" />
+          </Form.Item>
+          <Form.Item
+            name="source_note"
+            label="来源说明"
+            rules={[{ max: 2000, message: '说明不能超过 2000 字符' }]}
+            extra="角色（监督/良性/仅评估）与标签在生成数据集时已固化到文件，这里不能改；要换请重新生成数据集。"
+          >
+            <Input.TextArea rows={3} maxLength={2000} showCount />
+          </Form.Item>
+        </Form>
+        {edit?.origin === 'events' ? (
+          <Alert
+            type="info"
+            showIcon
+            message={`来源：事件选择（${selectionSummary(edit)}）；标签=${edit.default_label ?? '-'}`}
+          />
         ) : null}
       </Modal>
     </div>
