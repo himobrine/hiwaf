@@ -8,6 +8,7 @@ import {
   Space,
   Table,
   Tag,
+  Tooltip,
   Typography,
   message,
 } from 'antd'
@@ -64,6 +65,7 @@ export default function Tasks({ user }: { user: User }) {
   const [dataMode, setDataMode] = useState('official')
   const [datasetIds, setDatasetIds] = useState<number[]>([])
   const [calibMode, setCalibMode] = useState('auto')
+  const [pre, setPre] = useState<any>(null)
   const timer = useRef<any>(null)
 
   const load = useCallback(async () => {
@@ -103,13 +105,24 @@ export default function Tasks({ user }: { user: User }) {
     api<any>('/api/uploads?limit=200')
       .then((d) => setDatasets(d.items || []))
       .catch(() => undefined)
+    // 语料自检：官方语料没放进来时，只能选「仅数据集」。
+    api<any>('/api/tasks/preflight')
+      .then((d) => {
+        setPre(d)
+        if (d?.modes && d.modes.official === false) {
+          setDataMode((m) => (m === 'official' || m === 'add' ? 'only' : m))
+        }
+      })
+      .catch(() => undefined)
   }, [])
 
   useEffect(() => {
     setParentId(undefined)
-    setDataMode('official')
+    setDataMode(pre?.modes?.official === false ? 'only' : 'official')
     setDatasetIds([])
     setCalibMode('auto')
+    // `pre` 只在挂载时取一次；加进依赖是为了「自检先返回、再切 kind」时不回到不可用模式。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kind])
 
   useEffect(() => {
@@ -195,15 +208,23 @@ export default function Tasks({ user }: { user: User }) {
               options={parentOptions}
             />
             <Select
-              style={{ width: 220 }}
+              style={{ width: 260 }}
               value={dataMode}
               onChange={(v) => {
                 setDataMode(v)
                 if (v === 'official') setDatasetIds([])
               }}
               options={[
-                { value: 'official', label: '数据来源：内置基线' },
-                { value: 'add', label: '内置基线 + 数据集（增量）' },
+                {
+                  value: 'official',
+                  label: '数据来源：内置基线' + (pre?.modes?.official === false ? '（官方语料缺失）' : ''),
+                  disabled: pre?.modes?.official === false,
+                },
+                {
+                  value: 'add',
+                  label: '内置基线 + 数据集（增量）' + (pre?.modes?.add === false ? '（不可用）' : ''),
+                  disabled: pre?.modes?.add === false,
+                },
                 { value: 'only', label: '仅数据集（替换基线）' },
               ]}
             />
@@ -252,13 +273,29 @@ export default function Tasks({ user }: { user: User }) {
         message="任务只接受服务端白名单脚本，不接受任意命令/参数。"
         description="训练产物写入 artifacts/staging/task_<id>/，成功后自动登记为新一代；要上线必须去「模型」页走切换（含门禁）并重启采集器。训练不会直接覆盖现役模型。"
       />
+      {channel && pre?.modes?.official === false ? (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message={`官方训练语料未就位：只能用「仅数据集」模式（缺 ${(pre?.missing || []).join('、')}）`}
+          description={
+            <span>
+              想把语料补回来：把 <Text code>payload_train.csv</Text> /{' '}
+              <Text code>payload_test.csv</Text> / <Text code>payload_test_lexical.csv</Text> 放到{' '}
+              <Text code>{pre?.traindata}</Text>（文件名见 REALDATA_EVALUATION.md，目录已被 .gitignore
+              忽略）。仅数据集模式要求数据集 ≥2 类标签、≥500 行，且良性 ≥400 用于校准留出。
+            </span>
+          }
+        />
+      ) : null}
       {channel && dataMode === 'only' ? (
         <Alert
           type="warning"
           showIcon
           style={{ marginBottom: 12 }}
-          message="仅数据集模式：内置基线不参与，官方 test/lexical 仅作迁移评估"
-          description="only 模式会强制 lineage（不做 warm start）；零日通道要求数据集 ≥400 条良性且能切出 ≥200 条校准留出。"
+          message="仅数据集模式：内置基线与官方 test/lexical 都不参与"
+          description="评估集从上传数据按标签分层留出（20%）；校准必须来自上传良性留出（≥400 条良性）。only 模式会强制 lineage（不做 warm start）。"
         />
       ) : null}
       {kind === 'iforest_local' && dataMode === 'add' ? (

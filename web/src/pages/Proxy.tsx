@@ -16,6 +16,7 @@ import {
   Switch,
   Tabs,
   Tag,
+  Tooltip,
   Typography,
   message,
 } from 'antd'
@@ -84,7 +85,9 @@ const GUIDE_STEPS = `1. 在「采集代理」页维护路由表（名称 / 监�
 
 const GUIDE_TROUBLE = `端口被占用：改监听端口，或停掉占用端口的进程；启动接口会返回 409。
 监听 80/443 需要管理员权限：控制台/采集器要以管理员身份运行。
-502/连接失败：upstream 写错或后端没起；采集器只转发，不负责拉起后端。
+502/连接失败：上游写错或后端没起；启动前会做 TCP 预检，不可达直接拒绝启动
+  （确实要强起可以选「强制启动」，但所有请求都会 502）。
+监听/上游填反：监听 = 客户端访问 WAF 的入口端口；上游 = 真实站点地址（如 127.0.0.1:8080）。
 有请求但事件页没有：确认 out_dir 固定为 traindata/proxy，且控制台 ingest 在跑；
   再看 /api/proxy/status 的 metrics.written 是否增长。
 命中条件但不拦：确认 block_mode=enforce，且采集器已重启（状态页会提示）。
@@ -201,12 +204,34 @@ export default function Proxy({ user }: { user: User }) {
     try {
       await api<any>(`/api/proxy/${name}`, {
         method: 'POST',
-        body: name === 'stop' ? { force } : undefined,
+        body: { force },
       })
       message.success(name === 'start' ? '已启动' : name === 'stop' ? '已停止' : '已重启')
       await Promise.all([loadStatus(), loadConfig()])
     } catch (e: any) {
-      message.error(e?.message || '操作失败')
+      const msg = e?.message || '操作失败'
+      // 上游填错/没起时后端会拒绝启动（409）。这里给出原因，并保留强制启动出口。
+      if ((name === 'start' || name === 'restart') && msg.includes('上游不可达')) {
+        Modal.error({
+          title: '上游不可达，已拒绝启动',
+          width: 620,
+          content: (
+            <div>
+              <p style={{ whiteSpace: 'pre-wrap' }}>{msg}</p>
+              <p className="muted" style={{ marginBottom: 0 }}>
+                强制启动后采集器会照常转发，但所有请求都会返回 502 —— 通常应先把上游
+                服务拉起来，或改正「上游」端口（监听 = 入口，上游 = 真实站点）。
+              </p>
+            </div>
+          ),
+          okText: '强制启动（会全量 502）',
+          okType: 'danger',
+          cancelText: '取消',
+          onOk: () => act(name, true),
+        })
+      } else {
+        message.error(msg)
+      }
     } finally {
       setBusy('')
     }
@@ -332,6 +357,20 @@ export default function Proxy({ user }: { user: User }) {
                         <Tag style={{ marginLeft: 6 }} color={r.listening ? 'green' : 'default'}>
                           {r.listening ? '监听中' : '未监听'}
                         </Tag>
+                        <Tooltip
+                          title={
+                            r.upstream_reachable
+                              ? '上游 TCP 可连'
+                              : `${r.upstream_error || '连接失败'}：经过这条路由的请求都会 502`
+                          }
+                        >
+                          <Tag
+                            style={{ marginLeft: 6 }}
+                            color={r.upstream_reachable ? 'green' : 'red'}
+                          >
+                            {r.upstream_reachable ? '上游可达' : '上游不可达'}
+                          </Tag>
+                        </Tooltip>
                       </span>
                     ))}
                   </Space>
@@ -468,6 +507,7 @@ export default function Proxy({ user }: { user: User }) {
                               name={[name, 'listen']}
                               label="监听"
                               rules={[{ required: true }]}
+                              extra="客户端访问 WAF 的入口端口"
                             >
                               <Input placeholder="0.0.0.0:80" />
                             </Form.Item>
@@ -478,6 +518,7 @@ export default function Proxy({ user }: { user: User }) {
                               name={[name, 'upstream']}
                               label="上游"
                               rules={[{ required: true }]}
+                              extra="真实站点（Web 应用）地址，不是 WAF 自己的端口"
                             >
                               <Input placeholder="127.0.0.1:8080" />
                             </Form.Item>
