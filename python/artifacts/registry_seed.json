@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "generated_by": "service.export_registry_seed",
-  "generated_at": 1794807008352,
+  "generated_at": 1794840716406,
   "note": "随仓库发布的预置代次清单：只描述 artifacts/models/ 下实际入库的快照。启动时由 model_registry.sync_seed() 导入（空库完整导入，非空库只补缺失代次并按策略校正 active）；schema/字段说明见 model_registry.SEED_MODEL_KEYS。",
   "models": [
     {
@@ -575,10 +575,126 @@
         "parent_id": null,
         "parent_sha1_16": null
       },
-      "status": "active",
+      "status": "archived",
       "created_at": 1794805789838,
-      "updated_at": 1794805961166,
+      "updated_at": 1794840472802,
       "activated_at": 1794805961166,
+      "retired_at": 1794840472802
+    },
+    {
+      "channel": "supervised",
+      "variant": "official",
+      "generation": 6,
+      "display_name": "XGBoost g6",
+      "artifact_name": "xgboost_v20261015_001.onnx",
+      "snapshot_dir": "models/supervised/gen-0006-3529005b4249",
+      "sha1_16": "3529005b4249e67b",
+      "bytes": 10628223,
+      "meta_path": "models/supervised/gen-0006-3529005b4249/xgboost_meta.json",
+      "curve_path": "models/supervised/gen-0006-3529005b4249/curve.json",
+      "trainable": true,
+      "parent_generation": 5,
+      "inherit_mode": "full",
+      "features_version": "v2",
+      "feature_dim": 80,
+      "labels": {
+        "0": "normal",
+        "1": "sqli",
+        "2": "xss",
+        "3": "cmdi",
+        "4": "traversal"
+      },
+      "metrics": {
+        "test": {
+          "n": 9352,
+          "accuracy": 0.9912318220701454,
+          "auc_binary": 0.9988567820631657,
+          "budgets": {
+            "0.001": {
+              "detect": 0.9772578890097933,
+              "fpr": 0.006172839506172839
+            },
+            "0.01": {
+              "detect": 0.9800870511425462,
+              "fpr": 0.012345679012345678
+            },
+            "0.03": {
+              "detect": 0.9952121871599565,
+              "fpr": 0.030864197530864196
+            },
+            "0.05": {
+              "detect": 0.9956474428726877,
+              "fpr": 0.05555555555555555
+            }
+          },
+          "normal_recall": 0.9444444444444444
+        },
+        "lexical": {
+          "n": 16590,
+          "accuracy": 0.9916817359855334,
+          "auc_binary": 0.9998900782423071,
+          "budgets": {
+            "0.001": {
+              "detect": 0.9936843651318206,
+              "fpr": 0.0010090817356205853
+            },
+            "0.01": {
+              "detect": 0.9956671807299698,
+              "fpr": 0.010090817356205853
+            },
+            "0.03": {
+              "detect": 0.9996328119262686,
+              "fpr": 0.030272452068617558
+            },
+            "0.05": {
+              "detect": 0.9998531247705075,
+              "fpr": 0.05011772620248907
+            }
+          },
+          "normal_recall": 0.9815001681802893
+        },
+        "n_trees": 6000,
+        "n_nodes": 325926,
+        "train_seconds": 53.89
+      },
+      "recipe": {
+        "n_estimators": 400,
+        "max_depth": 8,
+        "lr": 0.1,
+        "early_stopping_rounds": 0,
+        "best_iteration": -1,
+        "base_trees": 800,
+        "total_trees": 1200,
+        "inherit_mode": "full",
+        "class_weight": "balanced (inverse frequency)",
+        "hard_neg": "waf2026",
+        "hard_neg_added": 12000,
+        "hard_neg_note": "新版 traindata（xlsx 事务级 + parquet 正常 + ModSec 在野 + 载荷集 + 2026-11-16 新增：FUR 良性/sqliv5/wafamole/wafrift/waffled）；FUR 良性上限 20,000",
+        "lexical_split": "",
+        "seed": 20261112,
+        "dict_augmentation": null,
+        "extra_benign": 0,
+        "local_benign_added": 0,
+        "local_benign_source": null,
+        "local_eval_n": 0,
+        "local_eval_n_attack": 0,
+        "balance": "weight",
+        "es_monitored": null,
+        "es_metric": null,
+        "valid_frac": 0.0,
+        "n_valid": 16590,
+        "n_train": 292177,
+        "dataset": "traindata 2026-11：combined_final_dataset_augmented.xlsx（事务级） + WAF Data v2 正常 + OWASP ModSecurity 在野攻击 + WAF-Payload-Collection + FUR-API 良性 + SQLiV5 + WAF-A-MoLE + wafrift + waffled",
+        "upload_mode": null,
+        "upload_datasets": null,
+        "upload_calib": null,
+        "parent_id": 12,
+        "parent_sha1_16": "ddd54ebc29469208"
+      },
+      "status": "active",
+      "created_at": 1794840248405,
+      "updated_at": 1794840690051,
+      "activated_at": 1794840690051,
       "retired_at": null
     },
     {
