@@ -1152,6 +1152,22 @@ def _warnings(pol: dict, metrics: Optional[dict]) -> list:
                 "采集器未上报热重载状态（可能用了 --no-reload）：改策略/规则后必须重启采集器，"
                 "否则控制台显示的是新规则、数据面跑的是旧规则。"
             )
+    # 上游可达性：上游填错/后端没起时采集器照样"在跑"，只是所有请求都 502。
+    # 这里用采集器**实际生效**的路由探测（没指标时退回保存的配置），命中就报。
+    try:
+        routes = (metrics or {}).get("routes") or []
+        if not routes:
+            routes = proxy_manager.get_config().get("routes") or []
+        for u in proxy_manager.check_routes(routes):
+            if u.get("reachable"):
+                continue
+            w.append(
+                f"上游 {u.get('upstream')} 不可达（{u.get('error') or '连接失败'}）："
+                "经过这条路由的请求都会 502。检查「监听/上游」是否填反"
+                "（监听 = 客户端访问 WAF 的入口，上游 = 真实站点地址），或先把上游服务拉起来。"
+            )
+    except Exception:  # noqa: BLE001 - 健康检查不能因为探测失败而 500
+        pass
     try:
         rc = retention.counts()
         if rc.get("manual"):
@@ -2597,6 +2613,29 @@ def upload_delete(uid: int, request: Request,
     return row
 
 
+class UploadPatchIn(BaseModel):
+    """可编辑的只有名称与来源说明。
+
+    角色 / 标签在转换时已经写进 `requests*.jsonl`，改数据库行不会改文件，
+    所以不开放编辑 —— 要换角色/标签请重新生成数据集。
+    """
+    name: Optional[str] = None
+    source_note: Optional[str] = None
+
+
+@app.patch("/api/uploads/{uid}")
+def upload_update(uid: int, body: UploadPatchIn,
+                  user: dict = Depends(auth.require_at_least("analyst"))):
+    if body.name is None and body.source_note is None:
+        raise HTTPException(400, "没有要修改的字段（name / source_note）")
+    try:
+        return uploads.update_upload(uid, name=body.name,
+                                     source_note=body.source_note,
+                                     actor=user["username"])
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
 @app.post("/api/uploads/from-events")
 def uploads_from_events(body: FromEventsIn, request: Request,
                         user: dict = Depends(auth.require_at_least("analyst"))):
@@ -2710,6 +2749,74 @@ def _validate_upload_plan(kind: str, data_mode: str, dataset_ids: Optional[List[
             "calib_mode": calib_mode}
 
 
+#: 官方训练语料的固定文件名（`traindata/` 被 `.gitignore` 忽略，需要本地放置）。
+_OFFICIAL_FILES = ("payload_train.csv", "payload_test.csv", "payload_test_lexical.csv")
+_CSIC_NORMAL = ("Machine-Learning-on-CSIC-2010-master",
+                "Machine-Learning-on-CSIC-2010-master", "normalTrafficTraining.txt")
+
+
+def official_corpora() -> dict:
+    """官方语料就位情况：训练任务的启动前提，也是控制台提示的数据源。
+
+    `traindata/` 整目录被 `.gitignore` 忽略（语料体积大、来源各异），所以
+    「没放语料」是**正常状态**：要么补文件，要么改用「仅数据集」模式。
+    """
+    tr = config.ROOT / "traindata"
+    files = {name: (tr / name).exists() for name in _OFFICIAL_FILES}
+    csic = tr.joinpath(*_CSIC_NORMAL)
+    missing = [f"traindata/{n}" for n, ok in files.items() if not ok]
+    return {
+        "traindata": str(tr),
+        "files": files,
+        "missing": missing,
+        "ok": not missing,
+        "csic": csic.exists(),
+        "csic_path": str(csic),
+        "hint": ("官方语料未就位：把 payload_train.csv / payload_test.csv / "
+                 "payload_test_lexical.csv 放到 traindata/（文件名见 REALDATA_EVALUATION.md），"
+                 "或改用「仅数据集」模式（不需要官方语料）"),
+    }
+
+
+def _preflight_official(kind: str, data_mode: str, up: dict) -> None:
+    """训练任务入队前检查官方语料；缺就 400，而不是让脚本跑到一半抛 traceback。"""
+    st = official_corpora()
+    need_csv = kind == "train_realdata" and data_mode != "only"
+    need_csic = kind == "iforest_csic" and data_mode != "only"
+
+    if need_csv and not st["ok"]:
+        raise HTTPException(
+            400, f"{st['hint']}；当前缺 {'、'.join(st['missing'])}")
+    if need_csv and st["csic"] is False:
+        calib = up.get("calib_mode") or "official"
+        if calib == "official":
+            need_csic = True
+        elif calib == "auto":
+            sel_id = up.get("calib_dataset_id")
+            sel = next((r for r in (up.get("datasets") or [])
+                        if int(r["id"]) == int(sel_id)), None) if sel_id is not None else None
+            # `_split_benign_holdout` 良性 < 400 时切不出留出 → 回退官方 CSIC
+            need_csic = bool(sel) and int(sel.get("benign") or 0) < 400
+    if need_csic and not st["csic"]:
+        raise HTTPException(
+            400, "缺 CSIC 良性池（traindata/Machine-Learning-on-CSIC-2010-master/.../"
+                 "normalTrafficTraining.txt）：官方校准 / 零日通道要用它。补齐语料，"
+                 "或把校准改成「数据集留出」并准备 ≥400 条良性样本。")
+
+    if kind == "train_realdata" and data_mode == "only":
+        # only 只吃上传数据，校准也必须来自上传：良性不足时脚本会拒绝，这里先拦。
+        calib = up.get("calib_mode") or "auto"
+        sel_id = up.get("calib_dataset_id")
+        sel = next((r for r in (up.get("datasets") or [])
+                    if int(r["id"]) == int(sel_id)), None) if sel_id is not None else None
+        benign = int((sel or {}).get("benign") or 0)
+        if calib != "official" and benign < 400:
+            raise HTTPException(
+                400, f"only 模式需要上传良性留出做阈值标定：当前校准数据集只有 {benign} 条良性"
+                     "（要求 ≥400，才能切出 ≥200 留出）。请补充良性样本，"
+                     "或改用「内置基线 + 数据集（增量）」模式。")
+
+
 def _task_plan(tid_hint: Optional[int], kind: str, inherit: Optional[str],
                parent_model_id: Optional[int], data_mode: Optional[str] = None,
                dataset_ids: Optional[List[int]] = None,
@@ -2730,6 +2837,7 @@ def _task_plan(tid_hint: Optional[int], kind: str, inherit: Optional[str],
     data_mode = data_mode or "official"
     calib_mode = calib_mode or "auto"
     up = _validate_upload_plan(kind, data_mode, dataset_ids, calib_mode, calib_dataset_id)
+    _preflight_official(kind, data_mode, up)
     if data_mode == "only":
         # only：官方训练集不参与，warm start 已无意义（分布也不一致）。
         mode = "lineage"
@@ -2952,6 +3060,22 @@ def list_tasks(limit: int = Query(50, ge=1, le=200), user: dict = Depends(auth.c
     )}
 
 
+@app.get("/api/tasks/preflight")
+def tasks_preflight(user: dict = Depends(auth.require_at_least("admin"))):
+    """训练任务的语料自检：控制台据此禁用「官方 / 增量」模式并说明原因。"""
+    st = official_corpora()
+    return {
+        **st,
+        "modes": {
+            "official": st["ok"],
+            "add": st["ok"],
+            "only": True,
+        },
+        "note": ("`traindata/` 不入库：缺少官方语料时只有「仅数据集」模式可用。"
+                 "仅数据集模式要求数据集 ≥2 类标签、≥500 行，且良性 ≥400 用于校准留出。"),
+    }
+
+
 @app.get("/api/tasks/{tid}")
 def get_task(tid: int, user: dict = Depends(auth.current_user)):
     t = db.one("SELECT * FROM tasks WHERE id=?", (tid,))
@@ -3015,10 +3139,11 @@ def proxy_config_update(body: dict, request: Request,
 
 
 @app.post("/api/proxy/start")
-def proxy_start(request: Request,
+def proxy_start(request: Request, body: Optional[dict] = None,
                 user: dict = Depends(auth.require_at_least("admin"))):
+    force = bool((body or {}).get("force"))
     try:
-        return proxy_manager.start(user["username"], _ip(request))
+        return proxy_manager.start(user["username"], _ip(request), force=force)
     except proxy_manager.ProxyError as e:
         raise _proxy_http_error(e)
 
@@ -3034,10 +3159,11 @@ def proxy_stop(request: Request, body: Optional[dict] = None,
 
 
 @app.post("/api/proxy/restart")
-def proxy_restart(request: Request,
+def proxy_restart(request: Request, body: Optional[dict] = None,
                   user: dict = Depends(auth.require_at_least("admin"))):
+    force = bool((body or {}).get("force"))
     try:
-        return proxy_manager.restart(user["username"], _ip(request))
+        return proxy_manager.restart(user["username"], _ip(request), force=force)
     except proxy_manager.ProxyError as e:
         raise _proxy_http_error(e)
 

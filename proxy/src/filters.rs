@@ -248,6 +248,69 @@ fn body_is_binary(bytes: &[u8], content_type: &str) -> bool {
     std::str::from_utf8(bytes).is_err() || bytes.contains(&0)
 }
 
+/// 白名单请求头 → `(cookie 原值, "name: value" 拼串)`。
+///
+/// 只挑**有注入面**的头：代理链（XFF / X-Real-IP / Forwarded）、鉴权
+/// （Authorization / X-Api-Key）、路径改写（X-Original-URL / X-Rewrite-URL）。
+/// UA / Referer 已有独立作用域，不在这里重复。
+fn header_texts(headers: &[(String, String)]) -> (String, String) {
+    const EXTRA: &[&str] = &[
+        "x-forwarded-for", "x-real-ip", "x-forwarded-host", "forwarded",
+        "x-api-key", "authorization", "x-original-url", "x-rewrite-url",
+    ];
+    let mut cookie = String::new();
+    let mut out = String::new();
+    for (name, value) in headers {
+        let low = name.to_ascii_lowercase();
+        if low == "cookie" {
+            if cookie.is_empty() {
+                cookie = value.clone();
+            }
+            continue;
+        }
+        if !EXTRA.contains(&low.as_str()) || value.is_empty() {
+            continue;
+        }
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        out.push_str(name);
+        out.push_str(": ");
+        out.push_str(value);
+    }
+    (cookie, out)
+}
+
+/// multipart/form-data 里能看见的文本：`filename="..."` / `name="..."`。
+///
+/// multipart 的 body 会被判成二进制（`decision_text` 返回空串），但文件名/字段名
+/// 恰恰是上传类注入最常藏 payload 的地方（`filename="1' OR 1=1--.txt"`）。
+fn upload_text(bytes: &[u8], content_type: &str) -> String {
+    if !content_type.trim().to_ascii_lowercase().starts_with("multipart/") || bytes.is_empty() {
+        return String::new();
+    }
+    let text = String::from_utf8_lossy(bytes);
+    let mut out = String::new();
+    for key in ["filename=\"", "name=\""] {
+        let mut rest: &str = &text;
+        while let Some(i) = rest.find(key) {
+            rest = &rest[i + key.len()..];
+            let end = rest.find('"').unwrap_or(rest.len());
+            let val = rest[..end].trim();
+            if !val.is_empty() {
+                out.push_str(key);
+                out.push_str(val);
+                out.push_str("\"; ");
+            }
+            if out.len() >= 4096 {
+                return out;
+            }
+            rest = &rest[end..];
+        }
+    }
+    out
+}
+
 fn content_type(headers: &http::HeaderMap) -> String {
     headers
         .get("content-type")
@@ -403,9 +466,15 @@ impl Collector {
         body: &str,
         ua: &str,
         referer: &str,
+        headers: &[(String, String)],
+        upload: &str,
     ) -> Decision {
         let t_decide = Instant::now();
         let t_rules = Instant::now();
+        // Cookie 单独一个作用域；其余白名单头拼成 `name: value` 文本。
+        // 目的：SQLi 藏在 Cookie / X-Forwarded-For / X-Real-IP 这类字段里时，
+        // 原来整个判定链根本看不到（规则/模型输入都没有这些字段）。
+        let (cookie, headers_text) = header_texts(headers);
         // ---- 规则通道（第三通道，独立于模型）----
         //
         // 顺序刻意放在 `pred` **之前**：融合是"监督命中 或 规则达阻断线 ⇒ block"，
@@ -432,6 +501,9 @@ impl Collector {
                         body: body.to_string(),
                         ua: ua.to_string(),
                         referer: referer.to_string(),
+                        cookie: cookie.clone(),
+                        headers: headers_text.clone(),
+                        upload: upload.to_string(),
                     })
                 };
                 if hits.is_empty() {
@@ -663,7 +735,8 @@ impl ProxyHttp for Collector {
             let binary_ct = !ctx.req_content_type.is_empty()
                 && !is_textual_content_type(&ctx.req_content_type);
             if !has_body || binary_ct {
-                let decision = self.decide(&method, &path, &query, "", &ctx.ua, &ctx.referer);
+                let decision = self.decide(&method, &path, &query, "", &ctx.ua, &ctx.referer,
+                                               &ctx.req_headers, "");
                 let block = decision.should_block();
                 ctx.decision = Some(decision);
                 ctx.decided = true;
@@ -762,7 +835,9 @@ impl ProxyHttp for Collector {
             )
         };
         let text = self.decision_text(&ctx.enforce_body, &ctx.req_content_type);
-        let decision = self.decide(&method, &path, &query, &text, &ctx.ua, &ctx.referer);
+        let decision = self.decide(&method, &path, &query, &text, &ctx.ua, &ctx.referer,
+                                   &ctx.req_headers,
+                                   &upload_text(&ctx.enforce_body, &ctx.req_content_type));
         let block = decision.should_block();
         ctx.decision = Some(decision);
         ctx.decided = true;
@@ -930,7 +1005,9 @@ impl ProxyHttp for Collector {
         let decision = match ctx.decision.take() {
             Some(d) => d,
             None if self.cfg.block_mode.score_enabled() => {
-                self.decide(&method, &path, &query, &body, &ctx.ua, &ctx.referer)
+                self.decide(&method, &path, &query, &body, &ctx.ua, &ctx.referer,
+                           &ctx.req_headers,
+                           &upload_text(&ctx.body, &ctx.req_content_type))
             }
             // off = 纯采集：不跑模型、不跑规则、不留 pred。规则通道在 `main.rs` 也不会加载。
             None => Decision {

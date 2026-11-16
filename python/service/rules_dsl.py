@@ -33,7 +33,8 @@ DEFAULT_DECODE: List[str] = ["urlencoded", "unicode"]
 #   * `full` = 与 `p7_rule_mining.py` / `features.py` 同源的整串：`METHOD path?query body`
 #     （`?` 是字面量、恒在）。**p7 锚点（7 keep / 6 reject_fp）只在 `full` 下可复现。**
 #   * 其余为单字段，便于把规则收窄到某一处（降低误报面）。
-SCOPES = ("full", "path", "query", "body", "ua", "referer")
+SCOPES = ("full", "path", "query", "body", "ua", "referer",
+          "cookie", "headers", "upload")
 ACTIONS = ("alert", "block")
 SEVERITIES = ("low", "medium", "high", "critical")
 #: `detector` = 攻击检测型（合格要有攻击证据）；

@@ -29,6 +29,12 @@ pub enum Scope {
     Body,
     Ua,
     Referer,
+    /// Cookie 头（`id=1 AND 1=1` 这类注入在 Cookie 里很常见，原来完全没看）。
+    Cookie,
+    /// 白名单请求头（X-Forwarded-For / X-Real-IP / Authorization / X-Api-Key…）。
+    Headers,
+    /// multipart/form-data 里的 `name="..."` / `filename="..."`（body 当二进制时唯一可见的文本）。
+    Upload,
 }
 
 impl Scope {
@@ -40,6 +46,9 @@ impl Scope {
             "body" | "payload" => Some(Self::Body),
             "ua" | "user-agent" | "user_agent" => Some(Self::Ua),
             "referer" | "referrer" => Some(Self::Referer),
+            "cookie" | "cookies" => Some(Self::Cookie),
+            "headers" | "header" => Some(Self::Headers),
+            "upload" | "multipart" | "files" => Some(Self::Upload),
             _ => None,
         }
     }
@@ -52,6 +61,9 @@ impl Scope {
             Self::Body => "body",
             Self::Ua => "ua",
             Self::Referer => "referer",
+            Self::Cookie => "cookie",
+            Self::Headers => "headers",
+            Self::Upload => "upload",
         }
     }
 
@@ -63,6 +75,9 @@ impl Scope {
             Self::Body => 3,
             Self::Ua => 4,
             Self::Referer => 5,
+            Self::Cookie => 6,
+            Self::Headers => 7,
+            Self::Upload => 8,
         }
     }
 }
@@ -76,6 +91,12 @@ pub struct RuleInput {
     pub body: String,
     pub ua: String,
     pub referer: String,
+    /// Cookie 头原值（`name=value; name2=value2`）。
+    pub cookie: String,
+    /// 白名单请求头拼成的文本（每行 `name: value`）。
+    pub headers: String,
+    /// multipart 的 `name=` / `filename=` 文本（body 是二进制时仍可检查）。
+    pub upload: String,
 }
 
 impl RuleInput {
@@ -99,6 +120,10 @@ impl RuleInput {
             let direct = Self::s(v, "referer");
             if direct.is_empty() { hdr("referer") } else { direct }
         };
+        let cookie = {
+            let direct = Self::s(v, "cookie");
+            if direct.is_empty() { hdr("cookie") } else { direct }
+        };
         Self {
             method: {
                 let m = Self::s(v, "method");
@@ -109,6 +134,9 @@ impl RuleInput {
             body: Self::s(v, "body"),
             ua,
             referer,
+            cookie,
+            headers: Self::s(v, "headers_text"),
+            upload: Self::s(v, "upload"),
         }
     }
 }
@@ -244,6 +272,9 @@ fn view_for(scope: Scope, req: &RuleInput, stages: &[DecodeStage]) -> TextView {
         Scope::Body => one_field("body", &req.body, stages),
         Scope::Ua => one_field("ua", &req.ua, stages),
         Scope::Referer => one_field("referer", &req.referer, stages),
+        Scope::Cookie => one_field("cookie", &req.cookie, stages),
+        Scope::Headers => one_field("headers", &req.headers, stages),
+        Scope::Upload => one_field("upload", &req.upload, stages),
     }
 }
 
@@ -421,7 +452,9 @@ impl RuleEngine {
 
     /// 评估一条请求。每个 (规则, 作用域) 最多产出一个命中。
     pub fn evaluate(&self, req: &RuleInput) -> Vec<RuleHit> {
-        let mut cache: [Option<TextView>; 6] = [None, None, None, None, None, None];
+        // 按 `Scope::idx()` 索引：全量 9 个作用域（full/path/query/body/ua/referer/
+        // cookie/headers/upload）。加新 scope 时必须同步这里和 `Scope::idx()`。
+        let mut cache: [Option<TextView>; 9] = Default::default();
         let mut out: Vec<RuleHit> = Vec::new();
         for r in &self.rules {
             for sc in &r.scopes {
@@ -606,5 +639,39 @@ mod tests {
         let hits = e.evaluate(&req);
         assert_eq!(hits.len(), 1);
         assert!(!e.blocks(&hits), "权重 1.0 < 2.0 不应达到阻断线");
+    }
+
+    /// 新增的三个作用域（cookie / headers / upload）必须真的被匹配到，
+    /// 且 `field` 归因正确 —— 这是「Cookie/自定义头/multipart 文件名盲区」的回归用例。
+    #[test]
+    fn cookie_headers_upload_scopes_match() {
+        let s = spec(r#"{"schema":1,"decode":["urlencoded"],"min_weight_to_block":1.0,"rules":[
+            {"id":"ck","regex":"(?i)\\band\\b\\s*1\\s*=\\s*1","scopes":["cookie"],"weight":1.0,"action":"block"},
+            {"id":"hd","regex":"(?i)\\bor\\b\\s*1\\s*=\\s*1","scopes":["headers"],"weight":1.0,"action":"block"},
+            {"id":"up","regex":"(?i)union\\s+select","scopes":["upload"],"weight":1.0,"action":"block"}]}"#);
+        let e = RuleEngine::compile(&s, "x".into()).unwrap();
+        let ck = e.evaluate(&RuleInput {
+            cookie: "id=1 AND 1=1".into(), ..Default::default() });
+        assert_eq!(ck.len(), 1);
+        assert_eq!(ck[0].field, "cookie");
+        assert_eq!(ck[0].scope, "cookie");
+        assert!(e.blocks(&ck));
+
+        let hd = e.evaluate(&RuleInput {
+            headers: "X-Forwarded-For: 1' OR 1=1--".into(), ..Default::default() });
+        assert_eq!(hd.len(), 1);
+        assert_eq!(hd[0].field, "headers");
+
+        let up = e.evaluate(&RuleInput {
+            upload: "filename=\"x union select 1\"; ".into(), ..Default::default() });
+        assert_eq!(up.len(), 1);
+        assert_eq!(up[0].field, "upload");
+
+        // 良性 Cookie/头不能命中（避免新作用域带来的误报）
+        let ok = e.evaluate(&RuleInput {
+            cookie: "PHPSESSID=9f2c1a7b; security=low".into(),
+            headers: "X-Forwarded-For: 192.168.66.172".into(),
+            ..Default::default() });
+        assert!(ok.is_empty(), "{ok:?}");
     }
 }

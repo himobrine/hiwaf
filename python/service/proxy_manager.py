@@ -464,6 +464,57 @@ def port_listening(addr: str) -> bool:
         return False
 
 
+#: 上游可达性缓存：`{upstream: (checked_at, reachable, error)}`。
+#: `status()` 被控制台每 5s 轮询一次，缓存避免每次都付 0.4s 探测延迟。
+_UPSTREAM_CACHE: Dict[str, tuple[float, bool, str]] = {}
+_UPSTREAM_TTL_SEC = 5.0
+_UPSTREAM_TIMEOUT_SEC = 0.35
+
+
+def check_upstream(addr: str, *, ttl: float = _UPSTREAM_TTL_SEC) -> dict:
+    """探测上游是否可连（TCP connect）。
+
+    为什么要有这个：上游填错/后端没起时，采集器**照样能启动**，然后对所有
+    请求返回 502 —— 现象是「事件页只有一堆 status=0」，很难第一时间定位。
+    这里把「上游可达性」变成可查询、可拦截的事实。
+    """
+    key = str(addr or "")
+    now = time.time()
+    hit = _UPSTREAM_CACHE.get(key)
+    if hit and now - hit[0] < ttl:
+        return {"upstream": key, "reachable": hit[1], "error": hit[2],
+                "checked_age_sec": round(now - hit[0], 1)}
+    try:
+        host, port = _split_addr(key)
+    except ValueError as e:
+        res = (now, False, f"地址非法：{e}")
+    else:
+        try:
+            with socket.create_connection(
+                    (_connect_host(host), port), timeout=_UPSTREAM_TIMEOUT_SEC):
+                res = (now, True, "")
+        except OSError as e:
+            res = (now, False, f"{type(e).__name__}: {e}")
+    _UPSTREAM_CACHE[key] = res
+    return {"upstream": key, "reachable": res[1], "error": res[2], "checked_age_sec": 0.0}
+
+
+def check_routes(routes: list[dict], *, ttl: float = _UPSTREAM_TTL_SEC) -> list[dict]:
+    """逐条路由探测上游，返回 `[{name, listen, upstream, reachable, error}]`。"""
+    out = []
+    for r in routes or []:
+        up = check_upstream(r.get("upstream", ""), ttl=ttl)
+        out.append({
+            "name": r.get("name"),
+            "listen": r.get("listen"),
+            "upstream": r.get("upstream"),
+            "upstream_tls": bool(r.get("upstream_tls")),
+            "reachable": up["reachable"],
+            "error": up["error"],
+        })
+    return out
+
+
 def _log_dir() -> Path:
     return Path(config.LOG_DIR)
 
@@ -586,6 +637,25 @@ def _effective(m: Optional[dict]) -> Optional[dict]:
     }
 
 
+def _routes_equal(a, b) -> bool:
+    """比较路由表，只比两边都有的字段。
+
+    指标文件里的 routes 没有 `budget_ms`，保存的配置里有 —— 朴素的 `!=` 会把
+    「同一个路由」误判成配置漂移，页面一直提示「routes 需重启」。
+    """
+    if not isinstance(a, list) or not isinstance(b, list) or len(a) != len(b):
+        return False
+    for x, y in zip(a, b):
+        if not isinstance(x, dict) or not isinstance(y, dict):
+            if x != y:
+                return False
+            continue
+        for k in ("name", "listen", "upstream", "upstream_tls", "budget_ms"):
+            if k in x and k in y and x.get(k) != y.get(k):
+                return False
+    return True
+
+
 def _restart_keys(saved: dict, info: Optional[dict], effective: Optional[dict]) -> list[str]:
     """保存的配置与「实际在跑」的差异。
 
@@ -596,16 +666,26 @@ def _restart_keys(saved: dict, info: Optional[dict], effective: Optional[dict]) 
     if info and isinstance(info.get("config"), dict):
         old = info["config"]
         for k, v in saved.items():
+            if k == "routes":
+                if not _routes_equal(v, old.get("routes")):
+                    keys.add(k)
+                continue
             if k in old and old[k] != v:
                 keys.add(k)
     if effective:
         for k in ("listen", "upstream", "routes", "score", "block_mode",
                   "artifacts", "resp_body", "workers", "engine_pool", "shap_mode"):
+            if k not in effective or effective[k] is None:
+                continue
             # workers/engine_pool 的 0 表示"自动"，指标里是解析后的实际值，
             # 直接比会把"自动"误判成"配置漂移"。
             if k in ("workers", "engine_pool") and not saved.get(k):
                 continue
-            if k in effective and effective[k] is not None and effective[k] != saved.get(k):
+            if k == "routes":
+                if not _routes_equal(saved.get("routes") or [], effective.get("routes") or []):
+                    keys.add(k)
+                continue
+            if effective[k] != saved.get(k):
                 keys.add(k)
     return sorted(keys)
 
@@ -649,12 +729,16 @@ def status() -> dict:
     routes = cfg.get("routes") or []
     route_views = []
     for r in routes:
+        up = check_upstream(r.get("upstream", ""))
         route_views.append({
             "name": r.get("name"),
             "listen": r.get("listen"),
             "upstream": r.get("upstream"),
             "upstream_tls": bool(r.get("upstream_tls")),
             "listening": port_listening(r.get("listen", "")),
+            # 上游可达性：填错端口时采集器能启动但全部 502，必须让控制台看得见。
+            "upstream_reachable": up["reachable"],
+            "upstream_error": up["error"],
         })
     listening = bool(route_views) and all(r["listening"] for r in route_views)
     try:
@@ -684,6 +768,14 @@ def status() -> dict:
                 "事件不会入库；上游是明文 HTTP 时请关闭 upstream_tls")
     if alive and not m:
         warnings.append("进程在运行，但读不到指标文件（--stats-out）；检查 WAF_COLLECTOR_METRICS")
+    for r in route_views:
+        if r.get("upstream_reachable"):
+            continue
+        warnings.append(
+            f"路由 {r['name']} 的上游 {r['upstream']} 不可达（{r['upstream_error'] or '连接失败'}）"
+            + ("：所有经过该路由的请求都会 502" if alive else "")
+            + "。先确认上游服务已启动，且「监听/上游」没有填反"
+              "（监听 = 客户端访问 WAF 的入口，上游 = 真实站点地址）。")
     if alive and m and m.get("stale"):
         warnings.append("采集器指标已过期（>180s）；进程可能卡住或已退出")
     if info and not alive:
@@ -735,7 +827,7 @@ def config_view() -> dict:
 
 
 # --------------------------------------------------------------------------- 启停
-def start(actor: str, ip: Optional[str] = None) -> dict:
+def start(actor: str, ip: Optional[str] = None, force: bool = False) -> dict:
     global _PROC
     with _LOCK:
         cfg = get_config()
@@ -749,6 +841,16 @@ def start(actor: str, ip: Optional[str] = None) -> dict:
         if not binary.is_file():
             raise ProxyError(
                 f"找不到采集器：{binary}；先执行 cd proxy && build.bat build --release", 409)
+        # 上游不可达就拒绝启动：否则采集器"看起来在跑"，实际把所有请求都变成 502。
+        # ttl=0 强制重新探测（用户可能刚改完上游立刻点启动，不能吃旧缓存）。
+        bad = [u for u in check_routes(cfg["routes"], ttl=0) if not u["reachable"]]
+        if bad and not force:
+            detail = "；".join(f"{u['upstream']}（{u['error'] or '连接失败'}）" for u in bad)
+            raise ProxyError(
+                f"上游不可达：{detail}。采集器启动后所有请求都会返回 502。"
+                "请先启动上游服务，并确认「监听/上游」没有填反"
+                "（监听 = 客户端访问 WAF 的入口端口，上游 = 真实站点地址）。"
+                "确实要带着不可达的上游启动，请用强制启动（force）。", 409)
         Path(config.RAW_DIR).mkdir(parents=True, exist_ok=True)
         Path(config.COLLECTOR_METRICS).parent.mkdir(parents=True, exist_ok=True)
         log_path = _new_log_path()
@@ -790,7 +892,8 @@ def start(actor: str, ip: Optional[str] = None) -> dict:
             time.sleep(0.1)
 
         _audit(actor, "proxy_start", str(proc.pid),
-               {"routes": cfg["routes"], "block_mode": cfg["block_mode"]}, ip)
+               {"routes": cfg["routes"], "block_mode": cfg["block_mode"],
+                "forced": bool(force)}, ip)
         return status()
 
 
@@ -824,13 +927,13 @@ def stop(actor: str, force: bool = False, ip: Optional[str] = None) -> dict:
         return status()
 
 
-def restart(actor: str, ip: Optional[str] = None) -> dict:
+def restart(actor: str, ip: Optional[str] = None, force: bool = False) -> dict:
     with _LOCK:
         info = _read_pid()
         if info and _pid_alive(info["pid"]):
             stop(actor, force=False, ip=ip)
-        _audit(actor, "proxy_restart", None, None, ip)
-        return start(actor, ip=ip)
+        _audit(actor, "proxy_restart", None, {"forced": bool(force)}, ip)
+        return start(actor, ip=ip, force=force)
 
 
 # --------------------------------------------------------------------------- 有限自动扩容

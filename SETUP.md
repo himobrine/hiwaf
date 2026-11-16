@@ -529,8 +529,9 @@ py -3.10 -m unittest service.test_proxy_live -v
 
 | 现象 | 排查 |
 |---|---|
-| 启动返回 409 | 端口已被占用 / 已有实例 / 二进制缺失；换 `listen` 或先停止 |
-| 502 / 连接失败 | `upstream` 写错或后端没起；采集器不负责拉起后端 |
+| 启动返回 409 | 端口已被占用 / 已有实例 / 二进制缺失 / **上游不可达**（控制台会做 TCP 预检，提示具体地址与错误）；换 `listen`、先停止，或改对 `upstream` |
+| 502 / 连接失败 | `upstream` 写错或后端没起（采集器不负责拉起后端）。控制台状态页会显示「上游不可达」红标，`/api/health/degradation` 的 `warnings` 也会报；启动前预检不过就拒绝启动，强起需 `force`（之后所有请求都会 502） |
+| 监听 / 上游填反 | 监听 = 客户端访问 WAF 的入口端口；上游 = 真实站点地址。填反的典型现象：采集器在跑、`written` 在涨，但所有请求都 502 |
 | 有请求但事件页没有 | 看 `/api/proxy/status` 的 `metrics.written`；确认 `out_dir` 是 `traindata/proxy`，ingest 在跑 |
 | 命中条件但不拦 | 确认 `block_mode=enforce`，且采集器已重启（状态页会提示 `restart_keys`） |
 | 监听 80/443 失败 | Windows 需要管理员权限；换高位端口或提升权限 |

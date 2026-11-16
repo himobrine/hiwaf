@@ -136,6 +136,12 @@ struct RuleCaseReq {
     ua: String,
     #[serde(default)]
     referer: String,
+    #[serde(default)]
+    cookie: String,
+    #[serde(default)]
+    headers: String,
+    #[serde(default)]
+    upload: String,
 }
 
 impl RuleCaseReq {
@@ -147,6 +153,9 @@ impl RuleCaseReq {
             body: self.body.clone(),
             ua: self.ua.clone(),
             referer: self.referer.clone(),
+            cookie: self.cookie.clone(),
+            headers: self.headers.clone(),
+            upload: self.upload.clone(),
         }
     }
 }

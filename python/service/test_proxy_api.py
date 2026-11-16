@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import socket
 import tempfile
 import time
 import unittest
@@ -44,9 +45,11 @@ class ProxyManagerTest(unittest.TestCase):
         db.init()
         self.raw.mkdir(parents=True, exist_ok=True)
         pm._PROC = None
+        pm._UPSTREAM_CACHE.clear()
 
     def tearDown(self):
         pm._PROC = None
+        pm._UPSTREAM_CACHE.clear()
         for p in reversed(self.patches):
             p.stop()
         self.tmp.cleanup()
@@ -311,6 +314,8 @@ class ProxyManagerTest(unittest.TestCase):
     def test_start_writes_pid_and_audit(self):
         with mock.patch.object(pm, "resolve_binary", return_value=self.bin), \
                 mock.patch.object(pm, "_spawn", return_value=FakeProc()), \
+                mock.patch.object(pm, "check_routes", return_value=[{
+                    "name": "default", "upstream": "127.0.0.1:8080", "reachable": True, "error": ""}]), \
                 mock.patch.object(pm, "port_listening",
                                   side_effect=[False, True, True]), \
                 mock.patch.object(pm, "_pid_alive", return_value=True), \
@@ -319,6 +324,79 @@ class ProxyManagerTest(unittest.TestCase):
         self.assertTrue(st["running"])
         self.assertEqual(st["pid"], 4242)
         self.assertTrue(pm._pid_path().exists())
+        self.assertIn("proxy_start", self._audit_actions())
+
+    def test_check_upstream_true_for_listening_port(self):
+        srv = socket.socket()
+        srv.bind(("127.0.0.1", 0))
+        srv.listen(1)
+        try:
+            addr = f"127.0.0.1:{srv.getsockname()[1]}"
+            pm._UPSTREAM_CACHE.clear()
+            r = pm.check_upstream(addr, ttl=0)
+        finally:
+            srv.close()
+        self.assertTrue(r["reachable"])
+        self.assertEqual(r["error"], "")
+
+    def test_check_upstream_false_for_dead_port(self):
+        s = socket.socket()
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+        s.close()
+        pm._UPSTREAM_CACHE.clear()
+        r = pm.check_upstream(f"127.0.0.1:{port}", ttl=0)
+        self.assertFalse(r["reachable"])
+        self.assertTrue(r["error"])
+
+    def test_check_upstream_caches_result(self):
+        s = socket.socket()
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+        s.close()
+        pm._UPSTREAM_CACHE.clear()
+        first = pm.check_upstream(f"127.0.0.1:{port}")
+        second = pm.check_upstream(f"127.0.0.1:{port}")
+        self.assertFalse(first["reachable"])
+        self.assertGreaterEqual(second["checked_age_sec"], 0.0)
+        # 缓存命中时不再重新探测（checked_age_sec 由缓存给出）
+        self.assertIn(f"127.0.0.1:{port}", pm._UPSTREAM_CACHE)
+
+    def test_status_reports_upstream_unreachable(self):
+        with mock.patch.object(pm, "check_upstream", return_value={
+                "upstream": "127.0.0.1:1", "reachable": False,
+                "error": "ConnectionRefusedError: refused", "checked_age_sec": 0.0}), \
+                mock.patch.object(pm, "resolve_binary", return_value=self.bin), \
+                mock.patch.object(pm, "port_listening", return_value=False):
+            st = pm.status()
+        self.assertFalse(st["routes"][0]["upstream_reachable"])
+        self.assertTrue(any("不可达" in w for w in st["warnings"]))
+
+    def test_start_refuses_when_upstream_unreachable(self):
+        with mock.patch.object(pm, "check_routes", return_value=[{
+                "name": "default", "upstream": "127.0.0.1:6188",
+                "reachable": False, "error": "ConnectionRefusedError: refused"}]), \
+                mock.patch.object(pm, "resolve_binary", return_value=self.bin), \
+                mock.patch.object(pm, "port_listening", return_value=False), \
+                mock.patch.object(pm, "_spawn") as spawn:
+            with self.assertRaises(pm.ProxyError) as ctx:
+                pm.start("admin")
+        self.assertEqual(ctx.exception.status, 409)
+        self.assertIn("上游不可达", str(ctx.exception))
+        spawn.assert_not_called()
+
+    def test_start_force_allows_unreachable_upstream(self):
+        with mock.patch.object(pm, "check_routes", return_value=[{
+                "name": "default", "upstream": "127.0.0.1:6188",
+                "reachable": False, "error": "refused"}]), \
+                mock.patch.object(pm, "resolve_binary", return_value=self.bin), \
+                mock.patch.object(pm, "_spawn", return_value=FakeProc()), \
+                mock.patch.object(pm, "port_listening",
+                                  side_effect=[False, True, True]), \
+                mock.patch.object(pm, "_pid_alive", return_value=True), \
+                mock.patch.object(pm, "_identity_ok", return_value=True):
+            st = pm.start("admin", force=True)
+        self.assertTrue(st["running"])
         self.assertIn("proxy_start", self._audit_actions())
 
     def test_stop_managed_removes_pid(self):
@@ -370,6 +448,30 @@ class ProxyManagerTest(unittest.TestCase):
             st = pm.status()
         self.assertTrue(st["restart_required"])
         self.assertIn("block_mode", st["restart_keys"])
+
+    def test_routes_missing_budget_is_not_drift(self):
+        """指标里的 routes 没有 budget_ms，不能被误判成「配置漂移」。"""
+        old = pm.get_config()
+        self._pid_file(cfg=old)
+        saved = dict(old)
+        saved["routes"] = [{**r, "budget_ms": 1.0} for r in old["routes"]]
+        eff = {"pid": 4242, "listen": old["listen"], "upstream": old["upstream"],
+               "routes": [{k: v for k, v in r.items() if k != "budget_ms"}
+                          for r in old["routes"]],
+               "score": old["score"], "block_mode": old["block_mode"],
+               "artifacts": old["artifacts"], "resp_body": old["resp_body"],
+               "workers": 16, "engine_pool": 8, "shap_mode": old["shap_mode"]}
+        self.assertNotIn("routes", pm._restart_keys(saved, pm._read_pid(), eff))
+
+    def test_routes_upstream_change_is_drift(self):
+        old = pm.get_config()
+        self._pid_file(cfg=old)
+        saved = dict(old)
+        saved["routes"] = [{**r, "upstream": "127.0.0.1:8080", "budget_ms": 1.0}
+                           for r in old["routes"]]
+        eff = {"routes": [{**r, "upstream": "127.0.0.1:6188"}
+                          for r in old["routes"]]}
+        self.assertIn("routes", pm._restart_keys(saved, pm._read_pid(), eff))
 
     def test_tail_log(self):
         self.logs.mkdir(parents=True, exist_ok=True)
