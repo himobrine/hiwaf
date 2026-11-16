@@ -88,6 +88,40 @@ class UploadStoreTest(unittest.TestCase):
         self.assertEqual(out["status"], "pruned")
         self.assertFalse(Path(ready["dir"]).exists())
 
+    def test_update_meta_name_and_note(self):
+        csv = b"method,path,label\nGET,/a,0\n"
+        row = uploads.create_from_stream(io.BytesIO(csv), "x.csv", role="benign",
+                                         source_note="旧说明", actor="tester")
+        ready = self._wait_ready(row["id"])
+        out = uploads.update_upload(ready["id"], name="  新名字  ",
+                                    source_note=" 新说明 ", actor="tester")
+        self.assertEqual(out["name"], "新名字")
+        self.assertEqual(out["source_note"], "新说明")
+        # 角色 / 标签不受影响（文件里已固化）
+        self.assertEqual(out["role"], "benign")
+        # 只改说明时名称保持不变
+        out2 = uploads.update_upload(ready["id"], source_note="只改说明", actor="tester")
+        self.assertEqual(out2["name"], "新名字")
+        self.assertEqual(out2["source_note"], "只改说明")
+        # 空名称 / 超长名称拒绝
+        with self.assertRaises(ValueError):
+            uploads.update_upload(ready["id"], name="   ", actor="tester")
+        with self.assertRaises(ValueError):
+            uploads.update_upload(ready["id"], name="x" * 121, actor="tester")
+        # 已删除的不能编辑
+        uploads.delete_upload(ready["id"], "tester")
+        with self.assertRaises(ValueError):
+            uploads.update_upload(ready["id"], name="改不动", actor="tester")
+
+    def test_update_roots_audit(self):
+        csv = b"method,path,label\nGET,/a,0\n"
+        row = uploads.create_from_stream(io.BytesIO(csv), "x.csv", role="benign",
+                                         source_note="n", actor="tester")
+        ready = self._wait_ready(row["id"])
+        uploads.update_upload(ready["id"], name="改名", actor="tester")
+        acts = [r["action"] for r in db.rows("SELECT action FROM audit ORDER BY id")]
+        self.assertIn("upload_update", acts)
+
     def test_cleanup_stale(self):
         db.execute(
             "INSERT INTO uploaded_datasets(name, role, format, status, created_at, updated_at)"

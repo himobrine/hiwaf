@@ -360,6 +360,51 @@ def _referenced_by_running_task(uid: int) -> Optional[int]:
     return None
 
 
+def update_upload(uid: int, *, name: Optional[str] = None,
+                  source_note: Optional[str] = None, actor: str = "system") -> dict:
+    """修改数据集的可编辑元数据（名称 / 来源说明）。
+
+    **角色（role）与标签（default_label）不可改**：它们在转换时已经固化进
+    `requests*.jsonl`（逐行 label）与 `stats.label_stats`。只改数据库行会造成
+    「界面说换了、文件里还是旧值」的静默不一致 —— 这种情况要重新生成数据集。
+    """
+    row = db.one("SELECT * FROM uploaded_datasets WHERE id=?", (uid,))
+    if not row:
+        raise ValueError("数据集不存在")
+    if row["status"] == "pruned":
+        raise ValueError("数据集已删除，不能编辑")
+
+    sets: List[str] = []
+    params: List[Any] = []
+    changed: Dict[str, Any] = {}
+    if name is not None:
+        nm = str(name).strip()
+        if not nm:
+            raise ValueError("名称不能为空")
+        if len(nm) > 120:
+            raise ValueError("名称过长（> 120 字符）")
+        sets.append("name=?")
+        params.append(nm)
+        changed["name"] = nm
+    if source_note is not None:
+        note = str(source_note).strip()
+        if len(note) > 2000:
+            raise ValueError("来源说明过长（> 2000 字符）")
+        sets.append("source_note=?")
+        params.append(note)
+        changed["source_note"] = note
+    if not sets:
+        return _row(uid) or {}
+
+    sets.append("updated_at=?")
+    params.append(_now())
+    params.append(uid)
+    db.execute(f"UPDATE uploaded_datasets SET {', '.join(sets)} WHERE id=?", params)
+    _audit(actor, "upload_update", f"upload:{uid}",
+           {"changed": changed, "prev_name": row["name"]})
+    return _row(uid) or {}
+
+
 def delete_upload(uid: int, actor: str) -> dict:
     row = db.one("SELECT * FROM uploaded_datasets WHERE id=?", (uid,))
     if not row:
