@@ -8,7 +8,7 @@ import {
   Input,
   InputNumber,
   Modal,
-  Radio,
+  Popover,
   Select,
   Space,
   Switch,
@@ -18,10 +18,16 @@ import {
   Typography,
   message,
 } from 'antd'
-import { DatabaseOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons'
+import { DatabaseOutlined, FilterOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons'
 import { api, fmtNum, fmtTs } from '../api'
 import type { EventRow, User } from '../types'
 import EventDetailDrawer, { ActionTag } from '../components/EventDetailDrawer'
+import SelectionBuilder, {
+  compactFilters,
+  type EventFilters,
+  type RuleFacet,
+  type SelectionValue,
+} from '../components/SelectionBuilder'
 
 const { Title, Text } = Typography
 
@@ -88,6 +94,11 @@ export default function Events({ user }: { user: User }) {
 
   const [action, setAction] = useState<string | undefined>(undefined)
   const [onlyTesting, setOnlyTesting] = useState(false)
+  /** 高级筛选（方法/状态码/攻击类型/人工结论/命中规则/分数/时间…），与文本筛选同属 AND。 */
+  const [advanced, setAdvanced] = useState<EventFilters>({})
+  const [advOpen, setAdvOpen] = useState(false)
+  const [advDraft, setAdvDraft] = useState<EventFilters>({})
+  const [ruleOptions, setRuleOptions] = useState<RuleFacet[]>([])
   /** 输入框里的草稿：改了不发请求，400ms 后整体提交。 */
   const [draft, setDraft] = useState<Filters>({
     srcIp: '',
@@ -110,20 +121,21 @@ export default function Events({ user }: { user: User }) {
 
   const [detailId, setDetailId] = useState<number | null>(null)
 
-  // 从事件建训练数据集：勾选（跨页保留）或按当前筛选全量。
+  // 从事件建训练数据集：勾选（跨页保留）或按条件筛选。
   const [selected, setSelected] = useState<number[]>([])
   const [trainOpen, setTrainOpen] = useState(false)
-  const [scope, setScope] = useState<'ids' | 'filter'>('ids')
+  const [sel, setSel] = useState<SelectionValue>({ mode: 'ids', filters: {} })
   const [preview, setPreview] = useState<any>(null)
   const [previewing, setPreviewing] = useState(false)
   const [creating, setCreating] = useState(false)
+  const [selecting, setSelecting] = useState(false)
   const [roleSel, setRoleSel] = useState('supervised')
   const [trainForm] = Form.useForm()
   const canCurate = user.role !== 'viewer'
 
-  /** 当前生效的筛选（列表显示的就是它；勾选建数据集也以它为准）。 */
-  const buildFilters = useCallback(() => {
-    const f: any = {}
+  /** 当前生效的筛选（列表显示的就是它；建数据集也以它为准）。 */
+  const buildFilters = useCallback((): EventFilters => {
+    const f: EventFilters = { ...advanced }
     if (action) f.action = action
     if (applied.srcIp) f.src_ip = applied.srcIp
     if (applied.path) f.path = applied.path
@@ -132,13 +144,19 @@ export default function Events({ user }: { user: User }) {
       f.min_score = applied.minScore
     }
     if (onlyTesting) f.rule_testing = true
-    return f
-  }, [action, applied, onlyTesting])
+    return compactFilters(f)
+  }, [action, applied, onlyTesting, advanced])
+
+  const nAdvanced = Object.keys(advanced).length
 
   const openTrain = () => {
-    const hasFilters = Object.keys(buildFilters()).length > 0
-    const next = selected.length ? 'ids' : hasFilters ? 'filter' : 'ids'
-    setScope(next)
+    const f = buildFilters()
+    setSel({
+      mode: selected.length ? 'ids' : 'filter',
+      event_ids: selected,
+      filters: f,
+      max_rows: undefined,
+    })
     setPreview(null)
     setRoleSel('supervised')
     trainForm.setFieldsValue({
@@ -146,30 +164,28 @@ export default function Events({ user }: { user: User }) {
       label: 1,
       name: `事件数据集 ${new Date().toLocaleString()}`,
       source_note: '',
-      max_rows: undefined,
     })
     setTrainOpen(true)
   }
 
   const doPreview = useCallback(
-    async (nextScope = scope) => {
-      const body: any = { mode: nextScope }
-      if (nextScope === 'ids') {
+    async (next: SelectionValue = sel) => {
+      const body: any = { mode: next.mode }
+      if (next.mode === 'ids') {
         if (!selected.length) {
-          message.warning('先勾选事件，或改用「按当前筛选」')
+          message.warning('先勾选事件，或改用「按条件筛选」')
           return
         }
         body.event_ids = selected
       } else {
-        const f = buildFilters()
+        const f = compactFilters(next.filters)
         if (!Object.keys(f).length) {
-          message.warning('当前没有任何筛选条件，请先设置筛选')
+          message.warning('至少填一个筛选条件')
           return
         }
         body.filters = f
       }
-      const maxRows = trainForm.getFieldValue('max_rows')
-      if (maxRows) body.max_rows = Number(maxRows)
+      if (next.max_rows) body.max_rows = next.max_rows
       setPreviewing(true)
       setPreview(null)
       try {
@@ -180,7 +196,7 @@ export default function Events({ user }: { user: User }) {
         setPreviewing(false)
       }
     },
-    [scope, selected, buildFilters, trainForm],
+    [sel, selected],
   )
 
   const submitTrain = async () => {
@@ -195,11 +211,23 @@ export default function Events({ user }: { user: User }) {
       role: v.role,
       label: Number(v.label),
       source_note: v.source_note || '',
-      mode: scope,
+      mode: sel.mode,
     }
-    if (scope === 'ids') body.event_ids = selected
-    else body.filters = buildFilters()
-    if (v.max_rows) body.max_rows = Number(v.max_rows)
+    if (sel.mode === 'ids') {
+      if (!selected.length) {
+        message.warning('还没有勾选事件')
+        return
+      }
+      body.event_ids = selected
+    } else {
+      const f = compactFilters(sel.filters)
+      if (!Object.keys(f).length) {
+        message.warning('至少填一个筛选条件')
+        return
+      }
+      body.filters = f
+    }
+    if (sel.max_rows) body.max_rows = sel.max_rows
     setCreating(true)
     try {
       const r = await api<any>('/api/uploads/from-events', { method: 'POST', body })
@@ -211,6 +239,34 @@ export default function Events({ user }: { user: User }) {
       message.error(e?.message || '创建失败')
     } finally {
       setCreating(false)
+    }
+  }
+
+  /** 按当前筛选把匹配的事件全部选中（后端上限 5000；表头全选只覆盖当前页）。 */
+  const selectAllMatching = async () => {
+    const f = buildFilters()
+    if (!Object.keys(f).length) {
+      message.warning('先设置至少一个筛选条件（否则会选中整个事件库）')
+      return
+    }
+    setSelecting(true)
+    try {
+      const p = new URLSearchParams()
+      Object.entries(f).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== '') p.set(k, String(v))
+      })
+      const r = await api<any>(`/api/events/ids?${p.toString()}`)
+      const ids = r.ids || []
+      setSelected(ids)
+      message.success(
+        r.truncated
+          ? `匹配超过 ${r.limit} 条，已选中前 ${ids.length} 条（按时间倒序）`
+          : `已选中 ${ids.length} 条匹配事件（可跨页保留）`,
+      )
+    } catch (e: any) {
+      message.error(e?.message || '选中失败')
+    } finally {
+      setSelecting(false)
     }
   }
 
@@ -267,6 +323,11 @@ export default function Events({ user }: { user: User }) {
         // 只有第一页统计总数；翻页沿用第一页的 total，省掉重复 COUNT(*)。
         p.set('with_total', page === 1 ? '1' : '0')
         if (page === 1) p.set('offset', '0')
+        // 高级筛选先落，工具栏的显式选择再覆盖它（与 buildFilters 保持一致）。
+        Object.entries(advanced).forEach(([k, v]) => {
+          if (v === undefined || v === null || v === '') return
+          p.set(k, String(v))
+        })
         if (action) p.set('action', action)
         if (applied.srcIp) p.set('src_ip', applied.srcIp)
         if (applied.path) p.set('path', applied.path)
@@ -291,7 +352,7 @@ export default function Events({ user }: { user: User }) {
         if (!silent && seq === reqSeq.current) setLoading(false)
       }
     },
-    [page, pageSize, applied, action, onlyTesting, refreshTick],
+    [page, pageSize, applied, action, onlyTesting, advanced, refreshTick],
   )
 
   /** 入库状态：第一页 / 手动刷新时才拉，30s 内复用（避免反复 COUNT(*)）。 */
@@ -310,6 +371,15 @@ export default function Events({ user }: { user: User }) {
     load()
     if (page === 1) loadIngest()
   }, [load, page, loadIngest])
+
+  // 规则下拉：事件里实际命中的规则（带命中数），只拉一次。
+  useEffect(() => {
+    api<any>('/api/events/rule-facets?limit=500')
+      .then((r) => setRuleOptions(r.items || []))
+      .catch(() => {
+        /* 下拉拿不到规则不影响事件列表 */
+      })
+  }, [])
 
   // 自动刷新：0 = 关闭；页面隐藏时跳过轮询。
   useEffect(() => {
@@ -411,12 +481,66 @@ export default function Events({ user }: { user: User }) {
             <span className="muted">只看测试命中</span>
           </Space>
         </Tooltip>
+        <Popover
+          trigger="click"
+          open={advOpen}
+          placement="bottomLeft"
+          onOpenChange={(o) => {
+            setAdvOpen(o)
+            if (o) setAdvDraft(advanced)
+          }}
+          content={
+            <div style={{ width: 'min(560px, calc(100vw - 340px))', maxHeight: '70vh', overflowY: 'auto' }}>
+              <SelectionBuilder
+                value={{ mode: 'filter', filters: advDraft }}
+                onChange={(v) => setAdvDraft(v.filters)}
+                selectedCount={0}
+                showScope={false}
+                showMaxRows={false}
+                ruleOptions={ruleOptions}
+              />
+              <Space style={{ marginTop: 8 }}>
+                <Button
+                  type="primary"
+                  onClick={() => {
+                    setAdvanced(compactFilters(advDraft))
+                    setAdvOpen(false)
+                    resetPaging()
+                    setRefreshTick((v) => v + 1)
+                  }}
+                >
+                  应用筛选
+                </Button>
+                <Button
+                  onClick={() => {
+                    setAdvDraft({})
+                    setAdvanced({})
+                    setAdvOpen(false)
+                    resetPaging()
+                    setRefreshTick((v) => v + 1)
+                  }}
+                >
+                  重置
+                </Button>
+              </Space>
+            </div>
+          }
+        >
+          <Button icon={<FilterOutlined />}>
+            更多筛选{nAdvanced ? `（${nAdvanced}）` : ''}
+          </Button>
+        </Popover>
         <Button icon={<SearchOutlined />} type="primary" onClick={submitNow}>
           查询
         </Button>
         <Button icon={<ReloadOutlined />} onClick={manualRefresh}>
           刷新
         </Button>
+        <Tooltip title="按当前筛选把匹配事件全部选中（≤5000；表头全选只覆盖当前页）">
+          <Button icon={<SearchOutlined />} loading={selecting} onClick={selectAllMatching}>
+            选中筛选结果
+          </Button>
+        </Tooltip>
         <Tooltip title="把勾选的事件（或按当前筛选）固化成训练数据集；标签必须人工指定，不会用模型预测当标签">
           <Button
             type="primary"
@@ -628,6 +752,7 @@ export default function Events({ user }: { user: User }) {
         width={760}
         title="从事件生成训练数据集"
         onCancel={() => setTrainOpen(false)}
+        styles={{ body: { maxHeight: '62vh', overflowY: 'auto', paddingRight: 4 } }}
         footer={[
           <Button key="preview" onClick={() => doPreview()} loading={previewing}>
             预检
@@ -645,26 +770,15 @@ export default function Events({ user }: { user: User }) {
           description="事件的 attack_type 是模型预测，只作筛选/提示，绝不会自动变成训练标签。创建时会把选中的事件固化成快照（事件到期清理不影响数据集）。"
         />
         <Form form={trainForm} layout="vertical">
-          <Form.Item label="选择范围">
-            <Radio.Group
-              value={scope}
-              onChange={(e) => {
-                setScope(e.target.value)
-                setPreview(null)
-              }}
-            >
-              <Radio.Button value="ids" disabled={!selected.length}>
-                已勾选 {selected.length} 条
-              </Radio.Button>
-              <Radio.Button value="filter">按当前筛选全部</Radio.Button>
-            </Radio.Group>
-            {scope === 'filter' ? (
-              <div className="muted" style={{ marginTop: 6 }}>
-                当前筛选：
-                <Text code>{JSON.stringify(buildFilters())}</Text>
-              </div>
-            ) : null}
-          </Form.Item>
+          <SelectionBuilder
+            value={sel}
+            onChange={(v) => {
+              setSel(v)
+              setPreview(null)
+            }}
+            selectedCount={selected.length}
+            ruleOptions={ruleOptions}
+          />
           <Form.Item
             name="name"
             label="名称"
@@ -688,9 +802,6 @@ export default function Events({ user }: { user: User }) {
             extra="良性数据集只能选 0；攻击类型不确定时选 1（与本地在野攻击池的标注口径一致）。"
           >
             <Select options={LABEL_OPTIONS} disabled={roleSel === 'benign'} />
-          </Form.Item>
-          <Form.Item name="max_rows" label="条数上限">
-            <InputNumber min={1} max={20000} style={{ width: 200 }} placeholder="默认 20000" />
           </Form.Item>
           <Form.Item
             name="source_note"

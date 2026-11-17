@@ -479,15 +479,22 @@ class EventSelectionFilters(BaseModel):
     结论的存在性筛。真正写进数据的 `label` 在 FromEventsIn / SelectionPreviewIn 上。
     """
     action: Optional[str] = None
+    method: Optional[str] = None
+    status: Optional[int] = None
+    ip_list: Optional[str] = None
     src_ip: Optional[str] = None
     path: Optional[str] = None
     q: Optional[str] = None
     min_score: Optional[float] = None
+    max_score: Optional[float] = None
     from_ts: Optional[int] = None
     to_ts: Optional[int] = None
     rule_testing: Optional[bool] = None
     attack_type: Optional[str] = None
     verdict: Optional[str] = None
+    rule: Optional[str] = None
+    rule_action: Optional[str] = None
+    has_rule: Optional[bool] = None
 
 
 class SelectionPreviewIn(BaseModel):
@@ -503,6 +510,27 @@ class FromEventsIn(SelectionPreviewIn):
     role: str = "supervised"
     label: int = Field(..., ge=0, le=4)
     source_note: str = ""
+
+
+class RowLabelIn(BaseModel):
+    rid: str
+    label: int = Field(..., ge=0, le=4)
+
+
+class RowsPatchIn(BaseModel):
+    """逐条修正标签（rid = 请求指纹的 sha1 前 16 位）。"""
+    updates: List[RowLabelIn]
+    note: str = ""
+
+
+class DatasetSelectionIn(BaseModel):
+    """给已就绪数据集追加/重采样：append 不动已有行标签，replace 整体重建。"""
+    action: str = "append"                  # append | replace
+    mode: str = "filter"                    # ids | filter
+    event_ids: Optional[List[int]] = None
+    filters: Optional[EventSelectionFilters] = None
+    max_rows: Optional[int] = None
+    label: Optional[int] = Field(None, ge=0, le=4)
 
 
 class ModelPatchIn(BaseModel):
@@ -1179,12 +1207,18 @@ def _warnings(pol: dict, metrics: Optional[dict]) -> list:
 
 # --------------------------------------------------------------------------- 事件
 def _event_filter(action=None, src_ip=None, path=None, min_score=None,
-                  from_ts=None, to_ts=None, q=None, rule_testing=None):
+                  from_ts=None, to_ts=None, q=None, rule_testing=None,
+                  max_score=None, attack_type=None, verdict=None, rule=None,
+                  rule_action=None, has_rule=None, status=None, method=None,
+                  ip_list=None):
     """事件过滤条件。实现放在 `datasets_events.event_where`（事件选择用的是
     同一套语义），这里只保留调用点，避免两份 SQL 漂移。"""
     return datasets_events.event_where(
         action=action, src_ip=src_ip, path=path, min_score=min_score,
-        from_ts=from_ts, to_ts=to_ts, q=q, rule_testing=rule_testing)
+        max_score=max_score, from_ts=from_ts, to_ts=to_ts, q=q,
+        rule_testing=rule_testing, attack_type=attack_type, verdict=verdict,
+        rule=rule, rule_action=rule_action, has_rule=has_rule, status=status,
+        method=method, ip_list=ip_list)
 
 
 def _event_rule_hits(e: dict) -> list:
@@ -1215,10 +1249,19 @@ def list_events(
     src_ip: Optional[str] = None,
     path: Optional[str] = None,
     min_score: Optional[float] = None,
+    max_score: Optional[float] = None,
     from_ts: Optional[int] = None,
     to_ts: Optional[int] = None,
     q: Optional[str] = None,
     rule_testing: Optional[bool] = None,
+    attack_type: Optional[str] = None,
+    verdict: Optional[str] = None,
+    rule: Optional[str] = None,
+    rule_action: Optional[str] = None,
+    has_rule: Optional[bool] = None,
+    status: Optional[int] = None,
+    method: Optional[str] = None,
+    ip_list: Optional[str] = None,
     cursor_ts: Optional[int] = None,
     cursor_id: Optional[int] = None,
     with_total: bool = True,
@@ -1230,7 +1273,11 @@ def list_events(
     大 offset 时不需要扫描/丢弃前 N 行；返回 `next_cursor` / `has_more`。
     `with_total=false` 跳过 `COUNT(*)`（翻页时总数可由第一页带过来）。
     """
-    w, p = _event_filter(action, src_ip, path, min_score, from_ts, to_ts, q, rule_testing)
+    w, p = _event_filter(action, src_ip, path, min_score, from_ts, to_ts, q,
+                         rule_testing, max_score=max_score, attack_type=attack_type,
+                         verdict=verdict, rule=rule, rule_action=rule_action,
+                         has_rule=has_rule, status=status, method=method,
+                         ip_list=ip_list)
     if cursor_ts is not None and cursor_id is not None:
         # (ts, id) 复合游标：同一毫秒内多条事件也能稳定翻页，不重不漏。
         w += " AND (ts < ? OR (ts = ? AND id < ?))"
@@ -1281,6 +1328,56 @@ def events_selection_preview(body: SelectionPreviewIn,
             max_rows=body.max_rows)
     except ValueError as e:
         raise HTTPException(400, str(e))
+
+
+@app.get("/api/events/ids")
+def event_ids(limit: int = Query(5000, ge=1,
+                                 le=config.EVENT_DATASET_MAX_IDS),
+              action: Optional[str] = None,
+              src_ip: Optional[str] = None,
+              path: Optional[str] = None,
+              min_score: Optional[float] = None,
+              max_score: Optional[float] = None,
+              from_ts: Optional[int] = None,
+              to_ts: Optional[int] = None,
+              q: Optional[str] = None,
+              rule_testing: Optional[bool] = None,
+              attack_type: Optional[str] = None,
+              verdict: Optional[str] = None,
+              rule: Optional[str] = None,
+              rule_action: Optional[str] = None,
+              has_rule: Optional[bool] = None,
+              status: Optional[int] = None,
+              method: Optional[str] = None,
+              ip_list: Optional[str] = None,
+              user: dict = Depends(auth.current_user)):
+    """按筛选条件返回事件 id（给「全选筛选结果」用，最多 5000 条）。
+
+    必须声明在 `/api/events/{eid}` 之前，否则 `ids` 会被当成事件 id。
+    """
+    try:
+        ids, truncated = datasets_events.select_ids({
+            "action": action, "src_ip": src_ip, "path": path,
+            "min_score": min_score, "max_score": max_score,
+            "from_ts": from_ts, "to_ts": to_ts, "q": q,
+            "rule_testing": rule_testing, "attack_type": attack_type,
+            "verdict": verdict, "rule": rule, "rule_action": rule_action,
+            "has_rule": has_rule, "status": status, "method": method,
+            "ip_list": ip_list,
+        }, limit=limit)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ids": ids, "n": len(ids), "truncated": truncated, "limit": limit}
+
+
+@app.get("/api/events/rule-facets")
+def event_rule_facets(from_ts: Optional[int] = None,
+                      to_ts: Optional[int] = None,
+                      limit: int = Query(200, ge=1, le=1000),
+                      user: dict = Depends(auth.current_user)):
+    """事件里实际命中的规则（命中数倒序），给「命中规则」下拉用。"""
+    return {"items": datasets_events.rule_facets(
+        from_ts=from_ts, to_ts=to_ts, limit=limit)}
 
 
 @app.get("/api/events/{eid}")
@@ -2602,9 +2699,63 @@ def upload_preview(uid: int, n: int = Query(20, ge=1, le=200),
         raise HTTPException(404, str(e))
 
 
+@app.get("/api/uploads/{uid}/rows")
+def upload_rows(uid: int,
+                offset: int = Query(0, ge=0),
+                limit: int = Query(50, ge=1, le=200),
+                label: Optional[int] = Query(None, ge=0, le=4),
+                q: Optional[str] = None,
+                user: dict = Depends(auth.current_user)):
+    """分页读训练行（逐条改标签用；body 只给预览）。"""
+    try:
+        return uploads.list_rows(uid, offset=offset, limit=limit, label=label, q=q)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+
+
+@app.patch("/api/uploads/{uid}/rows")
+def upload_rows_patch(uid: int, body: RowsPatchIn, request: Request,
+                      user: dict = Depends(auth.require_at_least("analyst"))):
+    """逐条修正标签：原子重写 requests.jsonl + 重建训练副本。"""
+    try:
+        row = uploads.relabel_rows(
+            uid, [u.model_dump() for u in body.updates],
+            actor=user["username"], note=body.note)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    audit(user["username"], "dataset_relabel", f"upload:{uid}",
+          json.dumps({"n_updates": len(body.updates), "note": body.note[:200],
+                      "labels": row.get("label_stats")},
+                     ensure_ascii=False), _ip(request))
+    return row
+
+
+@app.post("/api/uploads/{uid}/selection")
+def upload_selection(uid: int, body: DatasetSelectionIn, request: Request,
+                     user: dict = Depends(auth.require_at_least("analyst"))):
+    """给已就绪数据集追加事件（append）或按新条件重采样（replace）。"""
+    try:
+        row = datasets_events.update_selection_from_events(
+            uid=uid, action=body.action, mode=body.mode,
+            event_ids=body.event_ids,
+            filters=body.filters.model_dump(exclude_none=True) if body.filters else None,
+            max_rows=body.max_rows, label=body.label,
+            actor=user["username"])
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    audit(user["username"], "dataset_selection_update", f"upload:{uid}",
+          json.dumps({"action": body.action, "mode": body.mode,
+                      "label": body.label,
+                      "event_ids": (body.event_ids or [])[:50],
+                      "filters": (body.filters.model_dump(exclude_none=True)
+                                  if body.filters else None)},
+                     ensure_ascii=False), _ip(request))
+    return row
+
+
 @app.delete("/api/uploads/{uid}")
 def upload_delete(uid: int, request: Request,
-                  user: dict = Depends(auth.require_at_least("admin"))):
+                  user: dict = Depends(auth.require_at_least("analyst"))):
     try:
         row = uploads.delete_upload(uid, user["username"])
     except ValueError as e:

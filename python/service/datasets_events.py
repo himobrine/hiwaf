@@ -65,16 +65,37 @@ def _now() -> int:
 
 
 # --------------------------------------------------------------------------- 过滤
+#: `verdict` 的两个特殊值：有任意人工反馈 / 完全没有人工反馈。
+VERDICT_ANY = "any"
+VERDICT_NONE = "none"
+
+_STR_KEYS = ("action", "src_ip", "path", "q", "attack_type", "verdict",
+             "rule", "rule_action", "method", "ip_list")
+_FLOAT_KEYS = ("min_score", "max_score")
+_INT_KEYS = ("from_ts", "to_ts", "status")
+_BOOL_KEYS = ("rule_testing", "has_rule")
+
+
 def event_where(action: Optional[str] = None, src_ip: Optional[str] = None,
                 path: Optional[str] = None, min_score: Optional[float] = None,
+                max_score: Optional[float] = None,
                 from_ts: Optional[int] = None, to_ts: Optional[int] = None,
                 q: Optional[str] = None, rule_testing: Optional[bool] = None,
                 attack_type: Optional[str] = None,
-                verdict: Optional[str] = None) -> Tuple[str, List[Any]]:
+                verdict: Optional[str] = None,
+                rule: Optional[str] = None,
+                rule_action: Optional[str] = None,
+                has_rule: Optional[bool] = None,
+                status: Optional[int] = None,
+                method: Optional[str] = None,
+                ip_list: Optional[str] = None) -> Tuple[str, List[Any]]:
     """与 `/api/events` 同一套过滤语义（单一事实来源，app 也调这里）。
 
-    `attack_type` / `verdict` 是事件选择专用：前者按模型分类**筛选**（不是标签），
-    后者按人工 feedback 结论存在性筛选。
+    红线：`attack_type` 只是按模型分类**筛选**事件，不是标签；`verdict` 按人工
+    feedback 结论筛（`any` / `none` 表示有/没有任何人工结论）。
+
+    规则命中走 `event_rules`（ingest 时与 `rule_hits_json` 同步写入，且有
+    `(rule)` / `(event_id)` 索引），不实时解析 JSON。
     """
     w = ["1=1"]
     p: List[Any] = []
@@ -90,6 +111,9 @@ def event_where(action: Optional[str] = None, src_ip: Optional[str] = None,
     if min_score is not None:
         w.append("supervised_score>=?")
         p.append(min_score)
+    if max_score is not None:
+        w.append("supervised_score<=?")
+        p.append(max_score)
     if from_ts:
         w.append("ts>=?")
         p.append(from_ts)
@@ -105,36 +129,105 @@ def event_where(action: Optional[str] = None, src_ip: Optional[str] = None,
     if attack_type:
         w.append("attack_type=?")
         p.append(attack_type)
+    if status is not None:
+        w.append("status=?")
+        p.append(int(status))
+    if method:
+        w.append("UPPER(method)=?")
+        p.append(str(method).strip().upper())
+    if ip_list:
+        w.append("ip_list=?")
+        p.append(ip_list)
     if verdict:
-        w.append("EXISTS (SELECT 1 FROM feedback f WHERE f.event_id=events.id "
-                 "AND f.verdict=?)")
-        p.append(verdict)
+        v = str(verdict).strip()
+        if v == VERDICT_ANY:
+            w.append("EXISTS (SELECT 1 FROM feedback f WHERE f.event_id=events.id)")
+        elif v == VERDICT_NONE:
+            w.append("NOT EXISTS (SELECT 1 FROM feedback f WHERE f.event_id=events.id)")
+        else:
+            w.append("EXISTS (SELECT 1 FROM feedback f WHERE f.event_id=events.id "
+                     "AND f.verdict=?)")
+            p.append(v)
+    if has_rule is True:
+        w.append("events.id IN (SELECT event_id FROM event_rules)")
+    elif has_rule is False:
+        w.append("events.id NOT IN (SELECT event_id FROM event_rules)")
+    if rule:
+        sub = "SELECT event_id FROM event_rules WHERE rule=?"
+        p.append(str(rule))
+        if rule_action:
+            sub += " AND action=?"
+            p.append(str(rule_action))
+        w.append(f"events.id IN ({sub})")
     return " AND ".join(w), p
 
 
 def _clean_filters(filters: Optional[dict]) -> dict:
-    """只允许已知键；空串按未填处理。"""
+    """只允许已知键；空串按未填处理。未知键直接报错（防拼错静默变全量）。"""
     f = filters or {}
     out: Dict[str, Any] = {}
-    for k in ("action", "src_ip", "path", "q", "attack_type", "verdict"):
+    for k in _STR_KEYS:
         v = f.get(k)
         if v not in (None, ""):
-            out[k] = str(v)
-    for k in ("min_score",):
+            out[k] = str(v).strip()
+    for k in _FLOAT_KEYS:
         v = f.get(k)
         if v not in (None, ""):
             out[k] = float(v)
-    for k in ("from_ts", "to_ts"):
+    for k in _INT_KEYS:
         v = f.get(k)
         if v not in (None, ""):
             out[k] = int(v)
-    if f.get("rule_testing") is not None and f.get("rule_testing") != "":
-        out["rule_testing"] = bool(f["rule_testing"])
-    unknown = set(f) - {"action", "src_ip", "path", "q", "attack_type", "verdict",
-                        "min_score", "from_ts", "to_ts", "rule_testing"}
+    for k in _BOOL_KEYS:
+        v = f.get(k)
+        if v is not None and v != "":
+            out[k] = bool(v)
+    unknown = set(f) - set(_STR_KEYS) - set(_FLOAT_KEYS) - set(_INT_KEYS) - set(_BOOL_KEYS)
     if unknown:
         raise ValueError(f"不认识的筛选字段：{sorted(unknown)}")
     return out
+
+
+def count_events(filters: Optional[dict]) -> int:
+    """按筛选条件数事件总数（未知键会报错）。"""
+    f = _clean_filters(filters)
+    where, p = event_where(**f)
+    return int(db.scalar(f"SELECT COUNT(*) AS n FROM events WHERE {where}", p, 0) or 0)
+
+
+def select_ids(filters: Optional[dict], limit: int = 5000) -> Tuple[List[int], bool]:
+    """按筛选条件取事件 id（ts 倒序），给「全选筛选结果」用。"""
+    f = _clean_filters(filters)
+    if not f:
+        raise ValueError("至少需要一个筛选条件")
+    limit = max(1, min(int(limit), int(config.EVENT_DATASET_MAX_IDS)))
+    where, p = event_where(**f)
+    rows = db.rows(
+        f"SELECT id FROM events WHERE {where} ORDER BY ts DESC, id DESC LIMIT ?",
+        p + [limit + 1])
+    return [int(r["id"]) for r in rows[:limit]], len(rows) > limit
+
+
+def rule_facets(from_ts: Optional[int] = None, to_ts: Optional[int] = None,
+                limit: int = 200) -> List[dict]:
+    """事件里实际命中的规则（id / 名称 / 命中数），给筛选下拉用。"""
+    where = ["1=1"]
+    p: List[Any] = []
+    if from_ts:
+        where.append("e.ts>=?")
+        p.append(int(from_ts))
+    if to_ts:
+        where.append("e.ts<=?")
+        p.append(int(to_ts))
+    rows = db.rows(
+        f"""SELECT er.rule AS rule, MAX(er.name) AS name,
+                   COUNT(*) AS hits,
+                   SUM(CASE WHEN er.action='block' THEN 1 ELSE 0 END) AS block_hits
+            FROM event_rules er JOIN events e ON e.id=er.event_id
+            WHERE {' AND '.join(where)}
+            GROUP BY er.rule ORDER BY hits DESC, er.rule LIMIT ?""",
+        p + [max(1, min(int(limit), 1000))])
+    return [dict(r) for r in rows]
 
 
 # --------------------------------------------------------------------------- 选行
@@ -477,6 +570,137 @@ def create_from_events(*, name: str = "", role: str = "supervised", label: int,
     else:
         threading.Thread(target=_build, args=(uid, actor), daemon=True).start()
     return uploads.get_upload(uid) or {}
+
+
+def update_selection_from_events(*, uid: int, action: str = "append",
+                                 mode: str = "filter",
+                                 event_ids: Optional[List[int]] = None,
+                                 filters: Optional[dict] = None,
+                                 max_rows: Optional[int] = None,
+                                 label: Optional[int] = None,
+                                 actor: str = "system", note: str = "") -> dict:
+    """给**已就绪**的数据集追加事件，或按新条件整体重采样。
+
+    * `append`：按请求指纹去重后追加，已有行的标签**不动**（逐条修正不会被覆盖）；
+    * `replace`：用新选择整体重建（会覆盖逐条修正，调用方必须显式确认）。
+
+    标签仍然只能由操作者显式给出（`label`，缺省用数据集的 `default_label`），
+    绝不复用事件的模型预测。良性数据集只允许 0。
+    """
+    action = (action or "append").strip()
+    if action not in ("append", "replace"):
+        raise ValueError("action 只支持 append / replace")
+    row = db.one("SELECT * FROM uploaded_datasets WHERE id=?", (uid,))
+    if not row:
+        raise ValueError("数据集不存在")
+    row = dict(row)
+    if row["status"] == "pruned":
+        raise ValueError("数据集已删除，不能修改")
+    if row["status"] != "ready":
+        raise ValueError("数据集未就绪（转换中或失败），不能修改")
+    busy = uploads._referenced_by_running_task(uid)  # noqa: SLF001
+    if busy:
+        raise ValueError(f"任务 #{busy} 正在使用该数据集；请等它结束再改")
+
+    role = str(row.get("role") or "supervised")
+    try:
+        lab = int(row.get("default_label") or 0) if label is None else int(label)
+    except (TypeError, ValueError):
+        raise ValueError("label 必须是 0-4")
+    if lab not in range(5):
+        raise ValueError("label 必须是 0-4")
+    if role == "benign" and lab != 0:
+        raise ValueError("良性数据集（role=benign）的标签只能是 0")
+
+    mode = (mode or "").strip()
+    if mode not in ("ids", "filter"):
+        raise ValueError("mode 只支持 ids / filter")
+    cap = int(config.EVENT_DATASET_MAX_ROWS)
+    limit = min(int(max_rows) if max_rows else cap, cap)
+    if limit < 1:
+        raise ValueError("max_rows 必须 ≥1")
+
+    if mode == "ids":
+        ids = [int(i) for i in (event_ids or [])]
+        if not ids:
+            raise ValueError("ids 模式必须给 event_ids")
+        if len(ids) > config.EVENT_DATASET_MAX_IDS:
+            raise ValueError(f"单次最多选 {config.EVENT_DATASET_MAX_IDS} 条事件")
+        sel_snapshot = {"mode": "ids", "event_ids": ids[:config.EVENT_DATASET_MAX_IDS]}
+    else:
+        f = _clean_filters(filters)
+        if not f:
+            raise ValueError("filter 模式至少要有一个筛选条件")
+        sel_snapshot = {"mode": "filter", "filters": f}
+
+    rows, truncated = select_events(mode, event_ids=event_ids, filters=filters,
+                                    limit=limit)
+    if not rows:
+        raise ValueError("没有匹配到任何事件（可能已被保留策略清理）")
+    bodies, body_stats = resolve_bodies(rows)
+    fresh, dedup = build_rows(rows, bodies, lab, actor, mode)
+
+    d = _dir_of(row)
+    if not d or not d.exists():
+        raise ValueError("数据集目录不存在")
+
+    from upload_parse import req_key
+
+    if action == "append":
+        existing = uploads.read_rows(d)
+        seen = {req_key(r) for r in existing}
+        added: List[dict] = []
+        for r in fresh:
+            k = req_key(r)
+            if k in seen:
+                continue
+            seen.add(k)
+            added.append(r)
+        merged = existing + added
+        if len(merged) > cap:
+            merged = merged[:cap]
+            truncated = True
+        try:
+            sel_doc = json.loads(row.get("selection_json") or "{}")
+        except ValueError:
+            sel_doc = {}
+        if not isinstance(sel_doc, dict):
+            sel_doc = {}
+        sel_doc.setdefault("appends", []).append({
+            **sel_snapshot, "max_rows": limit, "label": lab, "actor": actor,
+            "at": _now(), "added": len(added), "duplicates": len(fresh) - len(added),
+            "truncated": truncated,
+        })
+        extra = {"selection": sel_doc, "body": body_stats,
+                 "append": {"added": len(added), "duplicates": len(fresh) - len(added),
+                            "input": len(rows)},
+                 "requested": "append"}
+        note = note or f"追加事件 {len(added)} 条（去重 {len(fresh) - len(added)}）"
+    else:
+        merged = fresh[:cap]
+        if len(fresh) > cap:
+            truncated = True
+        sel_doc = {
+            "origin": "events", **sel_snapshot, "max_rows": limit,
+            "truncated": truncated, "label": lab, "actor": actor,
+            "created_at": _now(), "replaced_at": _now(),
+        }
+        extra = {"selection": sel_doc, "body": body_stats,
+                 "dedup": dedup, "requested": "replace"}
+        note = note or f"重采样：{len(merged)} 行（标签 {lab}）"
+
+    out = uploads.rewrite_rows(uid, merged, actor=actor, note=note,
+                               extra_stats=extra)
+    try:
+        (d / "selection.json").write_text(
+            json.dumps(sel_doc, ensure_ascii=False, indent=2), encoding="utf-8")
+    except OSError:
+        pass
+    uploads._audit(actor, "dataset_selection_update", f"upload:{uid}",  # noqa: SLF001
+                   {"action": action, "mode": mode, "label": lab,
+                    "selected": len(rows), "rows_after": len(merged),
+                    "truncated": truncated, "note": note})
+    return out
 
 
 # --------------------------------------------------------------------------- 预检

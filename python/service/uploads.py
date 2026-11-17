@@ -26,6 +26,8 @@ if str(config.PY) not in sys.path:  # noqa: E402
     sys.path.insert(0, str(config.PY))
 
 _CONVERT_LOCK = threading.BoundedSemaphore(1)
+#: 数据集改写（逐条改标签 / 追加 / 重采样）串行化：写文件 + 重建训练副本不能交错。
+_EDIT_LOCK = threading.BoundedSemaphore(1)
 _OFFICIAL_KEYS: Optional[set] = None
 _OFFICIAL_LOCK = threading.Lock()
 _FORMAT_EXT = {v: k for k, v in config.UPLOAD_FORMATS.items()}
@@ -343,6 +345,225 @@ def preview(uid: int, n: int = 20) -> dict:
                     obj["body"] = body[:500] + f"…（{len(body)} 字符）"
                 out.append(obj)
     return {"dataset": row, "items": out}
+
+
+def row_rid(obj: dict) -> str:
+    """训练行的稳定身份：请求指纹的 sha1 前 16 位。
+
+    数据集内已按请求指纹去重，所以 rid 唯一；老数据集不需要迁移。
+    """
+    from upload_parse import req_key
+
+    return hashlib.sha1(req_key(obj).encode("utf-8")).hexdigest()[:16]
+
+
+def read_rows(d: Path) -> List[dict]:
+    """读 requests.jsonl；坏行跳过（与解析器口径一致）。"""
+    p = d / "requests.jsonl"
+    out: List[dict] = []
+    if not p.exists():
+        return out
+    with open(p, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(obj, dict):
+                out.append(obj)
+    return out
+
+
+def _write_rows_atomic(path: Path, rows: List[dict]) -> None:
+    tmp = path.with_name(path.name + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        for r in rows:
+            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
+
+
+def _busy_error(uid: int) -> None:
+    busy = _referenced_by_running_task(uid)
+    if busy:
+        raise ValueError(f"任务 #{busy} 正在使用该数据集；请等它结束再改")
+
+
+def rewrite_rows(uid: int, rows: List[dict], *, actor: str = "system",
+                 note: str = "", extra_stats: Optional[dict] = None) -> dict:
+    """原子改写 requests.jsonl，并重建训练副本 / 统计 / 指纹。
+
+    会保留一份 `requests.prev.jsonl`（单代备份），便于误操作后人工核对。
+    """
+    with _EDIT_LOCK:
+        row = db.one("SELECT * FROM uploaded_datasets WHERE id=?", (uid,))
+        if not row:
+            raise ValueError("数据集不存在")
+        if row["status"] == "pruned":
+            raise ValueError("数据集已删除，不能修改")
+        if row["status"] != "ready":
+            raise ValueError("数据集未就绪（转换中或失败），不能修改")
+        _busy_error(uid)
+        d = _dir(dict(row))
+        if not d or not d.exists():
+            raise ValueError("数据集目录不存在")
+        src = d / "requests.jsonl"
+        if src.exists():
+            try:
+                shutil.copy2(src, d / "requests.prev.jsonl")
+            except OSError:
+                pass
+        _write_rows_atomic(src, rows)
+
+        try:
+            ov = _split_train_copy(uid, d, row["role"])
+        except Exception as e:  # noqa: BLE001
+            _audit(actor, "upload_rewrite_failed", f"upload:{uid}",
+                   {"error": str(e)[:500]})
+            raise ValueError(f"重建训练副本失败：{e}")
+        from upload_parse import summarize
+
+        try:
+            stats = json.loads(row.get("stats_json") or "{}")
+        except (TypeError, ValueError):
+            stats = {}
+        stats.update(extra_stats or {})
+        stats["rows_total"] = len(rows)
+        stats["overlap_official_eval"] = ov
+        new_stats = summarize(rows, stats)
+        try:
+            (d / "stats.json").write_text(
+                json.dumps(new_stats, ensure_ascii=False, indent=1), encoding="utf-8")
+        except OSError:
+            pass
+
+        labels = new_stats.get("label_counts") or {}
+        try:
+            sha = _sha256(src)
+            size = src.stat().st_size
+        except OSError:
+            sha, size = None, 0
+        db.execute(
+            "UPDATE uploaded_datasets SET rows_total=?, rows_kept=?, rows_skipped=?, "
+            "label_stats_json=?, stats_json=?, sha256=?, size_bytes=?, updated_at=?, "
+            "error=NULL WHERE id=?",
+            (int(new_stats.get("rows_total") or 0),
+             int(new_stats.get("rows_kept") or 0),
+             int(new_stats.get("rows_skipped") or 0),
+             json.dumps(labels, ensure_ascii=False),
+             json.dumps(new_stats, ensure_ascii=False), sha, int(size), _now(), uid))
+        _audit(actor, "upload_rewrite", f"upload:{uid}",
+               {"rows": len(rows), "labels": labels, "overlap": ov,
+                "note": (note or "")[:500],
+                "requested": (extra_stats or {}).get("requested")})
+        return _row(uid) or {}
+
+
+def list_rows(uid: int, *, offset: int = 0, limit: int = 50,
+              label: Optional[int] = None, q: Optional[str] = None) -> dict:
+    """分页读训练行（逐条改标签用）。body 只返回预览。"""
+    row = _row(uid)
+    if not row:
+        raise ValueError("数据集不存在")
+    d = _dir(row)
+    if not d or not d.exists():
+        raise ValueError("数据集目录不存在")
+    offset = max(0, int(offset))
+    limit = max(1, min(int(limit), 200))
+    ql = (q or "").strip().lower()
+    total = 0
+    items: List[dict] = []
+    p = d / "requests.jsonl"
+    if p.exists():
+        with open(p, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except ValueError:
+                    continue
+                if not isinstance(obj, dict):
+                    continue
+                lab = int(obj.get("label") or 0)
+                if label is not None and lab != int(label):
+                    continue
+                if ql:
+                    hay = "\x1f".join(str(obj.get(k) or "")
+                                      for k in ("path", "query", "body")).lower()
+                    if ql not in hay:
+                        continue
+                total += 1
+                if total <= offset or len(items) >= limit:
+                    continue
+                body = str(obj.get("body") or "")
+                items.append({
+                    "rid": row_rid(obj),
+                    "method": obj.get("method") or "GET",
+                    "path": obj.get("path") or "",
+                    "query": obj.get("query") or "",
+                    "body_len": len(body),
+                    "body_preview": body[:300] + ("…" if len(body) > 300 else ""),
+                    "label": lab,
+                    "label_why": obj.get("label_why") or "",
+                    "ts": obj.get("ts"),
+                    "src_ip": obj.get("src_ip"),
+                })
+    return {"dataset": row, "total": total, "offset": offset, "limit": limit,
+            "items": items}
+
+
+def relabel_rows(uid: int, updates: List[dict], *, actor: str = "system",
+                 note: str = "") -> dict:
+    """逐条修正标签并重建训练副本（良性数据集只允许 0，红线不变）。"""
+    if not updates:
+        raise ValueError("没有要修改的样本")
+    row = db.one("SELECT * FROM uploaded_datasets WHERE id=?", (uid,))
+    if not row:
+        raise ValueError("数据集不存在")
+    if row["status"] != "ready":
+        raise ValueError("数据集未就绪（转换中或失败），不能修改")
+    _busy_error(uid)
+    d = _dir(dict(row))
+    if not d or not d.exists():
+        raise ValueError("数据集目录不存在")
+    rows = read_rows(d)
+    idx: Dict[str, int] = {}
+    for i, r in enumerate(rows):
+        idx.setdefault(row_rid(r), i)
+
+    changed: List[dict] = []
+    for u in updates:
+        rid = str((u or {}).get("rid") or "")
+        try:
+            lab = int((u or {}).get("label"))
+        except (TypeError, ValueError):
+            raise ValueError(f"样本 {rid or '?'} 的 label 非法")
+        if lab not in range(5):
+            raise ValueError("label 必须是 0-4")
+        if row["role"] == "benign" and lab != 0:
+            raise ValueError("良性数据集（role=benign）的标签只能是 0")
+        i = idx.get(rid)
+        if i is None:
+            raise ValueError(f"样本不存在：{rid or '?'}")
+        old = int(rows[i].get("label") or 0)
+        if old == lab:
+            continue
+        rows[i]["label"] = lab
+        rows[i]["label_why"] = f"console:{actor}:relabel"
+        changed.append({"rid": rid, "from": old, "to": lab})
+
+    if not changed:
+        return _row(uid) or {}
+    return rewrite_rows(
+        uid, rows, actor=actor, note=note,
+        extra_stats={"relabel": changed[:500], "relabel_n": len(changed),
+                     "requested": "relabel"})
 
 
 def _referenced_by_running_task(uid: int) -> Optional[int]:

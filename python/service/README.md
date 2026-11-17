@@ -56,6 +56,8 @@ py -3.10 -m service.run                   # http://127.0.0.1:8090/docs
 | `test_task_plan.py` | 训练任务 argv 组装：staging/warm start/IForest 树数递增/降级 |
 | `test_upload_parse.py` | 上传解析：CSV/JSON/JSONL/HAR/pcap 分片重传/TLS 跳过/标签别名 |
 | `test_uploads.py` | 上传存储：格式/大小/来源校验、转换、预览、软删除、残留清理 |
+| `test_dataset_edit.py` | 数据集可修改：逐条改标签（重建训练副本/指纹）、良性只允许 0、运行中任务拒绝、事件追加重采样/去重 |
+| `test_event_filters.py` | 事件筛选：规则命中/规则动作/有无命中、人工结论 any/none、分数/方法/状态码/名单、`ids` 选择与规则下拉 |
 | `test_task_plan_upload.py` | 上传训练 argv：add/only、lineage、校准集、非法数据拒绝 |
 | `test_audit_retention.py` | 审计保留：dry-run、只删旧行、清理留痕、勾选删除、回滚、自动清理开关 |
 | `test_alerts_drilldown.py` | 聚合下钻：精确匹配（子串不混入）、桶边界左闭右开、NULL 字段、分页；`dedup=1` 同源同类合并 |
@@ -89,7 +91,7 @@ py -3.10 -m service.run                   # http://127.0.0.1:8090/docs
 | 审批 / 撤销 / 删除抑制 | ❌ | ❌ | ✅ |
 | 策略预览 / 提升、零日开关、规则启停、任务 | ❌ | ❌ | ✅ |
 | 上传训练数据 / 预览上传数据集 | ❌ | ✅ | ✅ |
-| 删除上传数据集 | ❌ | ❌ | ✅ |
+| 修改训练数据（改名/说明、逐条改标签、追加/重采样、软删除） | ❌ | ✅ | ✅ |
 | raw 清理 dry-run / apply / pending 处置 | ❌ | ❌ | ✅ |
 | 审计查询 / 保留预览 / 清理 / 勾选删除 | ❌ | ❌ | ✅ |
 
@@ -536,12 +538,24 @@ path/trash 同时存在、symlink、stat 不匹配都不会自动删；连续 5 
 | GET | `/api/uploads?limit=100&include_pruned=false` | viewer | 列表 `{items:[...]}`（含 `origin` / `selection`） |
 | GET | `/api/uploads/{id}` | viewer | 详情（含 `label_stats` / `stats` / `exists`） |
 | GET | `/api/uploads/{id}/preview?n=20` | viewer | 预览前 N 条归一化请求 |
-| DELETE | `/api/uploads/{id}` | admin | 软删除；被运行中任务引用时拒绝 |
+| GET | `/api/uploads/{id}/rows?offset&limit&label&q` | viewer | 分页读训练行（`rid` / body 预览），逐条改标签用 |
+| PATCH | `/api/uploads/{id}/rows` | analyst | `{updates:[{rid,label}],note?}`：原子重写 `requests.jsonl` + 重建训练副本/统计/指纹；良性只允许 0 |
+| POST | `/api/uploads/{id}/selection` | analyst | `{action:"append"\|"replace", mode, event_ids/filters, max_rows, label?}`：追加（按请求指纹去重、不动已有行标签）或整体重采样（覆盖逐条修正，需二次确认） |
+| DELETE | `/api/uploads/{id}` | analyst | 软删除；被运行中任务引用时拒绝 |
+| GET | `/api/events/ids?...` | viewer | 按筛选返回事件 id（≤5000），给「全选筛选结果」用 |
+| GET | `/api/events/rule-facets?limit=200` | viewer | 事件实际命中的规则（id / 名称 / 命中数），给规则下拉用 |
 
-事件选择的 `filters` 与 `/api/events` 同语义（`action` / `src_ip` / `path` / `q` /
-`min_score` / `from_ts` / `to_ts` / `rule_testing`），另支持 `attack_type`
-（按模型分类**筛事件**，不是标签）与 `verdict`（人工 feedback 结论）。
-`role=benign` 时 `label` 只能是 0；`supervised`/`benign` 必须填 `source_note`。
+事件选择的 `filters` 与 `/api/events` 同语义：`action` / `method` / `status` /
+`ip_list` / `src_ip` / `path` / `q` / `min_score` / `max_score` / `from_ts` /
+`to_ts` / `rule_testing`，另支持 `attack_type`（按模型分类**筛事件**，不是标签）、
+`verdict`（人工结论；`any` = 有任意结论，`none` = 没有任何结论）、`rule`
+（命中指定规则 id）、`rule_action`（`block`/`alert`）、`has_rule`（有/没有任何命中）。
+**全部条件按 AND 组合**；未知字段直接 400（防拼错静默变全量）。
+
+- 改标签/追加/重采样都会写 `requests.prev.jsonl`（单代备份）、重建
+  `requests_train.jsonl` 与 `stats.json`，并写审计 `upload_rewrite` /
+  `dataset_relabel` / `dataset_selection_update`；`converting` 或被运行中任务引用时拒绝。
+- `role=benign` 时 `label` 只能是 0；`supervised`/`benign` 必须填 `source_note`。
 
 - `role`：`supervised` / `benign` / `eval`；`eval` 只能看，不能进训练。
 - `default_label`：`0..4`，仅用于缺标签的行或 pcap 整份文件；CSV/JSON 行内 `label` /
@@ -593,9 +607,11 @@ path/trash 同时存在、symlink、stat 不匹配都不会自动删；连续 5 
 
 **前端**
 
-「训练数据」页负责上传/列表/预览/删除（列表多一列「来源」：上传 / 事件选择）；
-「事件」页支持多选（跨页保留）与「加入训练数据」弹窗，可按勾选或按当前筛选全量创建，
-提交前可预检体量与 body 可得率；「训练任务」页在训练通道下增加
+「训练数据」页负责上传/列表/预览/编辑/删除，并可「样本」逐条改标签、
+「追加/重采样」按事件条件扩样本（列表多一列「来源」：上传 / 事件选择）；
+「事件」页支持多选（跨页保留，≤5000）与「选中筛选结果」，也可用「更多筛选」
+（动作/方法/状态码/攻击类型/人工结论/命中规则/分数区间/时间）按条件建集，
+提交前自动预检体量与 body 可得率；「训练任务」页在训练通道下增加
 「数据来源 / 数据集多选 / 校准池」；「模型与门禁」列表新增「训练数据」列展示出处。
 
 ### 3.3 审计保留（90 天）

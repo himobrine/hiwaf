@@ -22,6 +22,9 @@ import {
 import { DeleteOutlined, InboxOutlined, ReloadOutlined } from '@ant-design/icons'
 import { api, apiUpload, fmtBytes, fmtInt, fmtTs } from '../api'
 import type { User } from '../types'
+import DatasetRowsDrawer from '../components/DatasetRowsDrawer'
+import DatasetSelectionModal from '../components/DatasetSelectionModal'
+import type { RuleFacet } from '../components/SelectionBuilder'
 
 const { Title, Text, Paragraph } = Typography
 
@@ -70,7 +73,6 @@ function selectionSummary(r: any): string {
 }
 
 export default function Datasets({ user }: { user: User }) {
-  const isAdmin = user.role === 'admin'
   const canEdit = user.role !== 'viewer'
   const [items, setItems] = useState<any[]>([])
   const [err, setErr] = useState('')
@@ -85,6 +87,10 @@ export default function Datasets({ user }: { user: User }) {
   const [editForm] = Form.useForm()
   const [savingEdit, setSavingEdit] = useState(false)
   const [showPruned, setShowPruned] = useState(false)
+  // 逐条改标签 / 追加重采样
+  const [rowsFor, setRowsFor] = useState<any>(null)
+  const [selFor, setSelFor] = useState<any>(null)
+  const [ruleOptions, setRuleOptions] = useState<RuleFacet[]>([])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -179,6 +185,19 @@ export default function Datasets({ user }: { user: User }) {
       source_note: row.source_note || '',
     })
     setEdit(row)
+  }
+
+  /** 追加/重采样需要规则下拉，但只在该操作第一次打开时拉取。 */
+  const openSelection = async (row: any) => {
+    setSelFor(row)
+    if (!ruleOptions.length) {
+      try {
+        const r = await api<any>('/api/events/rule-facets?limit=500')
+        setRuleOptions(r.items || [])
+      } catch {
+        /* 下拉拿不到规则不影响使用其他条件 */
+      }
+    }
   }
 
   const saveEdit = async () => {
@@ -294,6 +313,7 @@ export default function Datasets({ user }: { user: User }) {
               rowKey="id"
               loading={loading}
               dataSource={items}
+              scroll={{ x: 1450 }}
               pagination={{ pageSize: 10, showSizeChanger: false }}
               columns={[
                 { title: 'ID', dataIndex: 'id', width: 60 },
@@ -360,11 +380,26 @@ export default function Datasets({ user }: { user: User }) {
                 { title: '时间', dataIndex: 'created_at', width: 160, render: (v: number) => fmtTs(v) },
                 {
                   title: '操作',
-                  width: 190,
+                  width: 360,
                   render: (_: any, r: any) => (
                     <Space size={4}>
                       <Button size="small" onClick={() => openPreview(r)} disabled={r.status !== 'ready'}>
                         预览
+                      </Button>
+                      <Button
+                        size="small"
+                        onClick={() => setRowsFor(r)}
+                        disabled={r.status !== 'ready'}
+                      >
+                        样本
+                      </Button>
+                      <Button
+                        size="small"
+                        onClick={() => openSelection(r)}
+                        disabled={r.status !== 'ready' || r.origin !== 'events'}
+                        title={r.origin !== 'events' ? '只有「事件选择」生成的数据集能按事件追加' : ''}
+                      >
+                        追加/重采样
                       </Button>
                       <Button
                         size="small"
@@ -373,13 +408,13 @@ export default function Datasets({ user }: { user: User }) {
                       >
                         编辑
                       </Button>
-                      {isAdmin ? (
+                      {canEdit ? (
                         <Popconfirm
                           title="删除该数据集？"
                           description={
                             <span>
                               「{r.name}」的目录与文件会一并删除，记录标成 pruned（软删除）。
-                              正在转换或正被任务使用的不能删。
+                              analyst 及以上可操作，正在转换或正被任务使用的不能删。
                             </span>
                           }
                           okText="删除"
@@ -478,7 +513,7 @@ export default function Datasets({ user }: { user: User }) {
             name="source_note"
             label="来源说明"
             rules={[{ max: 2000, message: '说明不能超过 2000 字符' }]}
-            extra="角色（监督/良性/仅评估）与标签在生成数据集时已固化到文件，这里不能改；要换请重新生成数据集。"
+            extra="角色（监督/良性/仅评估）在生成时已固化到文件，这里不能改；逐条标签请用列表里的「样本」按钮修正（会重建训练副本）。"
           >
             <Input.TextArea rows={3} maxLength={2000} showCount />
           </Form.Item>
@@ -491,6 +526,22 @@ export default function Datasets({ user }: { user: User }) {
           />
         ) : null}
       </Modal>
+
+      <DatasetRowsDrawer
+        uid={rowsFor?.id ?? null}
+        dataset={rowsFor}
+        open={!!rowsFor}
+        onClose={() => setRowsFor(null)}
+        onSaved={load}
+      />
+
+      <DatasetSelectionModal
+        dataset={selFor}
+        open={!!selFor}
+        onClose={() => setSelFor(null)}
+        onDone={load}
+        ruleOptions={ruleOptions}
+      />
     </div>
   )
 }
